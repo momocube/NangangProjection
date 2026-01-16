@@ -581,7 +581,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ipAddress: 127.0.0.1
   port: 9000
-  oscAddress: /unity/mouse
+  posAddress: /unity/mouse
+  clickAddress: /unity/rightclick
 --- !u!4 &1943589497
 Transform:
   m_ObjectHideFlags: 0
