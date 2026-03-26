@@ -1,0 +1,216 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-2600734744690627071
+MonoBehaviour:
+  m_ObjectHideFlags: 11
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d0353a89b1f911e48b9e16bdc9f2e058, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Editor::UnityEditor.Rendering.Universal.AssetVersion
+  version: 10
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: VFX_StylizedWaterfall
+  m_Shader: {fileID: 4800000, guid: 969f15a1336c48746adf08ea2dda73e7, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords:
+  - _SURFACE_TYPE_TRANSPARENT
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: 2998
+  stringTagMap:
+    RenderType: Transparent
+  disabledShaderPasses:
+  - DepthOnly
+  - SHADOWCASTER
+  - MOTIONVECTORS
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _DistortTex:
+        m_Texture: {fileID: 2800000, guid: cb49bf51e036a564bbfbe8d58ad46a56, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _NoiseTex:
+        m_Texture: {fileID: 2800000, guid: 0382b075b5db0fc40b15520b8bea3744, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _RefracTex:
+        m_Texture: {fileID: 2800000, guid: b982a12d95de7514b8a606e0fc626083, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Texture2D:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _WaterTex:
+        m_Texture: {fileID: 2800000, guid: b982a12d95de7514b8a606e0fc626083, type: 3}
+        m_Scale: {x: 1.3, y: 0.25}
+        m_Offset: {x: 0, y: 0}
+    - unity_Lightmaps:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - unity_LightmapsInd:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - unity_ShadowMasks:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AlphaClip: 0
+    - _AlphaToMask: 0
+    - _BaseAlpha: 1
+    - _Blend: 0
+    - _BottomFoamDistortStr: 2
+    - _BottomFoamPow: 4
+    - _CastShadows: 0
+    - _Cull: 1
+    - _DistortNormalOffset: 0.5
+    - _DistortNormalStr: 1
+    - _DistortStr: 0.13
+    - _DstBlend: 10
+    - _DstBlendAlpha: 10
+    - _Float: 1
+    - _Float_1: 3.8
+    - _FoamDistortStr: 5
+    - _FoamEdgeSmooth: 2
+    - _FoamEdgeWidth: 0
+    - _FoamLerp: 1
+    - _FoamStr: 1
+    - _GlobalAlpha: 1
+    - _MaskFoamLerp: 1
+    - _NoiseAlpha: 1
+    - _NormalOffset: 0.5
+    - _NormalStr: 0.5
+    - _ObjectMaskSmooth: 0.6
+    - _ObjectMaskWidth: 0
+    - _ObjectRadius: 0
+    - _QueueControl: 0
+    - _QueueOffset: -2
+    - _RefracNormalOffset: 0.5
+    - _RefracNormalStr: 1
+    - _RefracStr: 0.13
+    - _SideEdgeOffset: 0.12
+    - _SideEdgeStr: 3
+    - _SideEdgeWidth: 0.05
+    - _SideMaskOffset: 0.1
+    - _SidesEdgeOffset: 0.12
+    - _SidesEdgeWidth: 0.05
+    - _SineWaveAmplitude: 0.3
+    - _SineWaveDistortStr: 5
+    - _SineWaveFrequency: 20
+    - _SineWaveSpeed: 8
+    - _Smooth: 0.5
+    - _SrcBlend: 5
+    - _SrcBlendAlpha: 1
+    - _Surface: 1
+    - _TopFoamDistortStr: 3
+    - _TopFoamPosition: 0.86
+    - _TopFoamWidth: 0.015
+    - _UseNormalDistort: 0
+    - _UseNormalRefrac: 1
+    - _UseRemapDistort: 0
+    - _UseRemapRefrac: 0
+    - _UseTexNormal: 0
+    - _UseWaterAlpha: 0
+    - _WaterAlpha: 0.8
+    - _WaterColorDistortStr: 3
+    - _WaterColorLerp: 1
+    - _WaterFoamLerp: 1
+    - _WaterMaskSmooth: 3
+    - _WaterMaskWidth: 0.5
+    - _WaterTexPower: 6
+    - _WaterTexStr: 2
+    - _ZTest: 4
+    - _ZWrite: 0
+    - _ZWriteControl: 0
+    m_Colors:
+    - _BaseBottomColor: {r: 0.23113209, g: 0.8108931, b: 1, a: 1}
+    - _BasePowStr: {r: 1, g: 1, b: 0, a: 0}
+    - _BaseTopColor: {r: 0, g: 0.3016069, b: 0.7735849, a: 1}
+    - _BottomFoamColor: {r: 0, g: 0.5847109, b: 0.7529412, a: 1}
+    - _BottomFoamSmooth: {r: 0.47, g: 0.55, b: 0, a: 0}
+    - _DistortSpeed: {r: 0, g: 0.6, b: 0, a: 0}
+    - _DistortTilingOffset: {r: 7.2, g: 0.6, b: 0, a: 0}
+    - _EdgeWidthSmoothStr: {r: -0.03, g: 0.6, b: 1.5, a: 0}
+    - _FoamColor: {r: 0.878699, g: 1.7278361, b: 1.8443023, a: 1}
+    - _FoamEdgeWidthSmooth: {r: 0, g: 2, b: 0, a: 0}
+    - _FoamEdgeWidth_X_Width_Y_Smooth: {r: 1, g: 1, b: 0, a: 0}
+    - _FoamNoisePowStr: {r: 1, g: 1, b: 0, a: 0}
+    - _FoamNoiseSmooth: {r: 0, g: 1, b: 0, a: 0}
+    - _FoamNoiseSpeed: {r: 0.02, g: 0.6, b: 0, a: 0}
+    - _FoamNoiseTilingOffset: {r: 10, g: 0.2, b: 0, a: 0}
+    - _FoamPowStr: {r: 2.2, g: 4, b: 0, a: 0}
+    - _FoamSmooth: {r: 0.22, g: 0.4, b: 0, a: 0}
+    - _FoamWidthSmooth: {r: 0, g: 2, b: 0, a: 0}
+    - _MainColor: {r: 2, g: 2, b: 2, a: 1}
+    - _MaskEdgeColor: {r: 1, g: 1, b: 1, a: 1}
+    - _MaskFoamColor: {r: 0.58459914, g: 0.88732517, b: 1.0592737, a: 1}
+    - _MaskFoamWidthSmooth: {r: 0.2, g: 1.4, b: 0, a: 0}
+    - _MaskWidthSmooth: {r: -0.28, g: 0.58, b: 0, a: 0}
+    - _Noise01Color: {r: 0.4117647, g: 0.6575555, b: 0.7490196, a: 1}
+    - _Noise01MaskRange: {r: 0.15, g: 0.5, b: 0, a: 0}
+    - _Noise01PowStr: {r: 1, g: 1, b: 0, a: 0}
+    - _Noise01Smooth: {r: 0.4, g: 0.6, b: 0, a: 0}
+    - _Noise01Speed: {r: 0.06, g: 0.3, b: 0, a: 0}
+    - _Noise01TilingOffset: {r: 1.5, g: 0.2, b: 0, a: 0}
+    - _Noise02Color: {r: 0.4117647, g: 0.65882355, b: 0.7490196, a: 1}
+    - _Noise02MaskRange: {r: 0, g: 1, b: 0, a: 0}
+    - _Noise02PowStr: {r: 0.5, g: 2, b: 0, a: 0}
+    - _Noise02Smooth: {r: 0.3, g: 0.7, b: 0, a: 0}
+    - _Noise02Speed: {r: 0.02, g: 0.1, b: 0, a: 0}
+    - _Noise02TilingOffset: {r: 3, g: 0.2, b: 0, a: 0}
+    - _NoiseColor: {r: 1, g: 1, b: 1, a: 1}
+    - _NoiseMaskRange: {r: 0.15, g: 0.5, b: 0, a: 0}
+    - _NoisePowStr: {r: 1, g: 1, b: 0, a: 0}
+    - _NoisePowerStr: {r: 2, g: 1, b: 0, a: 0}
+    - _NoiseSpeed: {r: 0, g: 0.15, b: 0, a: 0}
+    - _NoiseTexSmooth: {r: 0.3, g: 0.5, b: 0, a: 0}
+    - _NoiseTilingOffset: {r: 1.5, g: 0.2, b: 0, a: 0}
+    - _ObjectMaskWidthSmooth: {r: 0, g: 0.6, b: 0, a: 0}
+    - _ObjectPosition: {r: 5.082, g: 0, b: 0.5, a: 0}
+    - _RampBottomColor: {r: 0, g: 0.16525108, b: 0.3301887, a: 1}
+    - _RampTopColor: {r: 0.2783019, g: 0.7414811, b: 1, a: 1}
+    - _RefractSpeed: {r: 0, g: 0.2, b: 0, a: 0}
+    - _RefractTilingOffset: {r: 3, g: 0.25, b: 0, a: 0}
+    - _SideEdgeWidthSmooth: {r: -0.74, g: 1, b: 0, a: 0}
+    - _SideEdgeWidthSmoothStr: {r: -0.25, g: 0.4, b: 6, a: 0}
+    - _SideWidthSmoothStr: {r: -0.25, g: 0.4, b: 6, a: 0}
+    - _SidesWidthSmoothStr: {r: -0.2, g: 0.4, b: 6, a: 0}
+    - _SubColor: {r: 0, g: 0.14991307, b: 0.46226418, a: 1}
+    - _TopFoamColor: {r: 0, g: 1.1933084, b: 2.1185474, a: 1}
+    - _TopFoamSmooth: {r: 0.85, g: 0.27, b: 0, a: 0}
+    - _WaterBaseColor: {r: 0.08018869, g: 0.6393689, b: 1, a: 1}
+    - _WaterBottomColor: {r: 0.28773582, g: 0.88350284, b: 1, a: 1}
+    - _WaterColor: {r: 1, g: 1, b: 1, a: 1}
+    - _WaterColorRange: {r: 0.18, g: 0.6, b: 0, a: 0}
+    - _WaterColorSmooth: {r: 0.3, g: 0.46, b: 0, a: 0}
+    - _WaterPowStr: {r: 1.5, g: 2, b: 0, a: 0}
+    - _WaterPowerStr: {r: 3, g: 1.5, b: 0, a: 0}
+    - _WaterPowerStr_1: {r: 2, g: 1, b: 0, a: 0}
+    - _WaterSpeed: {r: 0, g: 0.3, b: 0, a: 0}
+    - _WaterTexSmooth: {r: 0.3, g: 0.5, b: 0, a: 0}
+    - _WaterTexSmoothStep_X_Min_Y_Max: {r: 0.5, g: 0, b: 0, a: 0}
+    - _WaterTexSpeed: {r: 0, g: -0.5, b: 0, a: 0}
+    - _WaterTexTilingOffset: {r: 1.3, g: 0.2, b: 0, a: 0}
+    - _WaterTilingOffset: {r: 1.5, g: 0.2, b: 0, a: 0}
+    - _WaterTopColor: {r: 0, g: 0.18458143, b: 0.5294118, a: 1}
+  m_BuildTextureStacks: []
