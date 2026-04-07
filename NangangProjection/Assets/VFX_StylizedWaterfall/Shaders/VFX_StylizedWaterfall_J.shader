@@ -1068,7 +1068,7 @@ Shader "Shader Graphs/Effect/VFX_StylizedWaterfall_J"
                 Unity_Length_float3(_Subtract_9a6a23becfc343f0910a5e23eddf76e7_Out_2_Vector3, _Length_08f93d7ef72d4daf82298422a82f6930_Out_1_Float);
                 float _Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float = _ObjectRadius;
 
-                _Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float += _Time.y * 0.1;
+                //_Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float += _Time.y * 0.1;
                 _Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float = min(_Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float, maxRadiusOffset);
 
                 float _Subtract_97a78ca550104dcd8fcd73119c6aedef_Out_2_Float;

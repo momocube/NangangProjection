@@ -14,6 +14,7 @@ public class PassPositionToMaterial : MonoBehaviour {
     private float radiusOffsetTemp = 0;
 
     //J
+    [SerializeField] private List<Vector4> inputScreenPosition = new();
     [SerializeField] private List<Vector4> inputPosition = new();
     [SerializeField] private readonly int maxPositionNum = 20;
     [SerializeField] private int currentPositionNum;
@@ -36,7 +37,15 @@ public class PassPositionToMaterial : MonoBehaviour {
         {
             currentPositionNum = inputPosition.Count;
             material.SetInt("currentPositionNum", Mathf.Min(currentPositionNum, maxPositionNum));
-            material.SetFloat(radiusProperty, 0);
+
+            if (Input.GetMouseButton(0) && b_GetMouseButton) 
+                radiusOffset = radiusOffsetTemp;
+            else if (!Input.GetMouseButton(0) && b_GetMouseButton)
+                radiusOffset = radiusOffsetTemp;
+            else
+                radiusOffset = maxRadiusOffset;
+
+                material.SetFloat(radiusProperty, radiusOffset);
 
             if (lastPositionNum > currentPositionNum)
             {
@@ -106,6 +115,7 @@ public class PassPositionToMaterial : MonoBehaviour {
 
     private bool b_GetMouseButton;
     private int mouseIndex;
+    private Vector3 mouseLastPos;
     void Update(){
         
         if (Input.GetMouseButton(0))
@@ -124,11 +134,23 @@ public class PassPositionToMaterial : MonoBehaviour {
             }
             
             inputPosition[mouseIndex] = Camera.main.ScreenToWorldPoint(screenPoint);
-                
-            if (radiusOffsetTemp <= maxRadiusOffset)
-                radiusOffsetTemp += Time.deltaTime*0.1f;
+
+            if (Mathf.Abs(inputPosition[mouseIndex].x - mouseLastPos.x) < 0.01f)
+            {
+                if (radiusOffsetTemp <= maxRadiusOffset)
+                    radiusOffsetTemp += Time.deltaTime * 1.5f;
+                else
+                    radiusOffsetTemp = maxRadiusOffset;
+            }
             else
-                radiusOffsetTemp = maxRadiusOffset;
+            {
+                if (radiusOffsetTemp >= -0.2f)
+                    radiusOffsetTemp -= Time.deltaTime * 10.0f;
+                else
+                    radiusOffsetTemp = -0.2f;
+            }
+
+            mouseLastPos = inputPosition[mouseIndex];
         }
         else
         {
@@ -145,5 +167,11 @@ public class PassPositionToMaterial : MonoBehaviour {
                 b_GetMouseButton = false;
             }
         }
+
+    }
+
+    private void LateUpdate()
+    {
+            
     }
 }

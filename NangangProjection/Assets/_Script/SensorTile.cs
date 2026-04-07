@@ -3,74 +3,96 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using TMPro;
 
-public class SensorTile : MonoBehaviour, IPointerDownHandler
+/// <summary>
+/// 單一感應小格（最小顯示單位）。
+/// 觸發來源：
+///   A. 滑鼠/觸控測試  → OnPointerEnter
+///   B. UDP 實體設備   → TileManager.OnSensorPoint → TileManager 直接呼叫此磚
+/// </summary>
+public class SensorTile : MonoBehaviour, IPointerEnterHandler
 {
-    [HideInInspector] public int tileID;
+    // ── 識別 ──────────────────────────────────────────────────
+    [HideInInspector] public int tileID;        // 全域小格 ID（1-based）
+    [HideInInspector] public int largeTileID;   // 所屬大格 ID（1-based）
+    [HideInInspector] public int subIndex;      // 在大格內的子格索引（0-based）
 
-    // �l���� Text �Ѧҡ]�� TileManager �b�إ߮ɪ`�J�^
+    // ── 由 TileManager 注入的子物件參考 ─────────────────────
     [HideInInspector] public TextMeshProUGUI labelID;
     [HideInInspector] public TextMeshProUGUI labelTime;
     [HideInInspector] public TextMeshProUGUI labelCount;
 
     private Image _bg;
 
-    // �C��w�q
-    private static readonly Color ColIdle = new Color(0.25f, 0.25f, 0.25f);
-    private static readonly Color ColGreen = new Color(0.10f, 0.80f, 0.30f);
-    private static readonly Color ColYellow = new Color(0.95f, 0.80f, 0.10f);
+    // ── 顏色 ──────────────────────────────────────────────────
+    private static readonly Color ColIdle        = new Color(0.18f, 0.18f, 0.18f);
+    private static readonly Color ColIdleAlt     = new Color(0.22f, 0.22f, 0.22f); // 大格內棋盤交替色
+    private static readonly Color ColOriginSmall = new Color(0.10f, 0.80f, 0.30f); // 小格起點：綠
+    private static readonly Color ColHitSmall    = new Color(0.95f, 0.80f, 0.10f); // 小格命中：黃
+    private static readonly Color ColOriginLarge = new Color(0.05f, 0.60f, 0.20f); // 大格起點：深綠
+    private static readonly Color ColHitLarge    = new Color(0.80f, 0.60f, 0.05f); // 大格命中：深黃
 
-    // �ӽ����A
+    // ── 狀態 ──────────────────────────────────────────────────
     private bool _touchedThisRound;
-    private int _repeatCount;
+    private int  _repeatCount;
+    private bool _isAltCell; // 棋盤格交替背景
 
     void Awake()
     {
-        _bg = GetComponent<Image>();
+        _bg = GetComponentInChildren<Image>();
     }
 
-    // �w�w Unity UI Ĳ�� / �I���ƥ� �w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w
-    public void OnPointerDown(PointerEventData eventData)
+    // ── 初始化（TileManager 建立時呼叫）─────────────────────
+    public void Init(bool altCell)
+    {
+        _isAltCell = altCell;
+        SetIdleColor();
+    }
+
+    // ── 滑鼠測試路徑 ─────────────────────────────────────────
+    public void OnPointerEnter(PointerEventData eventData)
     {
         TileManager.Instance.OnTilePressed(this);
     }
 
-    // �w�w �� TileManager �I�s �w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w�w
+    // ── 由 TileManager 呼叫的狀態方法 ────────────────────────
 
-    /// <summary>�]���Ĥ@��Ĳ�o�����j�]�����_�I�^</summary>
-    public void SetAsOrigin()
+    public void SetAsOrigin(bool isLargeTileHit)
     {
         _touchedThisRound = true;
-        _repeatCount = 0;
-        _bg.color = ColGreen;
-        labelTime.text = "0.00";
-        labelCount.text = "";
+        _repeatCount      = 0;
+        _bg.color         = isLargeTileHit ? ColOriginLarge : ColOriginSmall;
+        if (labelTime  != null) labelTime.text  = "0.00";
+        if (labelCount != null) labelCount.text = "";
     }
 
-    /// <summary>�]������Ĳ�o������j�A�O���ɶ��t</summary>
-    public void SetAsFollower(float elapsed)
+    public void SetAsFollower(float elapsed, bool isLargeTileHit)
     {
         _touchedThisRound = true;
-        _repeatCount = 0;
-        _bg.color = ColYellow;
-        labelTime.text = elapsed.ToString("0.00");
-        labelCount.text = "";
+        _repeatCount      = 0;
+        _bg.color         = isLargeTileHit ? ColHitLarge : ColHitSmall;
+        if (labelTime  != null) labelTime.text  = elapsed.ToString("0.00");
+        if (labelCount != null) labelCount.text = "";
     }
 
-    /// <summary>�����I���P�@���wĲ�o���j</summary>
     public void AddRepeat()
     {
         _repeatCount++;
-        labelCount.text = "x" + (_repeatCount + 1);   // ��2���I����� x2
+        if (labelCount != null)
+            labelCount.text = "x" + (_repeatCount + 1);
     }
 
-    /// <summary>���㭫�m�]�s�@���}�l�ɩI�s�^</summary>
     public void ResetTile()
     {
         _touchedThisRound = false;
-        _repeatCount = 0;
-        _bg.color = ColIdle;
-        labelTime.text = "";
-        labelCount.text = "";
+        _repeatCount      = 0;
+        SetIdleColor();
+        if (labelTime  != null) labelTime.text  = "";
+        if (labelCount != null) labelCount.text = "";
+    }
+
+    private void SetIdleColor()
+    {
+        _bg.color = _isAltCell ? ColIdleAlt : ColIdle;
     }
 
     public bool IsTouchedThisRound => _touchedThisRound;

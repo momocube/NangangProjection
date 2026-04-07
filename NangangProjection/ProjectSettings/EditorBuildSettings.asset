@@ -5,7 +5,13 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Logo/Scene/Map_CybercubeLogo_J.unity
     guid: 9f86eab29e62c12478f0f1908d89bead
+  - enabled: 1
+    path: Assets/Scenes/stage_test.unity
+    guid: 3761e9f01d765ab488b1bd2a981e1901
+  - enabled: 0
+    path: Assets/Logo/Scene/Map_CybercubeLogo_J_2048x768.unity
+    guid: 226654a250c5fa24f89e24f61ca8f21a
   m_configObjects: {}
