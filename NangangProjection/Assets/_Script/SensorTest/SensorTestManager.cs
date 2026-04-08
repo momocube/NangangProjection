@@ -39,32 +39,12 @@ public class SensorTestManager : MonoBehaviour
 
     void Awake()
     {
+        // 嘗試啟用 Display 2 (2048x768)
         if (Display.displays.Length > 1)
-        {
-            // 雙螢幕：次螢幕使用 Display 2，像素完美 2048×768
             Display.displays[1].Activate(2048, 768, 60);
-            Debug.Log("[SensorTest] 次螢幕 Display 2 已啟動 (2048×768)");
-        }
-        else
-        {
-            // 單螢幕模式（測試用）：把次螢幕 Canvas 移到 Display 1 並縮放顯示
-            var secondaryCanvas = sensorGridParent != null
-                ? sensorGridParent.GetComponentInParent<Canvas>()
-                : null;
 
-            if (secondaryCanvas != null)
-            {
-                secondaryCanvas.targetDisplay = 0;
-                var scaler = secondaryCanvas.GetComponent<CanvasScaler>();
-                if (scaler != null)
-                {
-                    scaler.uiScaleMode        = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-                    scaler.referenceResolution = new Vector2(2048, 768);
-                    scaler.screenMatchMode     = CanvasScaler.ScreenMatchMode.Expand;
-                }
-            }
-            Debug.LogWarning("[SensorTest] 單螢幕模式：次螢幕顯示於 Display 1（縮放預覽）");
-        }
+        Debug.Log($"[SensorTest] 偵測到 {Display.displays.Length} 個螢幕 | " +
+                  $"Canvas_Primary → Display 1 | Canvas_Secondary → Display 2");
     }
 
     IEnumerator Start()
