@@ -34,6 +34,9 @@ public class ControlTileCell : MonoBehaviour,
     /// <summary>SensorTestManager 指定：滑鼠進入時通知 (col, row, index, isLocked)。</summary>
     public System.Action<int, int, int, bool> onHover;
 
+    /// <summary>SensorTestManager 指定：左鍵點擊時通知 (col, row)。</summary>
+    public System.Action<int, int> onLeftClick;
+
     void Awake()
     {
         // 根 Image = 邊框
@@ -124,6 +127,8 @@ public class ControlTileCell : MonoBehaviour,
     {
         if (eventData.button == PointerEventData.InputButton.Right)
             onRightClick?.Invoke(col, row);
+        if (eventData.button == PointerEventData.InputButton.Left)
+            onLeftClick?.Invoke(col, row);
     }
 
     public void OnPointerEnter(PointerEventData eventData)

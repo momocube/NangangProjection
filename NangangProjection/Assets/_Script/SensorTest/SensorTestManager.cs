@@ -35,6 +35,11 @@ public class SensorTestManager : MonoBehaviour
     int               _lockedCount;
     Text              _statusText;
 
+    // 智慧鎖格
+    bool   _smartLockActive;
+    float  _smartLockEndTime;
+    Text   _smartLockBtnText;
+
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
     void Awake()
@@ -140,10 +145,24 @@ public class SensorTestManager : MonoBehaviour
             Vector2.zero, new Vector2(1f, 0f),
             Vector2.zero, new Vector2(0f, 38f));
         _statusText = AddText(status.transform, "StatusText",
-            "感應測試 | 右鍵點擊格子可鎖定 / 解鎖",
+            "感應測試 | 右鍵鎖定 / 解鎖  左鍵模擬觸碰",
             13, TextAnchor.MiddleLeft, new Color(0.60f, 0.65f, 0.75f), font);
         // 左邊留 12 px 邊距
         (_statusText.transform as RectTransform).offsetMin = new Vector2(12f, 0f);
+
+        // 按鈕列 (52 px)，位於狀態列上方
+        var btnBar = CreatePanel(root, "ButtonBar", new Color(0.06f, 0.08f, 0.12f),
+            Vector2.zero, new Vector2(1f, 0f),
+            new Vector2(0f, 38f), new Vector2(0f, 90f));
+
+        CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/3f, font);
+        _smartLockBtnText =
+        CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/3f, 2f/3f, font);
+        CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/3f, 1f,    font);
+
+        // 格子區域向上縮，為按鈕列騰出空間
+        if (controlGridParent != null)
+            controlGridParent.offsetMin = new Vector2(controlGridParent.offsetMin.x, 90f);
     }
 
     void BuildControlGrid()
@@ -163,6 +182,7 @@ public class SensorTestManager : MonoBehaviour
             var cell = go.AddComponent<ControlTileCell>();
             cell.Init(c, r);
             cell.onRightClick = ToggleLock;
+            cell.onLeftClick  = OnLeftClick;
             cell.onHover      = OnTileHover;
             _controlTiles[idx] = cell;
         }
@@ -217,6 +237,35 @@ public class SensorTestManager : MonoBehaviour
         return rt;
     }
 
+    static Text CreateButton(RectTransform parent, string name, string label,
+        UnityEngine.Events.UnityAction onClick,
+        float anchorXMin, float anchorXMax, Font font)
+    {
+        var go = new GameObject(name);
+        go.layer = 5;
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(anchorXMin, 0f);
+        rt.anchorMax = new Vector2(anchorXMax, 1f);
+        rt.offsetMin = new Vector2( 4f,  4f);
+        rt.offsetMax = new Vector2(-4f, -4f);
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.15f, 0.18f, 0.25f);
+        var btn = go.AddComponent<Button>();
+        var cb = ColorBlock.defaultColorBlock;
+        cb.normalColor      = new Color(0.15f, 0.18f, 0.25f);
+        cb.highlightedColor = new Color(0.22f, 0.26f, 0.36f);
+        cb.pressedColor     = new Color(0.10f, 0.12f, 0.18f);
+        cb.colorMultiplier  = 1f;
+        btn.colors          = cb;
+        btn.targetGraphic   = img;
+        btn.onClick.AddListener(onClick);
+        var txt = AddText(go.transform, "Label", label, 15,
+            TextAnchor.MiddleCenter, new Color(0.85f, 0.90f, 1.00f), font);
+        txt.raycastTarget = false;
+        return txt;
+    }
+
     static Text AddText(Transform parent, string name, string content,
         int fontSize, TextAnchor alignment, Color color, Font font)
     {
@@ -263,12 +312,72 @@ public class SensorTestManager : MonoBehaviour
 
         int c   = Mathf.Clamp(Mathf.FloorToInt(nx * cols), 0, cols - 1);
         int r   = Mathf.Clamp(Mathf.FloorToInt(ny * rows), 0, rows - 1);
-        int idx = r * cols + c;
+        ActivateOrSmartLock(r * cols + c);
+    }
 
+    void OnLeftClick(int col, int row) => ActivateOrSmartLock(row * cols + col);
+
+    void ActivateOrSmartLock(int idx)
+    {
+        if (_smartLockActive && !_locked[idx])
+        {
+            _locked[idx] = true;
+            _lockedCount++;
+            _sensorTiles[idx]?.SetLocked(true);
+            _controlTiles[idx]?.SetLocked(true);
+            return;
+        }
         if (_locked[idx]) return;
-
         _sensorTiles[idx]?.Activate();
         _controlTiles[idx]?.Activate();
+    }
+
+    void Update()
+    {
+        if (!_smartLockActive) return;
+        float remaining = _smartLockEndTime - Time.time;
+        if (remaining <= 0f)
+        {
+            _smartLockActive = false;
+            if (_smartLockBtnText != null) _smartLockBtnText.text = "智慧鎖格";
+            SetStatusIdle();
+            return;
+        }
+        int secs = Mathf.CeilToInt(remaining);
+        if (_smartLockBtnText != null)
+            _smartLockBtnText.text = $"智慧鎖格 {secs}s…";
+        if (_statusText != null)
+            _statusText.text = $"智慧鎖格倒數：{secs} 秒  |  被觸碰的格子將自動鎖定  |  已鎖定：{_lockedCount} 格";
+    }
+
+    void OnQuit()
+    {
+        Application.Quit();
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#endif
+    }
+
+    void OnSmartLock()
+    {
+        _smartLockActive  = true;
+        _smartLockEndTime = Time.time + 10f;
+        SetStatusIdle();
+    }
+
+    void OnUnlockAll()
+    {
+        int total = cols * rows;
+        for (int i = 0; i < total; i++)
+        {
+            if (!_locked[i]) continue;
+            _locked[i] = false;
+            _sensorTiles[i]?.SetLocked(false);
+            _controlTiles[i]?.SetLocked(false);
+        }
+        _lockedCount = 0;
+        SetStatusIdle();
+        Debug.Log("[SensorTest] 解除全部鎖定");
     }
 
     void OnTileHover(int col, int row, int idx, bool locked)
@@ -282,9 +391,9 @@ public class SensorTestManager : MonoBehaviour
 
     void SetStatusIdle()
     {
-        if (_statusText == null) return;
+        if (_statusText == null || _smartLockActive) return;
         _statusText.text =
             $"感應測試  |  128×24 格，共 3072 個晶片  |  " +
-            $"已鎖定：{_lockedCount} 格  |  右鍵點擊格子可鎖定 / 解鎖";
+            $"已鎖定：{_lockedCount} 格  |  右鍵鎖定 / 解鎖  左鍵模擬觸碰";
     }
 }
