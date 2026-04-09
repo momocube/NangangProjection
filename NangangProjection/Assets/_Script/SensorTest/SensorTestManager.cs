@@ -160,9 +160,6 @@ public class SensorTestManager : MonoBehaviour
         CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/3f, 2f/3f, font);
         CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/3f, 1f,    font);
 
-        // 格子區域向上縮，為按鈕列騰出空間
-        if (controlGridParent != null)
-            controlGridParent.offsetMin = new Vector2(controlGridParent.offsetMin.x, 90f);
     }
 
     void BuildControlGrid()
