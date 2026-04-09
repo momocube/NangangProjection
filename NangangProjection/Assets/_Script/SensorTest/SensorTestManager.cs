@@ -37,8 +37,8 @@ public class SensorTestManager : MonoBehaviour
 
     // 智慧鎖格
     bool   _smartLockActive;
-    float  _smartLockEndTime;
     Text   _smartLockBtnText;
+    Image  _smartLockBtnImage;
 
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
@@ -158,6 +158,7 @@ public class SensorTestManager : MonoBehaviour
         CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/3f, font);
         _smartLockBtnText =
         CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/3f, 2f/3f, font);
+        _smartLockBtnImage = _smartLockBtnText.transform.parent.GetComponent<Image>();
         CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/3f, 1f,    font);
 
     }
@@ -332,19 +333,8 @@ public class SensorTestManager : MonoBehaviour
     void Update()
     {
         if (!_smartLockActive) return;
-        float remaining = _smartLockEndTime - Time.time;
-        if (remaining <= 0f)
-        {
-            _smartLockActive = false;
-            if (_smartLockBtnText != null) _smartLockBtnText.text = "智慧鎖格";
-            SetStatusIdle();
-            return;
-        }
-        int secs = Mathf.CeilToInt(remaining);
-        if (_smartLockBtnText != null)
-            _smartLockBtnText.text = $"智慧鎖格 {secs}s…";
         if (_statusText != null)
-            _statusText.text = $"智慧鎖格倒數：{secs} 秒  |  被觸碰的格子將自動鎖定  |  已鎖定：{_lockedCount} 格";
+            _statusText.text = $"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{_lockedCount} 格";
     }
 
     void OnQuit()
@@ -357,9 +347,27 @@ public class SensorTestManager : MonoBehaviour
 
     void OnSmartLock()
     {
-        _smartLockActive  = true;
-        _smartLockEndTime = Time.time + 10f;
-        SetStatusIdle();
+        _smartLockActive = !_smartLockActive;
+        UpdateSmartLockButton();
+        if (_smartLockActive)
+        {
+            if (_statusText != null)
+                _statusText.text = $"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{_lockedCount} 格";
+        }
+        else
+        {
+            SetStatusIdle();
+        }
+    }
+
+    void UpdateSmartLockButton()
+    {
+        if (_smartLockBtnText != null)
+            _smartLockBtnText.text = _smartLockActive ? "智慧鎖格 ✓" : "智慧鎖格";
+        if (_smartLockBtnImage != null)
+            _smartLockBtnImage.color = _smartLockActive
+                ? new Color(0.20f, 0.45f, 0.20f)
+                : new Color(0.15f, 0.18f, 0.25f);
     }
 
     void OnUnlockAll()
