@@ -313,6 +313,9 @@ public class SensorTestManager : MonoBehaviour
         ActivateOrSmartLock(r * cols + c);
     }
 
+    /// <summary>CoordTestPanel 呼叫：以原始感應座標觸發對應格子（與真實 UDP 封包路徑相同）。</summary>
+    public void TriggerRawCoord(int rawX, int rawY) => OnUdpPacket(rawX, rawY);
+
     void OnLeftClick(int col, int row) => ActivateOrSmartLock(row * cols + col);
 
     void ActivateOrSmartLock(int idx)
