@@ -17,19 +17,19 @@ Unity 互動地板投影裝置。硬體感應模組透過 UDP 傳送觸碰座標
 
 ## 感應硬體規格
 - 全地板解析度：2048×768 px
-- 感應晶片格子：128 欄 × 24 列 = 3072 個
-- 每格像素：16×32 px（橫×縱）
+- 感應晶片格子：64 欄 × 12 列 = 768 個
+- 每格像素：32×64 px（橫×縱）
 - UDP Port：20001
 - 協議：55 55 [frame] [dataSize H+L] [X_H X_L Y_H Y_L]×N [checksum H+L]
 
-## 座標校準（2026-04-08 四角測試）
+## 座標校準（晶片中心；rawMax 為計算值，待舞台實測校正）
 ```
-rawMinX = 1928  rawMaxX = 3960
-rawMinY = 16    rawMaxY = 752
+rawMinX = 1936  rawMaxX = 3952
+rawMinY = 32    rawMaxY = 736
 ```
 換算公式：
-- 欄 = (rawX - 1928) / 2032 × 128
-- 列 = (rawY - 16)   / 736  × 24
+- 欄 = (rawX - 1936) / 2016 × 64
+- 列 = (rawY - 32)   / 704  × 12
 
 ## 場景說明
 | 場景 | 說明 |
@@ -45,6 +45,7 @@ rawMinY = 16    rawMaxY = 752
 | `SensorTestManager` | `_Script/SensorTest/` | 建立雙螢幕格子、UDP 座標映射、鎖定邏輯 |
 | `SensorTileCell` | `_Script/SensorTest/` | Display 2 感應格（觸摸→亮紅 1.5s） |
 | `ControlTileCell` | `_Script/SensorTest/` | Display 1 控制格（右鍵鎖定→黃色） |
+| `CoordTestPanel` | `_Script/SensorTest/` | Display 1 右上角測試面板（手動輸入 rawX/rawY 觸發格子） |
 
 ## 常見陷阱
 1. **Canvas LocalScale 歸零**：Unity 在 Play Mode 結束後會把 Canvas LocalScale 寫成 (0,0,0)。每次 Play 前先 `File → Open Scene` 強制重載。

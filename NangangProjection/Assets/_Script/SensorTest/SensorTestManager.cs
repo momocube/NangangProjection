@@ -5,24 +5,24 @@ using UnityEngine.UI;
 /// <summary>
 /// 雙螢幕感應測試主控。
 ///
-/// 主螢幕 Display 0 (1920x1080)：控制格 128x24，右鍵鎖定 / 解鎖格子。
-/// 次螢幕 Display 1 (2048x768)：感應格 128x24，每格 16x32 px，觸摸後亮紅 1.5 秒。
+/// 主螢幕 Display 0 (1920x1080)：控制格 64x12，右鍵鎖定 / 解鎖格子。
+/// 次螢幕 Display 1 (2048x768)：感應格 64x12，每格 32x64 px，觸摸後亮紅 1.5 秒。
 ///
-/// 座標校準來自 2026-04-08 四角測試：
-///   左 X ≈ 1928  右 X ≈ 3960
-///   上 Y ≈ 16    下 Y ≈ 752
+/// 座標校準（晶片中心）：
+///   rawMinX = 1936  rawMaxX = 3952
+///   rawMinY = 32    rawMaxY = 736
 /// </summary>
 public class SensorTestManager : MonoBehaviour
 {
-    [Header("原始座標校準（現場四角測試）")]
-    public float rawMinX = 1928f;
-    public float rawMaxX = 3960f;
-    public float rawMinY = 16f;
-    public float rawMaxY = 752f;
+    [Header("原始座標校準（晶片中心）")]
+    public float rawMinX = 1936f;
+    public float rawMaxX = 3952f;
+    public float rawMinY = 32f;
+    public float rawMaxY = 736f;
 
     [Header("格子數量")]
-    public int cols = 128;
-    public int rows = 24;
+    public int cols = 64;
+    public int rows = 12;
 
     [Header("場景引用（Inspector 設定）")]
     public RectTransform controlGridParent;   // Canvas_Primary 的子容器
@@ -97,7 +97,7 @@ public class SensorTestManager : MonoBehaviour
     void BuildSensorGrid()
     {
         if (sensorGridParent == null) return;
-        SetupGridLayout(sensorGridParent, new Vector2(16f, 32f));
+        SetupGridLayout(sensorGridParent, new Vector2(16f, 32f), cols);
 
         for (int r = 0; r < rows; r++)
         for (int c = 0; c < cols; c++)
@@ -137,7 +137,7 @@ public class SensorTestManager : MonoBehaviour
             new Vector2(0f, 1f), new Vector2(1f, 1f),
             new Vector2(0f, -58f), Vector2.zero);
         AddText(header.transform, "TitleText",
-            "感應測試控制台  |  128×24 格 = 3072 晶片  |  2048×768 px",
+            $"感應測試控制台  |  {cols}×{rows} 格 = {cols * rows} 晶片  |  2048×768 px",
             20, TextAnchor.MiddleCenter, new Color(0.80f, 0.85f, 1.00f), font);
 
         // 底部狀態列 (38 px)
@@ -166,7 +166,7 @@ public class SensorTestManager : MonoBehaviour
     void BuildControlGrid()
     {
         if (controlGridParent == null) return;
-        SetupGridLayout(controlGridParent, new Vector2(15f, 30f));  // 初始值，稍後修正
+        SetupGridLayout(controlGridParent, new Vector2(15f, 30f), cols);  // 初始值，稍後修正
 
         for (int r = 0; r < rows; r++)
         for (int c = 0; c < cols; c++)
@@ -200,7 +200,7 @@ public class SensorTestManager : MonoBehaviour
 
     // ── UI 輔助方法 ───────────────────────────────────────────────────────────
 
-    static void SetupGridLayout(RectTransform parent, Vector2 cellSize)
+    static void SetupGridLayout(RectTransform parent, Vector2 cellSize, int columnCount)
     {
         var glg = parent.GetComponent<GridLayoutGroup>()
                   ?? parent.gameObject.AddComponent<GridLayoutGroup>();
@@ -208,7 +208,7 @@ public class SensorTestManager : MonoBehaviour
         glg.spacing         = Vector2.zero;
         glg.padding         = new RectOffset(0, 0, 0, 0);
         glg.constraint      = GridLayoutGroup.Constraint.FixedColumnCount;
-        glg.constraintCount = 128;
+        glg.constraintCount = columnCount;
         glg.startCorner     = GridLayoutGroup.Corner.UpperLeft;
         glg.startAxis       = GridLayoutGroup.Axis.Horizontal;
         glg.childAlignment  = TextAnchor.UpperLeft;
@@ -311,6 +311,14 @@ public class SensorTestManager : MonoBehaviour
         int c   = Mathf.Clamp(Mathf.FloorToInt(nx * cols), 0, cols - 1);
         int r   = Mathf.Clamp(Mathf.FloorToInt(ny * rows), 0, rows - 1);
         ActivateOrSmartLock(r * cols + c);
+    }
+
+    /// <summary>
+    /// CoordTestPanel 呼叫：以原始感應座標觸發對應格子（與真實 UDP 封包路徑相同）。
+    /// </summary>
+    public void TriggerRawCoord(int rawX, int rawY)
+    {
+        OnUdpPacket(rawX, rawY);
     }
 
     void OnLeftClick(int col, int row) => ActivateOrSmartLock(row * cols + col);
