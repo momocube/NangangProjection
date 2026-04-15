@@ -40,11 +40,42 @@ rawMinY = 16    rawMaxY = 752
 ## 主要腳本
 | 腳本 | 位置 | 說明 |
 |---|---|---|
-| `UdpSensorReceiver` | `_Script/` | UDP 接收，解析協議，觸發 `OnPacketReceived` 事件 |
+| `UdpSensorReceiver` | `_Script/` | UDP 接收，解析協議，主執行緒佇列派送，觸發 `OnPacketReceived` |
 | `GameConsole` | `_Script/` | 獨立執行檔彈出 Windows 命令列視窗 |
-| `SensorTestManager` | `_Script/SensorTest/` | 建立雙螢幕格子、UDP 座標映射、鎖定邏輯 |
+| `SensorBus` | `_Script/` | 靜態事件中轉站，`OnTouch(col,row)`，已通過鎖定檢查才廣播 |
+| `SensorTestManager` | `_Script/SensorTest/` | 建立雙螢幕格子、UDP 座標映射、鎖定邏輯、Display 2 視窗 ShowWindow |
 | `SensorTileCell` | `_Script/SensorTest/` | Display 2 感應格（觸摸→亮紅 1.5s） |
 | `ControlTileCell` | `_Script/SensorTest/` | Display 1 控制格（右鍵鎖定→黃色） |
+| `SensorClickSimulator` | `_Script/SensorTest/` | 訂閱 SensorBus，三模式循環：內部監聽 / PostMessage / SendInput |
+| `TouchDebugLogger` | `_Script/` | 訂閱 SensorBus，Console 印出觸碰紀錄（含 Collapse 與每秒統計） |
+| `ConsoleGameOverlay` | `_Script/` | Display 1 顯示 Display 2 遊戲畫面預覽（RawImage 疊加） |
+| `GameDisplayRT` | `_Script/` | 遊戲畫面共用 RenderTexture（2048×768），跨場景靜態存取 |
+| `GameSceneSetup` | `_Script/` | 遊戲場景相機設定，建立 Mirror Camera 寫入 GameDisplayRT |
+
+## Display 1 控制台按鈕
+| 按鈕 | 功能 |
+|---|---|
+| 離開遊戲 | `Application.Quit()` |
+| 智慧鎖格 | 觸碰的格子自動鎖定 |
+| 解除鎖格 | 解除全部鎖定 |
+| 晶片示意 | 切換 Display 2 感應格顯示（同步 ShowWindow 隱藏/顯示 Unity 視窗） |
+| 內部監聽 / PostMessage / 滑鼠點擊 | 循環切換 SensorClickSimulator 點擊模式 |
+
+## SensorClickSimulator 三種模式
+| 模式 | 按鈕顏色 | 說明 |
+|---|---|---|
+| 內部監聽 | 灰 | 不發 OS 事件，只走 SensorBus（自製 Unity 程式訂閱 SensorBus） |
+| PostMessage | 綠 | 直送 WM_LBUTTONDOWN/UP 給目標視窗，**游標不動**（瀏覽器 / 一般程式） |
+| 滑鼠點擊 | 藍 | SendInput 模擬硬體點擊，**游標移動**（外部 Unity / DirectInput 遊戲） |
+
+> ⚠️ SensorClickSimulator 必須手動掛到 sensor_test 場景的 GameObject。
+> ⚠️ SensorClickSimulator 訂閱 `SensorBus.OnTouch`，鎖定的格子自動不觸發點擊。
+
+## Display 2 視窗行為（獨立執行檔）
+- 晶片示意 **ON**：Unity 視窗顯示在 Display 2
+- 晶片示意 **OFF**：`ShowWindow(SW_HIDE)` 隱藏 Unity 視窗，後方程式（瀏覽器等）露出
+- SensorClickSimulator 點擊事件在視窗隱藏時依然觸發
+- `display2WindowOffsetX`（預設 1920）：用 `GetWindowRect` 定位 Display 2 的 UnityWndClass HWND
 
 ## 常見陷阱
 1. **Canvas LocalScale 歸零**：Unity 在 Play Mode 結束後會把 Canvas LocalScale 寫成 (0,0,0)。每次 Play 前先 `File → Open Scene` 強制重載。
@@ -56,6 +87,8 @@ rawMinY = 16    rawMaxY = 752
    - StandaloneInputModule：`4f231c4fb786f3946a6b90b886c48677`
 3. **Display 2 不顯示**：需要 `Display.displays[1].Activate()` 且 Windows 設為延伸顯示（非複製）
 4. **TMP 未安裝**：此專案不使用 TextMeshPro，用 `UnityEngine.UI.Text` 代替
+5. **SensorTileCell inactive 時不能 StartCoroutine**：晶片示意關閉後 Canvas_Secondary 變 inactive，`Activate()` 有 `activeInHierarchy` 守衛；`ActivateOrSmartLock` 也會跳過 inactive 的感應格
+6. **遊戲場景需加入 Build Settings**：`gameSceneName` 填寫的場景必須在 `File → Build Settings` 中，否則會跳過並印 Warning
 
 ## Git 遠端
 `https://github.com/bottledsnow/NangangProjection.git`（branch: main）
