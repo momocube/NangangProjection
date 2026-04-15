@@ -51,9 +51,8 @@ public class SensorTestManager : MonoBehaviour
     Text       _gameTileBtnText;
     Image      _gameTileBtnImage;
 
-    // 滑鼠點擊 / 事件觸發 切換
+    // 點擊模式切換
     SensorClickSimulator _clickSim;
-    bool                 _clickSimActive = true;
     Text                 _clickModeBtnText;
     Image                _clickModeBtnImage;
 
@@ -512,21 +511,23 @@ public class SensorTestManager : MonoBehaviour
 
     void OnToggleClickMode()
     {
-        _clickSimActive = !_clickSimActive;
-        if (_clickSim != null)
-            _clickSim.enabled = _clickSimActive;
+        _clickSim?.CycleMode();
         UpdateClickModeButton();
     }
 
     void UpdateClickModeButton()
     {
         if (_clickModeBtnText == null) return;
-        bool active = _clickSimActive && _clickSim != null;
-        _clickModeBtnText.text = active ? "滑鼠點擊 ✓" : "事件觸發";
+        if (_clickSim == null)
+        {
+            _clickModeBtnText.text = "點擊模式";
+            if (_clickModeBtnImage != null)
+                _clickModeBtnImage.color = new Color(0.25f, 0.18f, 0.18f); // 暗紅：未設定
+            return;
+        }
+        _clickModeBtnText.text = _clickSim.ModeLabel;
         if (_clickModeBtnImage != null)
-            _clickModeBtnImage.color = active
-                ? new Color(0.15f, 0.25f, 0.40f)   // 藍色：滑鼠點擊模式
-                : new Color(0.15f, 0.18f, 0.25f);  // 預設灰：事件觸發模式
+            _clickModeBtnImage.color = _clickSim.ModeColor;
     }
 
     // ── Display 2 視窗控制（獨立執行檔專用）────────────────────────────────────
