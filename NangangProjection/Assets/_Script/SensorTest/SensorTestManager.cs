@@ -25,10 +25,6 @@ public class SensorTestManager : MonoBehaviour
     public int cols = 128;
     public int rows = 24;
 
-    [Header("點擊疊加層（Display 2）")]
-    [Tooltip("兩次點擊之間的最短間隔（秒）")]
-    public float clickCooldown = 1f;
-
     [Header("場景引用（Inspector 設定）")]
     public RectTransform controlGridParent;   // Canvas_Primary 的子容器
     public RectTransform sensorGridParent;    // Canvas_Secondary 的子容器
@@ -75,7 +71,6 @@ public class SensorTestManager : MonoBehaviour
 
         BuildSensorBackground();
         BuildSensorGrid();
-        BuildClickOverlay();
         BuildPrimaryUI();
         BuildControlGrid();
 
@@ -136,46 +131,6 @@ public class SensorTestManager : MonoBehaviour
             cell.index = idx;
             _sensorTiles[idx] = cell;
         }
-    }
-
-    // ── 次螢幕：點擊疊加層 ────────────────────────────────────────────────────
-
-    void BuildClickOverlay()
-    {
-        if (sensorGridParent == null) return;
-        var canvasRT = sensorGridParent.parent as RectTransform;
-        if (canvasRT == null) return;
-
-        var go = new GameObject("ClickOverlay");
-        go.layer = 5;
-        go.transform.SetParent(canvasRT, false);
-        go.transform.SetAsLastSibling();   // 疊在所有格子上方
-
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
-
-        // 完全透明但可接收射線檢測
-        var img = go.AddComponent<UnityEngine.UI.Image>();
-        img.color         = new Color(0f, 0f, 0f, 0f);
-        img.raycastTarget = true;
-
-        var overlay = go.AddComponent<ClickOverlay>();
-        overlay.manager       = this;
-        overlay.clickCooldown = clickCooldown;
-        overlay.cols          = cols;
-        overlay.rows          = rows;
-
-        Debug.Log($"[SensorTest] ClickOverlay 建立完成，冷卻時間 = {clickCooldown}s");
-    }
-
-    /// <summary>由 ClickOverlay 呼叫，以格子座標觸發互動（走相同的鎖定邏輯）。</summary>
-    public void TriggerCell(int col, int row)
-    {
-        int idx = row * cols + col;
-        if (idx < 0 || idx >= cols * rows) return;
-        ActivateOrSmartLock(idx);
     }
 
     // ── 主螢幕：控制格 ────────────────────────────────────────────────────────
