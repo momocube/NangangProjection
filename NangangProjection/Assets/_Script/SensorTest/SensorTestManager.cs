@@ -54,12 +54,19 @@ public class SensorTestManager : MonoBehaviour
     // Display 2 視窗控制（獨立執行檔專用，Editor 內無效）
     System.IntPtr _display2Hwnd = System.IntPtr.Zero;
 
+    [Header("Display 2 視窗偵測")]
+    [Tooltip("Display 2 在 Windows 桌面的 X 起始位置（與 SensorClickSimulator 一致，預設 1920）。\n用來從多個 UnityWndClass 視窗中定位 Display 2 視窗。")]
+    public int display2WindowOffsetX = 1920;
+
     // ── Windows API ──────────────────────────────────────────────────────────
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT { public int left, top, right, bottom; }
+
     delegate bool EnumWindowsProc(System.IntPtr hWnd, System.IntPtr lParam);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc proc, System.IntPtr lParam);
     [DllImport("user32.dll")] static extern int  GetClassName(System.IntPtr hWnd, System.Text.StringBuilder sb, int max);
     [DllImport("user32.dll")] static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")] static extern System.IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool GetWindowRect(System.IntPtr hWnd, out RECT lpRect);
     const int SW_HIDE = 0;
     const int SW_SHOW = 5;
 
@@ -480,22 +487,26 @@ public class SensorTestManager : MonoBehaviour
 #if !UNITY_EDITOR
     /// <summary>
     /// 啟動後等待 0.5 秒，讓 Unity 完成 Display 2 視窗建立，
-    /// 再透過 EnumWindows 找到對應的 HWND 儲存備用。
-    /// 找法：列舉所有 UnityWndClass 視窗，排除當前前景視窗（主視窗）後的第一個即為 Display 2。
+    /// 再透過 EnumWindows + GetWindowRect 找到 Display 2 的 HWND。
+    /// 判斷依據：視窗左側座標 >= display2WindowOffsetX，代表該視窗在 Display 2 上。
+    /// 不依賴前景視窗狀態，定位更可靠。
     /// </summary>
     IEnumerator FindDisplay2WindowCoroutine()
     {
         yield return new WaitForSeconds(0.5f);
 
-        System.IntPtr mainHwnd = GetForegroundWindow();
-        System.IntPtr found    = System.IntPtr.Zero;
+        System.IntPtr found = System.IntPtr.Zero;
+        int threshold = display2WindowOffsetX;          // 通常 1920
 
         EnumWindows((hwnd, _) =>
         {
-            if (hwnd == mainHwnd) return true;          // 排除主視窗
             var sb = new System.Text.StringBuilder(128);
             GetClassName(hwnd, sb, 128);
-            if (sb.ToString() == "UnityWndClass")
+            if (sb.ToString() != "UnityWndClass") return true;
+
+            // 用視窗位置判斷是否在 Display 2
+            GetWindowRect(hwnd, out RECT rect);
+            if (rect.left >= threshold)
             {
                 found = hwnd;
                 return false;                           // 找到後停止枚舉
@@ -506,9 +517,9 @@ public class SensorTestManager : MonoBehaviour
         _display2Hwnd = found;
 
         if (found != System.IntPtr.Zero)
-            Debug.Log($"[SensorTest] Display 2 HWND = 0x{found.ToInt64():X}  （晶片示意按鈕可控制顯示/隱藏）");
+            Debug.Log($"[SensorTest] Display 2 HWND = 0x{found.ToInt64():X}（晶片示意可控制顯示/隱藏）");
         else
-            Debug.LogWarning("[SensorTest] 找不到 Display 2 視窗，ShowWindow 功能停用。請確認已啟動獨立執行檔且有雙螢幕。");
+            Debug.LogWarning("[SensorTest] 找不到 Display 2 視窗。請確認：獨立執行檔、雙螢幕已啟用、display2WindowOffsetX 設定正確。");
     }
 #endif
 }
