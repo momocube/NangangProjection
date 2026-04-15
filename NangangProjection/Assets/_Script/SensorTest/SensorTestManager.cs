@@ -109,7 +109,19 @@ public class SensorTestManager : MonoBehaviour
         SetStatusIdle();
 
         if (!string.IsNullOrEmpty(gameSceneName))
-            SceneManager.LoadSceneAsync(gameSceneName, LoadSceneMode.Additive);
+        {
+            // 場景需先加入 File → Build Settings，否則略過並提示
+            bool found = false;
+            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings; i++)
+            {
+                string path = UnityEngine.SceneManagement.SceneUtility.GetScenePathByBuildIndex(i);
+                if (path.Contains(gameSceneName)) { found = true; break; }
+            }
+            if (found)
+                SceneManager.LoadSceneAsync(gameSceneName, LoadSceneMode.Additive);
+            else
+                Debug.LogWarning($"[SensorTest] 場景 '{gameSceneName}' 未加入 Build Settings，略過載入。請至 File → Build Settings 加入，或清空 gameSceneName 欄位。");
+        }
     }
 
     void OnDestroy()
@@ -373,8 +385,11 @@ public class SensorTestManager : MonoBehaviour
             return;
         }
         if (_locked[idx]) return;
-        _sensorTiles[idx]?.Activate();
+        // Display 1 控制格：永遠顯示觸發動畫
         _controlTiles[idx]?.Activate();
+        // Display 2 感應格：只在晶片示意開啟時才啟動（關閉時 GameObject inactive，StartCoroutine 會拋例外）
+        if (_gameTileVisible)
+            _sensorTiles[idx]?.Activate();
 
         // 廣播到遊戲場景（VFX 互動）
         SensorBus.Touch(idx % cols, idx / cols);

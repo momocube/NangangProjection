@@ -60,6 +60,7 @@ public class SensorTileCell : MonoBehaviour
     public void Activate()
     {
         if (_locked) return;
+        if (!gameObject.activeInHierarchy) return;   // Canvas 關閉時 inactive，不能 StartCoroutine
         if (_activeRoutine != null) StopCoroutine(_activeRoutine);
         _activeRoutine = StartCoroutine(ActiveRoutine());
     }
