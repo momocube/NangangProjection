@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// 雙螢幕感應測試主控。
@@ -24,9 +25,16 @@ public class SensorTestManager : MonoBehaviour
     public int cols = 128;
     public int rows = 24;
 
+    [Header("點擊疊加層（Display 2）")]
+    [Tooltip("兩次點擊之間的最短間隔（秒）")]
+    public float clickCooldown = 1f;
+
     [Header("場景引用（Inspector 設定）")]
     public RectTransform controlGridParent;   // Canvas_Primary 的子容器
     public RectTransform sensorGridParent;    // Canvas_Secondary 的子容器
+
+    [Header("遊戲場景（留空則不自動載入）")]
+    public string gameSceneName = "Map_CybercubeLogo_J_2048x768";
 
     // 執行期
     SensorTileCell[]  _sensorTiles;
@@ -39,6 +47,12 @@ public class SensorTestManager : MonoBehaviour
     bool   _smartLockActive;
     Text   _smartLockBtnText;
     Image  _smartLockBtnImage;
+
+    // 晶片示意（Display 2 感應格）
+    GameObject _canvasSecondary;
+    bool       _gameTileVisible = true;
+    Text       _gameTileBtnText;
+    Image      _gameTileBtnImage;
 
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
@@ -61,14 +75,22 @@ public class SensorTestManager : MonoBehaviour
 
         BuildSensorBackground();
         BuildSensorGrid();
+        BuildClickOverlay();
         BuildPrimaryUI();
         BuildControlGrid();
+
+        // 記錄 Canvas_Secondary 供晶片示意開關使用
+        if (sensorGridParent != null)
+            _canvasSecondary = sensorGridParent.GetComponentInParent<Canvas>()?.gameObject;
 
         yield return null;           // 等一幀讓 RectTransform 完成佈局
         FixControlCellSize();
 
         UdpSensorReceiver.OnPacketReceived += OnUdpPacket;
         SetStatusIdle();
+
+        if (!string.IsNullOrEmpty(gameSceneName))
+            SceneManager.LoadSceneAsync(gameSceneName, LoadSceneMode.Additive);
     }
 
     void OnDestroy()
@@ -116,6 +138,46 @@ public class SensorTestManager : MonoBehaviour
         }
     }
 
+    // ── 次螢幕：點擊疊加層 ────────────────────────────────────────────────────
+
+    void BuildClickOverlay()
+    {
+        if (sensorGridParent == null) return;
+        var canvasRT = sensorGridParent.parent as RectTransform;
+        if (canvasRT == null) return;
+
+        var go = new GameObject("ClickOverlay");
+        go.layer = 5;
+        go.transform.SetParent(canvasRT, false);
+        go.transform.SetAsLastSibling();   // 疊在所有格子上方
+
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+
+        // 完全透明但可接收射線檢測
+        var img = go.AddComponent<UnityEngine.UI.Image>();
+        img.color         = new Color(0f, 0f, 0f, 0f);
+        img.raycastTarget = true;
+
+        var overlay = go.AddComponent<ClickOverlay>();
+        overlay.manager       = this;
+        overlay.clickCooldown = clickCooldown;
+        overlay.cols          = cols;
+        overlay.rows          = rows;
+
+        Debug.Log($"[SensorTest] ClickOverlay 建立完成，冷卻時間 = {clickCooldown}s");
+    }
+
+    /// <summary>由 ClickOverlay 呼叫，以格子座標觸發互動（走相同的鎖定邏輯）。</summary>
+    public void TriggerCell(int col, int row)
+    {
+        int idx = row * cols + col;
+        if (idx < 0 || idx >= cols * rows) return;
+        ActivateOrSmartLock(idx);
+    }
+
     // ── 主螢幕：控制格 ────────────────────────────────────────────────────────
 
     void BuildPrimaryUI()
@@ -155,11 +217,14 @@ public class SensorTestManager : MonoBehaviour
             Vector2.zero, new Vector2(1f, 0f),
             new Vector2(0f, 38f), new Vector2(0f, 90f));
 
-        CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/3f, font);
+        CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/4f, font);
         _smartLockBtnText =
-        CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/3f, 2f/3f, font);
+        CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/4f, 2f/4f, font);
         _smartLockBtnImage = _smartLockBtnText.transform.parent.GetComponent<Image>();
-        CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/3f, 1f,    font);
+        CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/4f, 3f/4f, font);
+        _gameTileBtnText =
+        CreateButton(btnBar, "BtnGameTile", "晶片示意 ✓", OnToggleGameTile, 3f/4f, 1f, font);
+        _gameTileBtnImage = _gameTileBtnText.transform.parent.GetComponent<Image>();
 
     }
 
@@ -331,6 +396,9 @@ public class SensorTestManager : MonoBehaviour
         if (_locked[idx]) return;
         _sensorTiles[idx]?.Activate();
         _controlTiles[idx]?.Activate();
+
+        // 廣播到遊戲場景（VFX 互動）
+        SensorBus.Touch(idx % cols, idx / cols);
     }
 
     void Update()
@@ -403,5 +471,31 @@ public class SensorTestManager : MonoBehaviour
         _statusText.text =
             $"感應測試  |  128×24 格，共 3072 個晶片  |  " +
             $"已鎖定：{_lockedCount} 格  |  右鍵鎖定 / 解鎖  左鍵模擬觸碰";
+    }
+
+    // ── 晶片示意（Display 2 感應格）開關 ──────────────────────────────────────
+
+    /// <summary>由 ConsoleGameOverlay 自動呼叫（遊戲載入/卸載時），或按鈕手動觸發。</summary>
+    public void SetGameTileVisible(bool visible)
+    {
+        _gameTileVisible = visible;
+        if (_canvasSecondary != null)
+            _canvasSecondary.SetActive(visible);
+        UpdateGameTileButton();
+    }
+
+    void OnToggleGameTile()
+    {
+        SetGameTileVisible(!_gameTileVisible);
+    }
+
+    void UpdateGameTileButton()
+    {
+        if (_gameTileBtnText != null)
+            _gameTileBtnText.text = _gameTileVisible ? "晶片示意 ✓" : "晶片示意";
+        if (_gameTileBtnImage != null)
+            _gameTileBtnImage.color = _gameTileVisible
+                ? new Color(0.15f, 0.18f, 0.25f)
+                : new Color(0.30f, 0.18f, 0.12f); // 橘紅色表示已關閉
     }
 }
