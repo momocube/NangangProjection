@@ -819,6 +819,7 @@ GameObject:
   - component: {fileID: 330585545}
   - component: {fileID: 330585544}
   - component: {fileID: 330585547}
+  - component: {fileID: 330585548}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -876,7 +877,7 @@ Camera:
     m_Bits: 4294967295
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 0
+  m_TargetDisplay: 1
   m_TargetEye: 3
   m_HDR: 1
   m_AllowMSAA: 1
@@ -944,6 +945,21 @@ MonoBehaviour:
     m_MipBias: 0
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
+--- !u!114 &330585548
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bb22cc33dd44ee55ff66778899001122, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  gameDisplayIndex: 1
+  rtWidth: 2048
+  rtHeight: 768
 --- !u!1001 &352473594
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2498,6 +2514,7 @@ GameObject:
   - component: {fileID: 1033299282}
   - component: {fileID: 1033299281}
   - component: {fileID: 1033299280}
+  - component: {fileID: 1033299285}
   m_Layer: 0
   m_Name: Touch
   m_TagString: Untagged
@@ -2528,6 +2545,26 @@ MonoBehaviour:
   splashFXPoolNum: 40
   splashFXPool: []
   lastPositionNum: 0
+--- !u!114 &1033299285
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1033299279}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 60c2591193d184a46bbed038a1d5bac0, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  rawMinX: 1928
+  rawMaxX: 3960
+  rawMinY: 16
+  rawMaxY: 752
+  displayWidth: 2048
+  displayHeight: 768
+  touchTimeout: 0.15
+  matchRadius: 200
 --- !u!65 &1033299281
 BoxCollider:
   m_ObjectHideFlags: 0

@@ -52,7 +52,7 @@ rawMinY = 16    rawMaxY = 752
 | `GameDisplayRT` | `_Script/` | 遊戲畫面共用 RenderTexture（2048×768），跨場景靜態存取 |
 | `GameSceneSetup` | `_Script/` | 遊戲場景相機設定，建立 Mirror Camera 寫入 GameDisplayRT |
 
-## Display 1 控制台按鈕
+## Display 1 控制台按鈕列（第一排）
 | 按鈕 | 功能 |
 |---|---|
 | 離開遊戲 | `Application.Quit()` |
@@ -61,15 +61,26 @@ rawMinY = 16    rawMaxY = 752
 | 晶片示意 | 切換 Display 2 感應格顯示（同步 ShowWindow 隱藏/顯示 Unity 視窗） |
 | 內部監聽 / PostMessage / 滑鼠點擊 | 循環切換 SensorClickSimulator 點擊模式 |
 
+## 感應冷卻列（第二排）
+| 元件 | 說明 |
+|---|---|
+| 冷卻 ON／OFF | 切換 `SensorClickSimulator.cooldownEnabled`，對三種模式均有效 |
+| − / + | 調整 `clickCooldown`（0.1s ～ 5.0s，每步 0.1s） |
+| 數值顯示 | 目前冷卻秒數；冷卻關閉時變暗 |
+
+- **冷卻 ON（綠）**：每幀只允許一個點擊，模擬真實單點滑鼠
+- **冷卻 OFF（橘紅）**：所有同幀觸碰均觸發，原生多點觸控模式
+
 ## SensorClickSimulator 三種模式
 | 模式 | 按鈕顏色 | 說明 |
 |---|---|---|
 | 內部監聽 | 灰 | 不發 OS 事件，只走 SensorBus（自製 Unity 程式訂閱 SensorBus） |
 | PostMessage | 綠 | 直送 WM_LBUTTONDOWN/UP 給目標視窗，**游標不動**（瀏覽器 / 一般程式） |
-| 滑鼠點擊 | 藍 | SendInput 模擬硬體點擊，**游標移動**（外部 Unity / DirectInput 遊戲） |
+| 滑鼠點擊 | 藍 | SendInput 模擬硬體點擊，點擊後游標立即還原原位 |
 
 > ⚠️ SensorClickSimulator 必須手動掛到 sensor_test 場景的 GameObject。
 > ⚠️ SensorClickSimulator 訂閱 `SensorBus.OnTouch`，鎖定的格子自動不觸發點擊。
+> ⚠️ `OnEnable` 使用 `-=` 再 `+=` 防止重複訂閱（場景重載時的常見 bug）。
 
 ## Display 2 視窗行為（獨立執行檔）
 - 晶片示意 **ON**：Unity 視窗顯示在 Display 2

@@ -10,7 +10,7 @@ using UnityEngine.UI;
 /// </summary>
 [RequireComponent(typeof(Image))]
 public class ControlTileCell : MonoBehaviour,
-    IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
+    IPointerDownHandler, IPointerUpHandler, IPointerEnterHandler, IPointerExitHandler
 {
     [HideInInspector] public int col;
     [HideInInspector] public int row;
@@ -19,14 +19,19 @@ public class ControlTileCell : MonoBehaviour,
     Image     _fill;
     Text      _label;
     Coroutine _activeRoutine;
+    Coroutine _holdRoutine;      // 按住連續觸發
     bool      _locked;
     bool      _hovered;
 
-    static readonly Color ColBorder = new Color(0.25f, 0.25f, 0.30f, 1f);
-    static readonly Color ColIdle   = new Color(0.12f, 0.12f, 0.16f, 1f);
-    static readonly Color ColActive = new Color(0.90f, 0.10f, 0.10f, 1f);
-    static readonly Color ColLocked = new Color(0.85f, 0.72f, 0.00f, 1f);
-    static readonly Color ColHover  = new Color(0.20f, 0.22f, 0.30f, 1f);
+    /// <summary>按住時的觸發間隔（秒），模擬感應器連續送封包的頻率。</summary>
+    const float HoldInterval = 0.05f; // 20 次/秒
+
+    // 格子顏色（idle/border 透明，讓後方遊戲畫面 / 感應格 RT 透出）
+    static readonly Color ColBorder = new Color(0.35f, 0.35f, 0.40f, 0.20f);  // 極淡邊框
+    static readonly Color ColIdle   = new Color(0f,    0f,    0f,    0f);      // 完全透明
+    static readonly Color ColActive = new Color(0.90f, 0.10f, 0.10f, 0.90f);  // 紅色（90% 不透）
+    static readonly Color ColLocked = new Color(0.85f, 0.72f, 0.00f, 0.90f);  // 黃色（90% 不透）
+    static readonly Color ColHover  = new Color(0.20f, 0.22f, 0.30f, 0.40f);  // 半透明藍色懸停
 
     /// <summary>SensorTestManager 指定：右鍵點擊時通知 (col, row)。</summary>
     public System.Action<int, int> onRightClick;
@@ -123,12 +128,37 @@ public class ControlTileCell : MonoBehaviour,
 
     // ── 滑鼠事件 ─────────────────────────────────────────────────────────────
 
-    public void OnPointerClick(PointerEventData eventData)
+    public void OnPointerDown(PointerEventData eventData)
     {
         if (eventData.button == PointerEventData.InputButton.Right)
+        {
             onRightClick?.Invoke(col, row);
+            return;
+        }
         if (eventData.button == PointerEventData.InputButton.Left)
+        {
+            // 立即觸發一次，再開始連續觸發（模擬感應器持續送封包）
             onLeftClick?.Invoke(col, row);
+            if (_holdRoutine != null) StopCoroutine(_holdRoutine);
+            _holdRoutine = StartCoroutine(HoldRoutine());
+        }
+    }
+
+    public void OnPointerUp(PointerEventData eventData)
+    {
+        if (eventData.button == PointerEventData.InputButton.Left)
+        {
+            if (_holdRoutine != null) { StopCoroutine(_holdRoutine); _holdRoutine = null; }
+        }
+    }
+
+    IEnumerator HoldRoutine()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(HoldInterval);
+            onLeftClick?.Invoke(col, row);
+        }
     }
 
     public void OnPointerEnter(PointerEventData eventData)
@@ -141,6 +171,7 @@ public class ControlTileCell : MonoBehaviour,
     public void OnPointerExit(PointerEventData eventData)
     {
         _hovered = false;
+        if (_holdRoutine != null) { StopCoroutine(_holdRoutine); _holdRoutine = null; }
         if (!_locked && _activeRoutine == null) _fill.color = ColIdle;
     }
 }

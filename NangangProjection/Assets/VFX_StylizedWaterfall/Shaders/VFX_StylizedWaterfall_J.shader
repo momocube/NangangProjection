@@ -372,7 +372,7 @@ Shader "Shader Graphs/Effect/VFX_StylizedWaterfall_J"
         int currentPositionNum;
         uniform float4 _ObjectPosition[20];
         float maxRadiusOffset;
-        float _ObjectRadius;
+        uniform float  _ObjectRadius[20];
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -1066,9 +1066,8 @@ Shader "Shader Graphs/Effect/VFX_StylizedWaterfall_J"
                 Unity_Subtract_float3(_Vector3_28fa88cbfab840e1a4505bcfbd574ee8_Out_0_Vector3, _Multiply_7b311e2d402d40f7be55611b4ba98349_Out_2_Vector3, _Subtract_9a6a23becfc343f0910a5e23eddf76e7_Out_2_Vector3);
                 float _Length_08f93d7ef72d4daf82298422a82f6930_Out_1_Float;
                 Unity_Length_float3(_Subtract_9a6a23becfc343f0910a5e23eddf76e7_Out_2_Vector3, _Length_08f93d7ef72d4daf82298422a82f6930_Out_1_Float);
-                float _Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float = _ObjectRadius;
-
-                //_Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float += _Time.y * 0.1;
+                float _Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float = _ObjectRadius[i];
+                                
                 _Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float = min(_Property_bb7a4c8677d8406f99bda72d2a30fdd2_Out_0_Float, maxRadiusOffset);
 
                 float _Subtract_97a78ca550104dcd8fcd73119c6aedef_Out_2_Float;
