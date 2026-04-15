@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
@@ -50,6 +51,18 @@ public class SensorTestManager : MonoBehaviour
     Text       _gameTileBtnText;
     Image      _gameTileBtnImage;
 
+    // Display 2 視窗控制（獨立執行檔專用，Editor 內無效）
+    System.IntPtr _display2Hwnd = System.IntPtr.Zero;
+
+    // ── Windows API ──────────────────────────────────────────────────────────
+    delegate bool EnumWindowsProc(System.IntPtr hWnd, System.IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc proc, System.IntPtr lParam);
+    [DllImport("user32.dll")] static extern int  GetClassName(System.IntPtr hWnd, System.Text.StringBuilder sb, int max);
+    [DllImport("user32.dll")] static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] static extern System.IntPtr GetForegroundWindow();
+    const int SW_HIDE = 0;
+    const int SW_SHOW = 5;
+
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
     void Awake()
@@ -80,6 +93,10 @@ public class SensorTestManager : MonoBehaviour
 
         yield return null;           // 等一幀讓 RectTransform 完成佈局
         FixControlCellSize();
+
+#if !UNITY_EDITOR
+        StartCoroutine(FindDisplay2WindowCoroutine());
+#endif
 
         UdpSensorReceiver.OnPacketReceived += OnUdpPacket;
         SetStatusIdle();
@@ -436,6 +453,10 @@ public class SensorTestManager : MonoBehaviour
         _gameTileVisible = visible;
         if (_canvasSecondary != null)
             _canvasSecondary.SetActive(visible);
+#if !UNITY_EDITOR
+        if (_display2Hwnd != System.IntPtr.Zero)
+            ShowWindow(_display2Hwnd, visible ? SW_SHOW : SW_HIDE);
+#endif
         UpdateGameTileButton();
     }
 
@@ -453,4 +474,41 @@ public class SensorTestManager : MonoBehaviour
                 ? new Color(0.15f, 0.18f, 0.25f)
                 : new Color(0.30f, 0.18f, 0.12f); // 橘紅色表示已關閉
     }
+
+    // ── Display 2 視窗控制（獨立執行檔專用）────────────────────────────────────
+
+#if !UNITY_EDITOR
+    /// <summary>
+    /// 啟動後等待 0.5 秒，讓 Unity 完成 Display 2 視窗建立，
+    /// 再透過 EnumWindows 找到對應的 HWND 儲存備用。
+    /// 找法：列舉所有 UnityWndClass 視窗，排除當前前景視窗（主視窗）後的第一個即為 Display 2。
+    /// </summary>
+    IEnumerator FindDisplay2WindowCoroutine()
+    {
+        yield return new WaitForSeconds(0.5f);
+
+        System.IntPtr mainHwnd = GetForegroundWindow();
+        System.IntPtr found    = System.IntPtr.Zero;
+
+        EnumWindows((hwnd, _) =>
+        {
+            if (hwnd == mainHwnd) return true;          // 排除主視窗
+            var sb = new System.Text.StringBuilder(128);
+            GetClassName(hwnd, sb, 128);
+            if (sb.ToString() == "UnityWndClass")
+            {
+                found = hwnd;
+                return false;                           // 找到後停止枚舉
+            }
+            return true;
+        }, System.IntPtr.Zero);
+
+        _display2Hwnd = found;
+
+        if (found != System.IntPtr.Zero)
+            Debug.Log($"[SensorTest] Display 2 HWND = 0x{found.ToInt64():X}  （晶片示意按鈕可控制顯示/隱藏）");
+        else
+            Debug.LogWarning("[SensorTest] 找不到 Display 2 視窗，ShowWindow 功能停用。請確認已啟動獨立執行檔且有雙螢幕。");
+    }
+#endif
 }
