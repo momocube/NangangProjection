@@ -81,10 +81,11 @@ public class SensorClickSimulator : MonoBehaviour
 
         _lastClickTime = Time.time;
 
-        // 移動滑鼠並模擬點擊
+        // SetCursorPos 已移到絕對位置，mouse_event 的 dx/dy 傳 0
+        // （未設 MOUSEEVENTF_ABSOLUTE 時 dx/dy 是相對 delta，不是絕對座標）
         SetCursorPos(absX, absY);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, absX, absY, 0, 0);
-        mouse_event(MOUSEEVENTF_LEFTUP,   absX, absY, 0, 0);
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        mouse_event(MOUSEEVENTF_LEFTUP,   0, 0, 0, 0);
 
         Debug.Log($"[SensorClick] raw({rawX},{rawY}) → 格({col},{row}) → 螢幕({absX},{absY})");
     }
