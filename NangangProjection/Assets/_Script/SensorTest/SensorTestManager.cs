@@ -51,6 +51,12 @@ public class SensorTestManager : MonoBehaviour
     Text       _gameTileBtnText;
     Image      _gameTileBtnImage;
 
+    // 滑鼠點擊 / 事件觸發 切換
+    SensorClickSimulator _clickSim;
+    bool                 _clickSimActive = true;
+    Text                 _clickModeBtnText;
+    Image                _clickModeBtnImage;
+
     // Display 2 視窗控制（獨立執行檔專用，Editor 內無效）
     System.IntPtr _display2Hwnd = System.IntPtr.Zero;
 
@@ -100,6 +106,8 @@ public class SensorTestManager : MonoBehaviour
 
         yield return null;           // 等一幀讓 RectTransform 完成佈局
         FixControlCellSize();
+        _clickSim = FindObjectOfType<SensorClickSimulator>();
+        UpdateClickModeButton();
 
 #if !UNITY_EDITOR
         StartCoroutine(FindDisplay2WindowCoroutine());
@@ -208,14 +216,17 @@ public class SensorTestManager : MonoBehaviour
             Vector2.zero, new Vector2(1f, 0f),
             new Vector2(0f, 38f), new Vector2(0f, 90f));
 
-        CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/4f, font);
+        CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/5f, font);
         _smartLockBtnText =
-        CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/4f, 2f/4f, font);
+        CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/5f, 2f/5f, font);
         _smartLockBtnImage = _smartLockBtnText.transform.parent.GetComponent<Image>();
-        CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/4f, 3f/4f, font);
+        CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/5f, 3f/5f, font);
         _gameTileBtnText =
-        CreateButton(btnBar, "BtnGameTile", "晶片示意 ✓", OnToggleGameTile, 3f/4f, 1f, font);
+        CreateButton(btnBar, "BtnGameTile", "晶片示意 ✓", OnToggleGameTile, 3f/5f, 4f/5f, font);
         _gameTileBtnImage = _gameTileBtnText.transform.parent.GetComponent<Image>();
+        _clickModeBtnText =
+        CreateButton(btnBar, "BtnClickMode", "滑鼠點擊 ✓", OnToggleClickMode, 4f/5f, 1f, font);
+        _clickModeBtnImage = _clickModeBtnText.transform.parent.GetComponent<Image>();
 
     }
 
@@ -495,6 +506,27 @@ public class SensorTestManager : MonoBehaviour
             _gameTileBtnImage.color = _gameTileVisible
                 ? new Color(0.15f, 0.18f, 0.25f)
                 : new Color(0.30f, 0.18f, 0.12f); // 橘紅色表示已關閉
+    }
+
+    // ── 滑鼠點擊 / 事件觸發 切換 ─────────────────────────────────────────────
+
+    void OnToggleClickMode()
+    {
+        _clickSimActive = !_clickSimActive;
+        if (_clickSim != null)
+            _clickSim.enabled = _clickSimActive;
+        UpdateClickModeButton();
+    }
+
+    void UpdateClickModeButton()
+    {
+        if (_clickModeBtnText == null) return;
+        bool active = _clickSimActive && _clickSim != null;
+        _clickModeBtnText.text = active ? "滑鼠點擊 ✓" : "事件觸發";
+        if (_clickModeBtnImage != null)
+            _clickModeBtnImage.color = active
+                ? new Color(0.15f, 0.25f, 0.40f)   // 藍色：滑鼠點擊模式
+                : new Color(0.15f, 0.18f, 0.25f);  // 預設灰：事件觸發模式
     }
 
     // ── Display 2 視窗控制（獨立執行檔專用）────────────────────────────────────
