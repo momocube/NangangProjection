@@ -5,12 +5,8 @@ using UnityEngine;
 /// 將硬體感應器的 UDP 座標，轉換為 Display 2 上的 Windows OS 等級滑鼠點擊。
 /// 掛在 sensor_test 場景的任意 GameObject 上即可運作（不依賴 SensorTestManager）。
 ///
-/// 工作流程：
-///   UDP 封包 → rawX/rawY → 換算格子 col/row → 格子中心像素 →
-///   加上 Display 2 在 Windows 桌面的偏移 → SetCursorPos + mouse_event（真實 OS 點擊）
-///
-/// 適用場景：投影地板後方開啟瀏覽器、網頁或任何 Windows 程式，
-/// 踩踏感應區域即可觸發對應程式的點擊事件。
+/// 使用 SendInput + MOUSEEVENTF_ABSOLUTE + MOUSEEVENTF_VIRTUALDESK，
+/// 正確對應多螢幕虛擬桌面座標，取代舊版 mouse_event。
 /// </summary>
 public class SensorClickSimulator : MonoBehaviour
 {
@@ -21,7 +17,7 @@ public class SensorClickSimulator : MonoBehaviour
     public float rawMaxY = 752f;
 
     [Header("Display 2 在 Windows 桌面的起始位置")]
-    [Tooltip("Display 2 左上角的 Windows 絕對座標。\n通常 X = Display 1 的寬度（預設 1920），Y = 0。\n可在 Windows 顯示設定 → 識別中確認。")]
+    [Tooltip("Display 2 左上角的 Windows 絕對座標。通常 X = Display 1 的寬度（預設 1920），Y = 0。")]
     public int display2OffsetX = 1920;
     public int display2OffsetY = 0;
 
@@ -32,21 +28,69 @@ public class SensorClickSimulator : MonoBehaviour
     // 格子規格（固定，與硬體一致）
     const int Cols  = 128;
     const int Rows  = 24;
-    const int CellW = 16;   // 每格 16 px（橫）
-    const int CellH = 32;   // 每格 32 px（縱）
+    const int CellW = 16;
+    const int CellH = 32;
 
     float _lastClickTime = float.NegativeInfinity;
 
-    // ── Windows API ──────────────────────────────────────────────────────────
+    // ── Windows API（SendInput）──────────────────────────────────────────────
 
-    [DllImport("user32.dll")]
-    static extern bool SetCursorPos(int X, int Y);
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT
+    {
+        public int   dx, dy;
+        public uint  mouseData;
+        public uint  dwFlags;
+        public uint  time;
+        public System.IntPtr dwExtraInfo;
+    }
 
-    [DllImport("user32.dll")]
-    static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, int dwExtraInfo);
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT
+    {
+        public ushort wVk, wScan;
+        public uint   dwFlags, time;
+        public System.IntPtr dwExtraInfo;
+    }
 
-    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+    [StructLayout(LayoutKind.Sequential)]
+    struct HARDWAREINPUT
+    {
+        public uint   uMsg;
+        public ushort wParamL, wParamH;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    struct InputUnion
+    {
+        [FieldOffset(0)] public MOUSEINPUT    mi;
+        [FieldOffset(0)] public KEYBDINPUT    ki;
+        [FieldOffset(0)] public HARDWAREINPUT hi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct INPUT
+    {
+        public int        type;
+        public InputUnion u;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    // 虛擬桌面範圍（所有螢幕的聯合矩形）
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int nIndex);
+    const int SM_XVIRTUALSCREEN  = 76;
+    const int SM_YVIRTUALSCREEN  = 77;
+    const int SM_CXVIRTUALSCREEN = 78;
+    const int SM_CYVIRTUALSCREEN = 79;
+
+    const int  INPUT_MOUSE             = 0;
+    const uint MOUSEEVENTF_MOVE        = 0x0001;
+    const uint MOUSEEVENTF_LEFTDOWN    = 0x0002;
+    const uint MOUSEEVENTF_LEFTUP      = 0x0004;
+    const uint MOUSEEVENTF_ABSOLUTE    = 0x8000;
+    const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;  // 座標對應整個虛擬桌面，多螢幕必要
 
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
@@ -57,36 +101,62 @@ public class SensorClickSimulator : MonoBehaviour
 
     void OnUdpPacket(int rawX, int rawY)
     {
-        // 冷卻檢查
         if (Time.time - _lastClickTime < clickCooldown) return;
 
-        // 正規化（0~1）
         float nx = Mathf.InverseLerp(rawMinX, rawMaxX, rawX);
         float ny = Mathf.InverseLerp(rawMinY, rawMaxY, rawY);
-
-        // 過濾明顯超出範圍的雜訊
         if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) return;
 
-        // 換算格子座標
         int col = Mathf.Clamp(Mathf.FloorToInt(Mathf.Clamp01(nx) * Cols), 0, Cols - 1);
         int row = Mathf.Clamp(Mathf.FloorToInt(Mathf.Clamp01(ny) * Rows), 0, Rows - 1);
 
-        // 格子中心的 Display 2 本地像素座標
-        int localX = col * CellW + CellW / 2;   // 例：col=0 → 8
-        int localY = row * CellH + CellH / 2;   // 例：row=0 → 16
-
-        // 加上 Windows 桌面偏移 → 絕對座標
-        int absX = display2OffsetX + localX;
-        int absY = display2OffsetY + localY;
+        int absX = display2OffsetX + col * CellW + CellW / 2;
+        int absY = display2OffsetY + row * CellH + CellH / 2;
 
         _lastClickTime = Time.time;
-
-        // SetCursorPos 已移到絕對位置，mouse_event 的 dx/dy 傳 0
-        // （未設 MOUSEEVENTF_ABSOLUTE 時 dx/dy 是相對 delta，不是絕對座標）
-        SetCursorPos(absX, absY);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-        mouse_event(MOUSEEVENTF_LEFTUP,   0, 0, 0, 0);
+        SimulateClick(absX, absY);
 
         Debug.Log($"[SensorClick] raw({rawX},{rawY}) → 格({col},{row}) → 螢幕({absX},{absY})");
+    }
+
+    // ── 點擊實作 ──────────────────────────────────────────────────────────────
+
+    void SimulateClick(int absX, int absY)
+    {
+        // 取得虛擬桌面的起始點與尺寸（含所有螢幕）
+        int vdLeft   = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vdTop    = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vdWidth  = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        int vdHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+        // 正規化到 0~65535（SendInput ABSOLUTE + VIRTUALDESK 的座標範圍）
+        int normX = (int)((long)(absX - vdLeft) * 65535 / vdWidth);
+        int normY = (int)((long)(absY - vdTop)  * 65535 / vdHeight);
+
+        uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+
+        var inputs = new INPUT[3];
+
+        // 1. 移動到目標位置
+        inputs[0].type       = INPUT_MOUSE;
+        inputs[0].u.mi.dx    = normX;
+        inputs[0].u.mi.dy    = normY;
+        inputs[0].u.mi.dwFlags = MOUSEEVENTF_MOVE | flags;
+
+        // 2. 按下左鍵
+        inputs[1].type       = INPUT_MOUSE;
+        inputs[1].u.mi.dx    = normX;
+        inputs[1].u.mi.dy    = normY;
+        inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | flags;
+
+        // 3. 放開左鍵
+        inputs[2].type       = INPUT_MOUSE;
+        inputs[2].u.mi.dx    = normX;
+        inputs[2].u.mi.dy    = normY;
+        inputs[2].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | flags;
+
+        uint sent = SendInput(3, inputs, Marshal.SizeOf(typeof(INPUT)));
+        if (sent != 3)
+            Debug.LogWarning($"[SensorClick] SendInput 只送出 {sent}/3 個事件（GetLastError = {Marshal.GetLastWin32Error()}）");
     }
 }
