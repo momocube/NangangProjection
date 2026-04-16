@@ -118,7 +118,7 @@ rawMinY = 16    rawMaxY = 752
 5. **SensorTileCell inactive 時不能 StartCoroutine**：晶片示意關閉後 Canvas_Secondary 變 inactive，`Activate()` 有 `activeInHierarchy` 守衛；`ActivateOrSmartLock` 也會跳過 inactive 的感應格
 6. **遊戲場景需加入 Build Settings**：`gameSceneName` 填寫的場景必須在 `File → Build Settings` 中，否則會跳過並印 Warning
 
-## 新案場：光域 704（多面場域擴充，尚未實作）
+## 新案場：光域 704（多面場域擴充）
 
 參考圖：`C:\CyberCube\二代設備\光域 704 作圖-標線-實際像素大小.pdf`
 
@@ -133,21 +133,48 @@ rawMinY = 16    rawMaxY = 752
 | 下（綠） | ~1280 × ~1019 |
 | 不確定面（藍框） | ~512，方向待確認 |
 
-### 規劃腳本（待實作）
+### Phase 1：Editor 工具（已完成）
 
 | 腳本 | 位置 | 說明 |
 |---|---|---|
-| `SensorFaceConfig` | `_Script/MultiSensor/` | ScriptableObject，每面一個，存 originX/Y、col/rowCount、rawMin/Max、flipX/flipY |
-| `FaceVisualizer` | `_Script/Editor/` | Editor-only Gizmo，Scene 中畫晶片格（第一格紅、其他綠） |
+| `SensorHardwareConst` | `_Script/MultiSensor/` | 硬體物理常數：`CellPixelWidth=16`、`CellPixelHeight=32` |
+| `SensorFaceConfig` | `_Script/MultiSensor/` | ScriptableObject，每面一個 |
+| `DisplayCanvasConfig` | `_Script/MultiSensor/` | ScriptableObject，設定畫布解析度（預設 2048×768），FaceVisualizer 讀取 |
+| `FaceVisualizer` | `_Script/Editor/` | Editor-only，`[InitializeOnLoad]`，自動掃描所有 SensorFaceConfig，Scene 中畫格線與畫布白框 |
 
-### 整合要點
-- 不換場景，在 `sensor_base` 擴充
-- `SensorTestManager` 改為讀 `SensorFaceConfig[]` 陣列
-- `SensorBus.OnTouch` 加 `faceId` 參數（需同步改 ControlTileCell / SensorTileCell / SensorClickSimulator / TouchDebugLogger）
+#### SensorFaceConfig 欄位說明
 
-### 開發順序
-1. **Phase 1（Editor 工具）**：SensorFaceConfig + FaceVisualizer → 在 Scene 確認六面位置與方向
-2. **Phase 2（Runtime 整合）**：SensorTestManager 多面 + SensorBus faceId
+| 欄位 | 說明 |
+|---|---|
+| `faceName` | 面名稱，顯示在 Scene Gizmo 標籤 |
+| `gizmoColor` | 格線顏色 |
+| `showInVisualizer` | 是否在 Scene 顯示 |
+| `originX / originY` | 此面左上角在合併畫布的像素位置 |
+| `orientation` | `橫`：rawX→畫面X、rawY→畫面Y；`直`：rawX→畫面Y、rawY→畫面X |
+| `colCount / rowCount` | **永遠代表畫面 X/Y 格數**，與安裝方向無關 |
+| `rawMinX/MaxX/Y` | 感應原始值範圍（四角測試校準） |
+| `flipX / flipY` | 感應方向裝反時勾選 |
+
+> ⚠️ `colCount/rowCount` 是**畫面格數**，不是晶片排列數。切換 orientation 只改 rawXY 對應軸，格子數量不變。
+
+#### 原始舞台（2048×768）SensorFaceConfig 參考值
+```
+originX=0, originY=0, orientation=橫
+colCount=128, rowCount=24
+rawMinX=1928, rawMaxX=3960, rawMinY=16, rawMaxY=752
+```
+
+#### FaceVisualizer 使用
+- 不需掛 GameObject，編譯後自動啟動
+- Scene 視窗需開啟 **Gizmos** 開關
+- 選單 **NangangProjection → 顯示晶片格 Gizmo** 切換（有打勾 = 開啟）
+- 白色粗框 = 畫布邊界（讀 DisplayCanvasConfig，找不到則 2048×768）
+- 各面標籤格式：`面名稱  [橫/直]\n寬×高 px  (欄×列 格)`
+
+### Phase 2：Runtime 整合（待實作）
+- `SensorTestManager` 改為讀 `SensorFaceConfig[]` 陣列，建立多面格子
+- `SensorBus.OnTouch` 加 `faceId` 參數（破壞性改動，需同步改 ControlTileCell / SensorTileCell / SensorClickSimulator / TouchDebugLogger）
+- 不換場景，繼續在 `sensor_base` 擴充
 
 ## Git 遠端
 `https://github.com/bottledsnow/NangangProjection.git`（branch: main）
@@ -157,5 +184,4 @@ rawMinY = 16    rawMaxY = 752
 - **Bug 修正** → 直接描述問題 + 貼錯誤訊息
 - **場景 YAML 修改** → 說明要改哪個 fileID 或哪個物件
 - **推 Git** → 每個功能完成後立即 commit + push，避免跨對話追蹤未提交的內容
-- **光域 704 Phase 1** → 新對話說「實作 SensorFaceConfig + FaceVisualizer，請先讀 CLAUDE.md」
-- **光域 704 Phase 2** → Phase 1 完成後，新對話說「整合多面 SensorTestManager + SensorBus faceId」
+- **光域 704 Phase 2** → 新對話說「整合多面 SensorTestManager + SensorBus faceId，請先讀 CLAUDE.md」
