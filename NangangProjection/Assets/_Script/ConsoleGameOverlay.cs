@@ -77,12 +77,16 @@ public class ConsoleGameOverlay : MonoBehaviour
 
         var go = new GameObject("GameDisplayOverlay");
         go.layer = 5;
-        go.transform.SetParent(canvas.GetComponent<RectTransform>(), false);
+        // ★ 與 controlGridParent 同層（掛在同一個父節點下），才能精確對齊晶片格範圍
+        go.transform.SetParent(controlGridParent.parent, false);
 
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        var overlayRT = go.AddComponent<RectTransform>();
+        // 完整複製 controlGridParent 的 anchor / offset / pivot，讓 RT 畫面只覆蓋晶片格區域
+        overlayRT.anchorMin = controlGridParent.anchorMin;
+        overlayRT.anchorMax = controlGridParent.anchorMax;
+        overlayRT.pivot     = controlGridParent.pivot;
+        overlayRT.offsetMin = controlGridParent.offsetMin;
+        overlayRT.offsetMax = controlGridParent.offsetMax;
 
         _overlayImage               = go.AddComponent<RawImage>();
         _overlayImage.color         = new Color(1f, 1f, 1f, 0f); // 初始透明
