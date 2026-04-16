@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier:
   presetName: "\u5149\u57DF704 2688\xD73840"
   canvasConfig: {fileID: 11400000, guid: cfc1f27b6534ce3498e75d4d0ddba684, type: 2}
+  rotateDisplay90: 1
   faces:
   - {fileID: 11400000, guid: f04948127e14acf43b923fa372bbf3b5, type: 2}
   - {fileID: 11400000, guid: f7c005a27f251fc48beed9bb74bacddc, type: 2}

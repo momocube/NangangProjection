@@ -44,6 +44,7 @@ public class SensorTestManager : MonoBehaviour
 
     int                  _presetIdx;
     DisplayCanvasConfig  _canvasConfig;
+    bool                 _rotateDisplay90;
     List<FaceData>       _faces = new List<FaceData>();
 
     int TotalLocked    { get { int n = 0; foreach (var f in _faces) n += f.lockedCount; return n; } }
@@ -85,6 +86,27 @@ public class SensorTestManager : MonoBehaviour
     GameObject _canvasSecondary;
     Camera     _sensorGridCam;
     GameObject _display2MirrorCanvas;
+
+    // ── 控制格縮放（等比，置中）────────────────────────────────────────────────
+
+    float _controlGridScale   = 1f;
+    float _controlGridOffsetX = 0f;
+    float _controlGridOffsetY = 0f;
+
+    /// <summary>
+    /// 計算等比縮放參數：將畫布（canvasW×canvasH）塞進容器（w×h），
+    /// 保持畫面格子的正確比例，多餘空間置中留空。
+    /// rotateDisplay90=true 時，以旋轉後的尺寸（canvasH×canvasW）計算。
+    /// </summary>
+    void CalcControlScale(float w, float h)
+    {
+        float cw = _rotateDisplay90 ? _canvasConfig.canvasHeight : _canvasConfig.canvasWidth;
+        float ch = _rotateDisplay90 ? _canvasConfig.canvasWidth  : _canvasConfig.canvasHeight;
+        float scale = Mathf.Min(w / cw, h / ch);
+        _controlGridScale   = scale;
+        _controlGridOffsetX = (w - cw * scale) * 0.5f;
+        _controlGridOffsetY = (h - ch * scale) * 0.5f;
+    }
 
     // ── 拖曳互動 ──────────────────────────────────────────────────────────────
 
@@ -193,8 +215,9 @@ public class SensorTestManager : MonoBehaviour
     /// <summary>初始化場域資料（不建格子）。</summary>
     void InitPresetData(int idx)
     {
-        _presetIdx    = idx;
-        _canvasConfig = presets[idx].canvasConfig;
+        _presetIdx        = idx;
+        _canvasConfig     = presets[idx].canvasConfig;
+        _rotateDisplay90  = presets[idx].rotateDisplay90;
         _faces.Clear();
         foreach (var fc in presets[idx].faces)
         {
@@ -346,8 +369,7 @@ public class SensorTestManager : MonoBehaviour
         if (w <= 0 || h <= 0) { yield return null; w = controlGridParent.rect.width; h = controlGridParent.rect.height; }
         if (w <= 0 || h <= 0) yield break;
 
-        float sx = w / _canvasConfig.canvasWidth;
-        float sy = h / _canvasConfig.canvasHeight;
+        CalcControlScale(w, h);
 
         int totalCells = 0;
         foreach (var fd in _faces) totalCells += fd.config.colCount * fd.config.rowCount;
@@ -370,7 +392,8 @@ public class SensorTestManager : MonoBehaviour
                 go.layer = 5;
                 go.transform.SetParent(controlGridParent, false);
                 var rt = go.AddComponent<RectTransform>();
-                PositionControlCell(rt, cfg, c, r, sx, sy);
+                PositionControlCell(rt, cfg, c, r, _controlGridScale, _controlGridOffsetX, _controlGridOffsetY,
+                    _rotateDisplay90, _canvasConfig.canvasWidth);
                 go.AddComponent<Image>();
                 var cell = go.AddComponent<ControlTileCell>();
                 cell.Init(c, r, cfg.colCount);
@@ -478,8 +501,7 @@ public class SensorTestManager : MonoBehaviour
             return;
         }
 
-        float sx = w / _canvasConfig.canvasWidth;
-        float sy = h / _canvasConfig.canvasHeight;
+        CalcControlScale(w, h);
 
         for (int fi = 0; fi < _faces.Count; fi++)
         {
@@ -495,7 +517,8 @@ public class SensorTestManager : MonoBehaviour
                 go.layer = 5;
                 go.transform.SetParent(controlGridParent, false);
                 var rt = go.AddComponent<RectTransform>();
-                PositionControlCell(rt, cfg, c, r, sx, sy);
+                PositionControlCell(rt, cfg, c, r, _controlGridScale, _controlGridOffsetX, _controlGridOffsetY,
+                    _rotateDisplay90, _canvasConfig.canvasWidth);
                 go.AddComponent<Image>();
                 var cell = go.AddComponent<ControlTileCell>();
                 cell.Init(c, r, cfg.colCount);
@@ -515,20 +538,40 @@ public class SensorTestManager : MonoBehaviour
         BuildControlGrid();
     }
 
-    /// <summary>在 controlGridParent 中按比例縮放定位格子（畫布像素 → 控制區像素）。</summary>
+    /// <summary>在 controlGridParent 中以等比縮放定位格子（畫布像素 → 控制區像素）。
+    /// rotated90=true 時，將格子座標旋轉 90° CCW 後再定位。</summary>
     static void PositionControlCell(RectTransform rt, SensorFaceConfig cfg,
-        int c, int r, float sx, float sy)
+        int c, int r, float scale, float offsetX, float offsetY,
+        bool rotated90 = false, float canvasWidth = 0f)
     {
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
         rt.pivot     = new Vector2(0f, 1f);
-        rt.anchoredPosition = new Vector2(
-            (cfg.originX + c * cfg.GizmoCellW) * sx,
-          -((cfg.originY + r * cfg.GizmoCellH) * sy)
-        );
-        rt.sizeDelta = new Vector2(
-            Mathf.Max(1f, cfg.GizmoCellW * sx),
-            Mathf.Max(1f, cfg.GizmoCellH * sy)
-        );
+
+        if (rotated90)
+        {
+            // 90° CCW：canvas (cx,cy) → display (cy, canvasW - cx - cellW)
+            float cx = cfg.originX + c * cfg.GizmoCellW;
+            float cy = cfg.originY + r * cfg.GizmoCellH;
+            rt.anchoredPosition = new Vector2(
+                 offsetX + cy * scale,
+                -(offsetY + (canvasWidth - cx - cfg.GizmoCellW) * scale)
+            );
+            rt.sizeDelta = new Vector2(
+                Mathf.Max(1f, cfg.GizmoCellH * scale),
+                Mathf.Max(1f, cfg.GizmoCellW * scale)
+            );
+        }
+        else
+        {
+            rt.anchoredPosition = new Vector2(
+                 offsetX + (cfg.originX + c * cfg.GizmoCellW) * scale,
+               -(offsetY + (cfg.originY + r * cfg.GizmoCellH) * scale)
+            );
+            rt.sizeDelta = new Vector2(
+                Mathf.Max(1f, cfg.GizmoCellW * scale),
+                Mathf.Max(1f, cfg.GizmoCellH * scale)
+            );
+        }
     }
 
     // ── 主螢幕：UI 骨架 ───────────────────────────────────────────────────────
@@ -788,21 +831,37 @@ public class SensorTestManager : MonoBehaviour
 
         if (px < 0f || py < 0f || px >= rect.width || py >= rect.height) return false;
 
-        float sx = rect.width  / _canvasConfig.canvasWidth;
-        float sy = rect.height / _canvasConfig.canvasHeight;
+        // 等比縮放下：先去除 offset，再轉換回畫布座標
+        if (_controlGridScale <= 0f) return false;
+
+        float cpx, cpy;
+        if (_rotateDisplay90)
+        {
+            // 90° CCW 反向：display (px,py) → canvas (canvasW - py/s, px/s)
+            float dispX = (px - _controlGridOffsetX) / _controlGridScale;
+            float dispY = (py - _controlGridOffsetY) / _controlGridScale;
+            cpx = _canvasConfig.canvasWidth  - dispY;
+            cpy = dispX;
+        }
+        else
+        {
+            cpx = (px - _controlGridOffsetX) / _controlGridScale;
+            cpy = (py - _controlGridOffsetY) / _controlGridScale;
+        }
+
+        if (cpx < 0f || cpy < 0f ||
+            cpx >= _canvasConfig.canvasWidth || cpy >= _canvasConfig.canvasHeight) return false;
 
         for (int fi = 0; fi < _faces.Count; fi++)
         {
             var cfg = _faces[fi].config;
-            float ox = cfg.originX          * sx;
-            float oy = cfg.originY          * sy;
-            float fw = cfg.TotalPixelWidth  * sx;
-            float fh = cfg.TotalPixelHeight * sy;
-            if (px < ox || py < oy || px >= ox + fw || py >= oy + fh) continue;
+            if (cpx < cfg.originX || cpy < cfg.originY ||
+                cpx >= cfg.originX + cfg.TotalPixelWidth ||
+                cpy >= cfg.originY + cfg.TotalPixelHeight) continue;
 
             faceIdx = fi;
-            col = Mathf.Clamp((int)((px - ox) / (cfg.GizmoCellW * sx)), 0, cfg.colCount - 1);
-            row = Mathf.Clamp((int)((py - oy) / (cfg.GizmoCellH * sy)), 0, cfg.rowCount - 1);
+            col = Mathf.Clamp((int)((cpx - cfg.originX) / cfg.GizmoCellW), 0, cfg.colCount - 1);
+            row = Mathf.Clamp((int)((cpy - cfg.originY) / cfg.GizmoCellH), 0, cfg.rowCount - 1);
             return true;
         }
         return false;

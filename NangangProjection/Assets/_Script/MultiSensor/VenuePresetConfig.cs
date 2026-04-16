@@ -15,4 +15,8 @@ public class VenuePresetConfig : ScriptableObject
 
     [Header("感應面列表")]
     public SensorFaceConfig[] faces;
+
+    [Header("控制格顯示旋轉")]
+    [Tooltip("開啟時：控制格顯示旋轉 90° CCW（直向畫布建議開啟，讓畫面在橫向螢幕填滿更多空間）。")]
+    public bool rotateDisplay90 = false;
 }
