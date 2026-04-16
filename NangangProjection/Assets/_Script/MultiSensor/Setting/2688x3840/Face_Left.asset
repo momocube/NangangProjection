@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0034c6d3aa7bd3c45a0cd2b8f3f545ce, type: 3}
+  m_Name: Face_Left
+  m_EditorClassIdentifier: 
+  faceName: "\u524D\u65B9\u87A2\u5E55\uFF08\u7D05\uFF09"
+  gizmoColor: {r: 0.07496214, g: 1, b: 0, a: 1}
+  showInVisualizer: 0
+  originX: 640
+  originY: 2688
+  orientation: 1
+  colCount: 44
+  rowCount: 40
+  rawMinX: 0
+  rawMaxX: 4097
+  rawMinY: 0
+  rawMaxY: 4095
+  flipX: 0
+  flipY: 0

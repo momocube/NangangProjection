@@ -108,21 +108,15 @@ public class CoordTestPanel : MonoBehaviour
             return;
         }
 
-        var mgr = sensorTestManager;
-        float nx = Mathf.InverseLerp(mgr.rawMinX, mgr.rawMaxX, rawX);
-        float ny = Mathf.InverseLerp(mgr.rawMinY, mgr.rawMaxY, rawY);
-
-        if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f)
+        if (!sensorTestManager.GetCellForRaw(rawX, rawY, out int fi, out int col, out int row))
         {
             ShowResult("→ 超出範圍（過濾）", error: true);
             return;
         }
 
-        int c = Mathf.Clamp(Mathf.FloorToInt(nx * mgr.cols), 0, mgr.cols - 1);
-        int r = Mathf.Clamp(Mathf.FloorToInt(ny * mgr.rows), 0, mgr.rows - 1);
-
-        ShowResult($"→ 欄{c} 列{r}", error: false);
-        mgr.TriggerRawCoord(rawX, rawY);
+        string faceInfo = fi > 0 ? $" 面{fi}" : "";
+        ShowResult($"→{faceInfo} 欄{col} 列{row}", error: false);
+        sensorTestManager.TriggerRawCoord(rawX, rawY);
     }
 
     void ShowResult(string msg, bool error)

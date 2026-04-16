@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc2ddbd61cc4488459899e3cef2b16f9, type: 3}
+  m_Name: Preset_2688x3840
+  m_EditorClassIdentifier:
+  presetName: "\u5149\u57DF704 2688\xD73840"
+  canvasConfig: {fileID: 11400000, guid: cfc1f27b6534ce3498e75d4d0ddba684, type: 2}
+  faces:
+  - {fileID: 11400000, guid: f04948127e14acf43b923fa372bbf3b5, type: 2}
+  - {fileID: 11400000, guid: f7c005a27f251fc48beed9bb74bacddc, type: 2}
+  - {fileID: 11400000, guid: 0a84dbd00abb0814fbff60cb8a7095a1, type: 2}
+  - {fileID: 11400000, guid: 5f9ebcd8245da2843a02ba167c03b6e3, type: 2}
+  - {fileID: 11400000, guid: c875b0b260d12a64a889b57ac5f27887, type: 2}
+  - {fileID: 11400000, guid: efc2dbf0957c6d74097f09ea1b285302, type: 2}
+  - {fileID: 11400000, guid: 08a26bb0027fcea44a7dcb9218442d21, type: 2}

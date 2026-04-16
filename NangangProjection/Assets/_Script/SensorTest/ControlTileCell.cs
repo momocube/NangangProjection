@@ -81,12 +81,12 @@ public class ControlTileCell : MonoBehaviour,
         if (font != null) _label.font = font;
     }
 
-    /// <summary>建立後立即呼叫，設定格子座標與標籤數字。</summary>
-    public void Init(int c, int r)
+    /// <summary>建立後立即呼叫，設定格子座標與標籤數字。stride = 每列格數（欄數）。</summary>
+    public void Init(int c, int r, int stride = 128)
     {
         col   = c;
         row   = r;
-        index = r * 128 + c;
+        index = r * stride + c;
         if (_label != null) _label.text = (index + 1).ToString();
     }
 

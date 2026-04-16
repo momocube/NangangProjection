@@ -13,29 +13,24 @@ Unity 互動地板投影裝置。硬體感應模組透過 UDP 傳送觸碰座標
 | 顯示器 | 用途 | 解析度 | Unity targetDisplay |
 |---|---|---|---|
 | Display 1 | 操作者控制台（控制格＋鎖定） | 1920×1080 (16:9) | 0 |
-| Display 2 | 玩家畫面（投影地板） | 2048×768 (8:3) | 1 |
+| Display 2 | 玩家畫面（投影地板） | 由 VenuePresetConfig 決定 | 1 |
 
 ## 感應硬體規格
-- 全地板解析度：2048×768 px
-- 感應晶片格子：128 欄 × 24 列 = 3072 個
-- 每格像素：16×32 px（橫×縱）
+- 每格像素：16×32 px（橫×縱，`SensorHardwareConst`）
 - UDP Port：20001
 - 協議：55 55 [frame] [dataSize H+L] [X_H X_L Y_H Y_L]×N [checksum H+L]
 
-## 座標校準（2026-04-08 四角測試）
+## 座標校準（舞台 2048×768，2026-04-08 四角測試）
 ```
 rawMinX = 1928  rawMaxX = 3960
 rawMinY = 16    rawMaxY = 752
 ```
-換算公式：
-- 欄 = (rawX - 1928) / 2032 × 128
-- 列 = (rawY - 16)   / 736  × 24
+> 校準值已寫入 `Assets/_Script/MultiSensor/Setting/2048x768/Face_ALL.asset`
 
 ## 場景說明
 | 場景 | 說明 |
 |---|---|
-| `stage_test` | 舊測試場景（TileManager 架構） |
-| `sensor_base` | ⭐ 主要開發場景（雙螢幕，SensorTestManager 架構）（原名 sensor_base） |
+| `sensor_base` | ⭐ 主要開發場景（雙螢幕，SensorTestManager 架構） |
 
 ## 主要腳本
 | 腳本 | 位置 | 說明 |
@@ -43,17 +38,24 @@ rawMinY = 16    rawMaxY = 752
 | `UdpSensorReceiver` | `_Script/` | UDP 接收，解析協議，主執行緒佇列派送，觸發 `OnPacketReceived` |
 | `GameConsole` | `_Script/` | 獨立執行檔彈出 Windows 命令列視窗 |
 | `SensorBus` | `_Script/` | 靜態事件中轉站，`OnTouch(col,row)`，已通過鎖定檢查才廣播 |
-| `SensorTestManager` | `_Script/SensorTest/` | 建立雙螢幕格子、UDP 座標映射、鎖定邏輯、Display 2 視窗 ShowWindow |
+| `SensorTestManager` | `_Script/SensorTest/` | 多場域主控：讀 VenuePresetConfig[]，建格子、UDP 映射、鎖定、ShowWindow |
 | `SensorTileCell` | `_Script/SensorTest/` | Display 2 感應格（觸摸→亮紅 1.5s） |
 | `ControlTileCell` | `_Script/SensorTest/` | Display 1 控制格（idle 透明，右鍵鎖定→黃色，觸摸→紅色） |
 | `SensorClickSimulator` | `_Script/SensorTest/` | 訂閱 SensorBus，三模式循環：內部監聽 / PostMessage / SendInput |
 | `TouchDebugLogger` | `_Script/` | 訂閱 SensorBus，Console 印出觸碰紀錄（含 Collapse 與每秒統計） |
 | `ConsoleGameOverlay` | `_Script/` | Display 1 格子範圍內顯示 Display 2 畫面（RT 疊加，透明度可調） |
-| `GameDisplayRT` | `_Script/` | 遊戲畫面共用 RenderTexture（2048×768），跨場景靜態存取 |
-| `SensorGridRT` | `_Script/` | 感應格畫面 RenderTexture（2048×768），由 SensorTestManager 建立 |
+| `GameDisplayRT` | `_Script/` | 遊戲畫面共用 RenderTexture，跨場景靜態存取 |
+| `SensorGridRT` | `_Script/` | 感應格畫面 RenderTexture（尺寸由 VenuePresetConfig 決定），由 SensorTestManager 建立 |
 | `GameSceneSetup` | `_Script/` | 遊戲場景相機設定，建立 Mirror Camera 寫入 GameDisplayRT |
+| `VenuePresetConfig` | `_Script/MultiSensor/` | ScriptableObject：場域名稱 + DisplayCanvasConfig + SensorFaceConfig[] |
 
-## Display 1 控制台按鈕列（第一排）
+## Display 1 控制台版面
+
+### 標題列（頂部 58px）
+- 左側：「感應測試控制台」標題
+- 右側：**[◀] 場域名稱 [▶]** — 切換 VenuePresetConfig（重建格子 + RT）
+
+### 按鈕列（第一排）
 | 按鈕 | 功能 |
 |---|---|
 | 離開遊戲 | `Application.Quit()` |
@@ -62,7 +64,7 @@ rawMinY = 16    rawMaxY = 752
 | 晶片示意 | 切換 Display 2 感應格顯示（同步 ShowWindow 隱藏/顯示 Unity 視窗） |
 | 內部監聽 / PostMessage / 滑鼠點擊 | 循環切換 SensorClickSimulator 點擊模式 |
 
-## 感應冷卻 ＋ 疊加透明度列（第二排，左右各半）
+### 感應冷卻 ＋ 疊加透明度列（第二排，左右各半）
 | 區域 | 元件 | 說明 |
 |---|---|---|
 | 左：感應冷卻 | 冷卻 ON／OFF | 切換 `SensorClickSimulator.cooldownEnabled`，對三種模式均有效 |
@@ -115,7 +117,7 @@ rawMinY = 16    rawMaxY = 752
    - StandaloneInputModule：`4f231c4fb786f3946a6b90b886c48677`
 3. **Display 2 不顯示**：需要 `Display.displays[1].Activate()` 且 Windows 設為延伸顯示（非複製）
 4. **TMP 未安裝**：此專案不使用 TextMeshPro，用 `UnityEngine.UI.Text` 代替
-5. **SensorTileCell inactive 時不能 StartCoroutine**：晶片示意關閉後 Canvas_Secondary 變 inactive，`Activate()` 有 `activeInHierarchy` 守衛；`ActivateOrSmartLock` 也會跳過 inactive 的感應格
+5. **SensorTileCell inactive 時不能 StartCoroutine**：晶片示意關閉後 Canvas_Secondary 變 inactive，`Activate()` 有 `activeInHierarchy` 守衛；`ActivateCell` 也會跳過 inactive 的感應格
 6. **遊戲場景需加入 Build Settings**：`gameSceneName` 填寫的場景必須在 `File → Build Settings` 中，否則會跳過並印 Warning
 
 ## 新案場：光域 704（多面場域擴充）
@@ -171,10 +173,28 @@ rawMinX=1928, rawMaxX=3960, rawMinY=16, rawMaxY=752
 - 白色粗框 = 畫布邊界（讀 DisplayCanvasConfig，找不到則 2048×768）
 - 各面標籤格式：`面名稱  [橫/直]\n寬×高 px  (欄×列 格)`
 
-### Phase 2：Runtime 整合（待實作）
-- `SensorTestManager` 改為讀 `SensorFaceConfig[]` 陣列，建立多面格子
+### Phase 2：Runtime 整合（已完成）
+
+`SensorTestManager` 已全面重構為多場域架構：
+
+#### 新增腳本 / 資料
+| 項目 | 說明 |
+|---|---|
+| `VenuePresetConfig` | ScriptableObject：場域名稱 + `DisplayCanvasConfig` + `SensorFaceConfig[]` |
+| `Setting/2048x768/Preset_2048x768.asset` | 舞台場域（128×24，校準值已填入） |
+| `Setting/2688x3840/Preset_2688x3840.asset` | 光域 704（七個面，待各面校準） |
+
+#### 架構變更重點
+- 格子由 `GridLayoutGroup` 改為**絕對 RectTransform 定位**，每面依 `originX/Y` 對齊正確像素
+- `SensorTestManager.presets[]` 在 Inspector 指定；場景 YAML 已內含兩個 preset 引用
+- 標題列右側 **[◀][▶]** 切換場域，切換時自動重建格子 + RT
+- `OnUdpPacket` 對每個面做 rawMin/Max 範圍過濾，避免跨面誤觸發
+- `ControlTileCell.Init(c, r, stride)` 增加 `stride` 參數支援非 128 欄的面
+- `CoordTestPanel` 改用 `SensorTestManager.GetCellForRaw()` API
+
+#### 待完成
+- 光域 704 各面的 rawMin/Max 校準（需現場四角測試）
 - `SensorBus.OnTouch` 加 `faceId` 參數（破壞性改動，需同步改 ControlTileCell / SensorTileCell / SensorClickSimulator / TouchDebugLogger）
-- 不換場景，繼續在 `sensor_base` 擴充
 
 ## Git 遠端
 `https://github.com/bottledsnow/NangangProjection.git`（branch: main）
@@ -184,4 +204,5 @@ rawMinX=1928, rawMaxX=3960, rawMinY=16, rawMaxY=752
 - **Bug 修正** → 直接描述問題 + 貼錯誤訊息
 - **場景 YAML 修改** → 說明要改哪個 fileID 或哪個物件
 - **推 Git** → 每個功能完成後立即 commit + push，避免跨對話追蹤未提交的內容
-- **光域 704 Phase 2** → 新對話說「整合多面 SensorTestManager + SensorBus faceId，請先讀 CLAUDE.md」
+- **光域 704 各面校準** → 現場四角測試後更新各 `Face_*.asset` 的 rawMin/Max
+- **SensorBus faceId** → 新對話說「加 SensorBus faceId 參數，請先讀 CLAUDE.md」
