@@ -6,7 +6,7 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/sensor_test.unity
+    path: Assets/Scenes/sensor_base.unity
     guid: d0e1f203142536475869d1e2f3041526
   - enabled: 0
     path: Assets/Logo/Scene/Map_CybercubeLogo_J_2048x768.unity
