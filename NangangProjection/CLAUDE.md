@@ -35,7 +35,7 @@ rawMinY = 16    rawMaxY = 752
 | 場景 | 說明 |
 |---|---|
 | `stage_test` | 舊測試場景（TileManager 架構） |
-| `sensor_test` | ⭐ 主要開發場景（雙螢幕，SensorTestManager 架構） |
+| `sensor_base` | ⭐ 主要開發場景（雙螢幕，SensorTestManager 架構）（原名 sensor_base） |
 
 ## 主要腳本
 | 腳本 | 位置 | 說明 |
@@ -95,7 +95,7 @@ rawMinY = 16    rawMaxY = 752
 | PostMessage | 綠 | 直送 WM_LBUTTONDOWN/UP 給目標視窗，**游標不動**（瀏覽器 / 一般程式） |
 | 滑鼠點擊 | 藍 | SendInput 模擬硬體點擊，點擊後游標立即還原原位 |
 
-> ⚠️ SensorClickSimulator 必須手動掛到 sensor_test 場景的 GameObject。
+> ⚠️ SensorClickSimulator 必須手動掛到 sensor_base 場景的 GameObject。
 > ⚠️ SensorClickSimulator 訂閱 `SensorBus.OnTouch`，鎖定的格子自動不觸發點擊。
 > ⚠️ `OnEnable` 使用 `-=` 再 `+=` 防止重複訂閱（場景重載時的常見 bug）。
 
@@ -141,7 +141,7 @@ rawMinY = 16    rawMaxY = 752
 | `FaceVisualizer` | `_Script/Editor/` | Editor-only Gizmo，Scene 中畫晶片格（第一格紅、其他綠） |
 
 ### 整合要點
-- 不換場景，在 `sensor_test` 擴充
+- 不換場景，在 `sensor_base` 擴充
 - `SensorTestManager` 改為讀 `SensorFaceConfig[]` 陣列
 - `SensorBus.OnTouch` 加 `faceId` 參數（需同步改 ControlTileCell / SensorTileCell / SensorClickSimulator / TouchDebugLogger）
 
