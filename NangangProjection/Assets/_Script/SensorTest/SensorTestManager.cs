@@ -65,6 +65,10 @@ public class SensorTestManager : MonoBehaviour
     Text  _cooldownToggleBtnText;
     Image _cooldownToggleBtnImage;
 
+    // 疊加透明度調整
+    ConsoleGameOverlay _overlay;
+    Text               _overlayAlphaText;
+
     // 拖曳互動
     int  _dragLastIdx    = -1;
     int  _dragInitIdx    = -1;  // 右鍵拖曳起始格
@@ -122,9 +126,11 @@ public class SensorTestManager : MonoBehaviour
         FixControlCellSize();
         SetupSensorGridRT();         // 建立感應格 RT 捕捉與 Display 2 鏡像
         _clickSim = FindObjectOfType<SensorClickSimulator>();
+        _overlay  = GetComponent<ConsoleGameOverlay>();
         UpdateClickModeButton();
         UpdateCooldownToggleButton();
         UpdateCooldownText();
+        UpdateOverlayAlphaText();
 
 #if !UNITY_EDITOR
         StartCoroutine(FindDisplay2WindowCoroutine());
@@ -721,43 +727,70 @@ public class SensorTestManager : MonoBehaviour
 
     void BuildSensitivityBar(RectTransform parent, Font font)
     {
-        // 說明標籤（左側 0-18%）
-        var labelPanel = CreatePanel(parent, "CooldownLabel", Color.clear,
-            new Vector2(0f, 0f), new Vector2(0.18f, 1f),
-            Vector2.zero, Vector2.zero);
-        labelPanel.GetComponent<Image>().raycastTarget = false;
-        AddText(labelPanel.transform, "LabelText", "感應冷卻",
+        // ══ 左側：感應冷卻（0 – 50%）══════════════════════════════════════════
+
+        // 說明標籤（0-10%）
+        var cooldownLabel = CreatePanel(parent, "CooldownLabel", Color.clear,
+            new Vector2(0f, 0f), new Vector2(0.10f, 1f), Vector2.zero, Vector2.zero);
+        cooldownLabel.GetComponent<Image>().raycastTarget = false;
+        AddText(cooldownLabel.transform, "LabelText", "感應冷卻",
             13, TextAnchor.MiddleRight, new Color(0.60f, 0.65f, 0.75f), font);
 
-        // ON/OFF 開關按鈕（18-35%）
+        // ON/OFF 開關按鈕（10-24%）
         _cooldownToggleBtnText =
-            CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.18f, 0.35f, font);
+            CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.10f, 0.24f, font);
         _cooldownToggleBtnImage = _cooldownToggleBtnText.transform.parent.GetComponent<Image>();
 
-        // "−" 按鈕（35-48%）
-        CreateButton(parent, "BtnCooldownDec", "−", OnDecreaseCooldown, 0.35f, 0.48f, font);
+        // "−"（24-32%）
+        CreateButton(parent, "BtnCooldownDec", "−", OnDecreaseCooldown, 0.24f, 0.32f, font);
 
-        // 數值顯示（48-63%）
+        // 數值顯示（32-43%）
         var valPanel = CreatePanel(parent, "CooldownValue", new Color(0.10f, 0.12f, 0.16f),
-            new Vector2(0.48f, 0.1f), new Vector2(0.63f, 0.9f),
-            Vector2.zero, Vector2.zero);
+            new Vector2(0.32f, 0.1f), new Vector2(0.43f, 0.9f), Vector2.zero, Vector2.zero);
         valPanel.GetComponent<Image>().raycastTarget = false;
         _cooldownText = AddText(valPanel.transform, "ValueText", "1.0 秒",
             14, TextAnchor.MiddleCenter, new Color(0.95f, 0.95f, 1.00f), font);
 
-        // "+" 按鈕（63-76%）
-        CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.63f, 0.76f, font);
+        // "+"（43-51%）
+        CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.43f, 0.51f, font);
 
-        // 提示標籤（右側 76-100%）
-        var hintPanel = CreatePanel(parent, "CooldownHint", Color.clear,
-            new Vector2(0.76f, 0f), new Vector2(1f, 1f),
-            Vector2.zero, Vector2.zero);
-        hintPanel.GetComponent<Image>().raycastTarget = false;
-        AddText(hintPanel.transform, "HintText", "越小觸發越頻繁",
+        // ── 分隔線（51-52%）──────────────────────────────────────────────────
+        var divider = CreatePanel(parent, "BarDivider", new Color(0.30f, 0.32f, 0.40f),
+            new Vector2(0.51f, 0.1f), new Vector2(0.52f, 0.9f), Vector2.zero, Vector2.zero);
+        divider.GetComponent<Image>().raycastTarget = false;
+
+        // ══ 右側：疊加透明度（52 – 100%）══════════════════════════════════════
+
+        // 說明標籤（52-62%）
+        var alphaLabel = CreatePanel(parent, "OverlayAlphaLabel", Color.clear,
+            new Vector2(0.52f, 0f), new Vector2(0.62f, 1f), Vector2.zero, Vector2.zero);
+        alphaLabel.GetComponent<Image>().raycastTarget = false;
+        AddText(alphaLabel.transform, "LabelText", "疊加透明",
+            13, TextAnchor.MiddleRight, new Color(0.60f, 0.65f, 0.75f), font);
+
+        // "−"（62-71%）
+        CreateButton(parent, "BtnOverlayDec", "−", OnDecreaseOverlayAlpha, 0.62f, 0.71f, font);
+
+        // 數值顯示（71-84%）
+        var alphaValPanel = CreatePanel(parent, "OverlayAlphaValue", new Color(0.10f, 0.12f, 0.16f),
+            new Vector2(0.71f, 0.1f), new Vector2(0.84f, 0.9f), Vector2.zero, Vector2.zero);
+        alphaValPanel.GetComponent<Image>().raycastTarget = false;
+        _overlayAlphaText = AddText(alphaValPanel.transform, "ValueText", "100 %",
+            14, TextAnchor.MiddleCenter, new Color(0.95f, 0.95f, 1.00f), font);
+
+        // "+"（84-93%）
+        CreateButton(parent, "BtnOverlayInc", "+", OnIncreaseOverlayAlpha, 0.84f, 0.93f, font);
+
+        // 提示（93-100%）
+        var alphaHint = CreatePanel(parent, "OverlayAlphaHint", Color.clear,
+            new Vector2(0.93f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+        alphaHint.GetComponent<Image>().raycastTarget = false;
+        AddText(alphaHint.transform, "HintText", "0~100%",
             11, TextAnchor.MiddleLeft, new Color(0.40f, 0.44f, 0.52f), font);
 
         UpdateCooldownToggleButton();
         UpdateCooldownText();
+        UpdateOverlayAlphaText();
     }
 
     void OnToggleCooldown()
@@ -804,6 +837,31 @@ public class SensorTestManager : MonoBehaviour
         _cooldownText.color = on
             ? new Color(0.95f, 0.95f, 1.00f)
             : new Color(0.40f, 0.40f, 0.42f); // 冷卻關閉時變暗
+    }
+
+    // ── 疊加透明度調整 ────────────────────────────────────────────────────────
+
+    void OnDecreaseOverlayAlpha()
+    {
+        if (_overlay == null) return;
+        _overlay.overlayAlpha =
+            Mathf.Clamp(Mathf.Round((_overlay.overlayAlpha - 0.1f) * 10f) / 10f, 0f, 1f);
+        UpdateOverlayAlphaText();
+    }
+
+    void OnIncreaseOverlayAlpha()
+    {
+        if (_overlay == null) return;
+        _overlay.overlayAlpha =
+            Mathf.Clamp(Mathf.Round((_overlay.overlayAlpha + 0.1f) * 10f) / 10f, 0f, 1f);
+        UpdateOverlayAlphaText();
+    }
+
+    void UpdateOverlayAlphaText()
+    {
+        if (_overlayAlphaText == null) return;
+        int pct = Mathf.RoundToInt((_overlay != null ? _overlay.overlayAlpha : 1f) * 100f);
+        _overlayAlphaText.text = $"{pct} %";
     }
 
     // ── Display 2 視窗控制（獨立執行檔專用）────────────────────────────────────

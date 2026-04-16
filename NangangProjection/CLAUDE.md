@@ -45,11 +45,12 @@ rawMinY = 16    rawMaxY = 752
 | `SensorBus` | `_Script/` | 靜態事件中轉站，`OnTouch(col,row)`，已通過鎖定檢查才廣播 |
 | `SensorTestManager` | `_Script/SensorTest/` | 建立雙螢幕格子、UDP 座標映射、鎖定邏輯、Display 2 視窗 ShowWindow |
 | `SensorTileCell` | `_Script/SensorTest/` | Display 2 感應格（觸摸→亮紅 1.5s） |
-| `ControlTileCell` | `_Script/SensorTest/` | Display 1 控制格（右鍵鎖定→黃色） |
+| `ControlTileCell` | `_Script/SensorTest/` | Display 1 控制格（idle 透明，右鍵鎖定→黃色，觸摸→紅色） |
 | `SensorClickSimulator` | `_Script/SensorTest/` | 訂閱 SensorBus，三模式循環：內部監聽 / PostMessage / SendInput |
 | `TouchDebugLogger` | `_Script/` | 訂閱 SensorBus，Console 印出觸碰紀錄（含 Collapse 與每秒統計） |
-| `ConsoleGameOverlay` | `_Script/` | Display 1 顯示 Display 2 遊戲畫面預覽（RawImage 疊加） |
+| `ConsoleGameOverlay` | `_Script/` | Display 1 格子範圍內顯示 Display 2 畫面（RT 疊加，透明度可調） |
 | `GameDisplayRT` | `_Script/` | 遊戲畫面共用 RenderTexture（2048×768），跨場景靜態存取 |
+| `SensorGridRT` | `_Script/` | 感應格畫面 RenderTexture（2048×768），由 SensorTestManager 建立 |
 | `GameSceneSetup` | `_Script/` | 遊戲場景相機設定，建立 Mirror Camera 寫入 GameDisplayRT |
 
 ## Display 1 控制台按鈕列（第一排）
@@ -61,15 +62,31 @@ rawMinY = 16    rawMaxY = 752
 | 晶片示意 | 切換 Display 2 感應格顯示（同步 ShowWindow 隱藏/顯示 Unity 視窗） |
 | 內部監聽 / PostMessage / 滑鼠點擊 | 循環切換 SensorClickSimulator 點擊模式 |
 
-## 感應冷卻列（第二排）
-| 元件 | 說明 |
-|---|---|
-| 冷卻 ON／OFF | 切換 `SensorClickSimulator.cooldownEnabled`，對三種模式均有效 |
-| − / + | 調整 `clickCooldown`（0.1s ～ 5.0s，每步 0.1s） |
-| 數值顯示 | 目前冷卻秒數；冷卻關閉時變暗 |
+## 感應冷卻 ＋ 疊加透明度列（第二排，左右各半）
+| 區域 | 元件 | 說明 |
+|---|---|---|
+| 左：感應冷卻 | 冷卻 ON／OFF | 切換 `SensorClickSimulator.cooldownEnabled`，對三種模式均有效 |
+| 左：感應冷卻 | − / + | 調整 `clickCooldown`（0.1s ～ 5.0s，每步 0.1s） |
+| 左：感應冷卻 | 數值顯示 | 目前冷卻秒數；冷卻關閉時變暗 |
+| 右：疊加透明 | − / + | 調整 `ConsoleGameOverlay.overlayAlpha`（0% ～ 100%，每步 10%） |
+| 右：疊加透明 | 數值顯示 | 目前不透明度百分比 |
 
 - **冷卻 ON（綠）**：每幀只允許一個點擊，模擬真實單點滑鼠
 - **冷卻 OFF（橘紅）**：所有同幀觸碰均觸發，原生多點觸控模式
+
+## Display 1 格子透視疊加說明
+控制格（ControlTileCell）的 idle 背景已改為全透明，在格子範圍內顯示 Display 2 的畫面：
+- **遊戲已載入**：疊加顯示 `GameDisplayRT`（遊戲場景 Mirror Camera RT）
+- **僅感應測試**：疊加顯示 `SensorGridRT`（SensorCam 捕捉 Canvas_Secondary）
+- 觸發（紅）/ 鎖定（黃）格子仍完整顯示於疊加畫面之上
+- `ConsoleGameOverlay.overlayAlpha`：Inspector 可設定初始透明度（預設 1.0），執行中可用第二排 −/+ 調整
+
+### RT 捕捉機制
+- `SensorTestManager.SetupSensorGridRT()`：Start 的 yield 後執行
+  - 建立 `SensorCam`（Camera → `targetTexture = SensorGridRT`，UI layer only）
+  - 切換 `Canvas_Secondary` 至 `ScreenSpaceCamera` 模式（`worldCamera = SensorCam`）
+  - 在 Display 2 建立 `Canvas_Display2RTMirror`（ScreenSpaceOverlay RawImage），維持 Display 2 畫面
+- `SetGameTileVisible(false)` 同時隱藏 Mirror Canvas，避免遊戲相機畫面被 ScreenSpaceOverlay 覆蓋
 
 ## SensorClickSimulator 三種模式
 | 模式 | 按鈕顏色 | 說明 |
