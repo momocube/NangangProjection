@@ -118,6 +118,37 @@ rawMinY = 16    rawMaxY = 752
 5. **SensorTileCell inactive 時不能 StartCoroutine**：晶片示意關閉後 Canvas_Secondary 變 inactive，`Activate()` 有 `activeInHierarchy` 守衛；`ActivateOrSmartLock` 也會跳過 inactive 的感應格
 6. **遊戲場景需加入 Build Settings**：`gameSceneName` 填寫的場景必須在 `File → Build Settings` 中，否則會跳過並印 Warning
 
+## 新案場：光域 704（多面場域擴充，尚未實作）
+
+參考圖：`C:\CyberCube\二代設備\光域 704 作圖-標線-實際像素大小.pdf`
+
+六個感應面，總外框 2688 × 3840 px：
+
+| 面 | 約略尺寸 |
+|---|---|
+| 上（紫） | 1408 × 640 |
+| 左（紅） | 640 × 2048 |
+| 中（黃綠，主） | 1408 × 2048 |
+| 右（藍） | 640 × 1280 |
+| 下（綠） | ~1280 × ~1019 |
+| 不確定面（藍框） | ~512，方向待確認 |
+
+### 規劃腳本（待實作）
+
+| 腳本 | 位置 | 說明 |
+|---|---|---|
+| `SensorFaceConfig` | `_Script/MultiSensor/` | ScriptableObject，每面一個，存 originX/Y、col/rowCount、rawMin/Max、flipX/flipY |
+| `FaceVisualizer` | `_Script/Editor/` | Editor-only Gizmo，Scene 中畫晶片格（第一格紅、其他綠） |
+
+### 整合要點
+- 不換場景，在 `sensor_test` 擴充
+- `SensorTestManager` 改為讀 `SensorFaceConfig[]` 陣列
+- `SensorBus.OnTouch` 加 `faceId` 參數（需同步改 ControlTileCell / SensorTileCell / SensorClickSimulator / TouchDebugLogger）
+
+### 開發順序
+1. **Phase 1（Editor 工具）**：SensorFaceConfig + FaceVisualizer → 在 Scene 確認六面位置與方向
+2. **Phase 2（Runtime 整合）**：SensorTestManager 多面 + SensorBus faceId
+
 ## Git 遠端
 `https://github.com/bottledsnow/NangangProjection.git`（branch: main）
 
@@ -126,3 +157,5 @@ rawMinY = 16    rawMaxY = 752
 - **Bug 修正** → 直接描述問題 + 貼錯誤訊息
 - **場景 YAML 修改** → 說明要改哪個 fileID 或哪個物件
 - **推 Git** → 每個功能完成後立即 commit + push，避免跨對話追蹤未提交的內容
+- **光域 704 Phase 1** → 新對話說「實作 SensorFaceConfig + FaceVisualizer，請先讀 CLAUDE.md」
+- **光域 704 Phase 2** → Phase 1 完成後，新對話說「整合多面 SensorTestManager + SensorBus faceId」
