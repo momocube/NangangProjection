@@ -76,6 +76,6 @@ public class SensorTileCell : MonoBehaviour
     void RefreshColor()
     {
         if (_fill == null) return;
-        _fill.color = ColIdle;  // 鎖定只阻止觸發，不在遊戲畫面顯示
+        _fill.color = _locked ? ColLocked : ColIdle;
     }
 }

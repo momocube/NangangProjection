@@ -39,7 +39,7 @@ rawMinY = 16    rawMaxY = 752
 | `GameConsole` | `_Script/` | 獨立執行檔彈出 Windows 命令列視窗 |
 | `SensorBus` | `_Script/` | 靜態事件中轉站，`OnTouch(col,row)`，已通過鎖定檢查才廣播 |
 | `SensorTestManager` | `_Script/SensorTest/` | 多場域主控：讀 VenuePresetConfig[]，建格子、UDP 映射、鎖定、ShowWindow |
-| `SensorTileCell` | `_Script/SensorTest/` | Display 2 感應格（觸摸→亮紅 1.5s） |
+| `SensorTileCell` | `_Script/SensorTest/` | Display 2 感應格（觸摸→亮紅 1.5s，鎖定→黃色） |
 | `ControlTileCell` | `_Script/SensorTest/` | Display 1 控制格（idle 透明，右鍵鎖定→黃色，觸摸→紅色） |
 | `SensorClickSimulator` | `_Script/SensorTest/` | 訂閱 SensorBus，三模式循環：內部監聽 / PostMessage / SendInput |
 | `TouchDebugLogger` | `_Script/` | 訂閱 SensorBus，Console 印出觸碰紀錄（含 Collapse 與每秒統計） |
