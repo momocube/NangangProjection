@@ -73,6 +73,13 @@ public class SensorTestManager : MonoBehaviour
 
     Text  _presetLabel;
 
+    // ── 載入面板 ──────────────────────────────────────────────────────────────
+    GameObject    _loadingPanel;
+    Text          _loadingTitle;
+    Text          _loadingProgressText;
+    RectTransform _loadingBarFill;
+    bool          _isSwitching;
+
     // ── 晶片示意 ──────────────────────────────────────────────────────────────
 
     GameObject _canvasSecondary;
@@ -231,14 +238,21 @@ public class SensorTestManager : MonoBehaviour
 
     void SwitchPreset(int idx)
     {
+        if (_isSwitching) return;
         if (presets == null || idx < 0 || idx >= presets.Length) return;
         if (idx == _presetIdx && _faces.Count > 0) return;
+        StartCoroutine(SwitchPresetCoroutine(idx));
+    }
 
-        // 重置鎖定狀態、感應格背景
+    IEnumerator SwitchPresetCoroutine(int idx)
+    {
+        _isSwitching = true;
+        ShowLoading(true, $"載入場域：{presets[idx]?.presetName ?? "?"}");
+        yield return null;   // 讓 Loading Panel 先渲染出來
+
         TeardownSensorGridRT();
         DestroyGridTiles();
 
-        // 清除感應格背景（重建）
         if (sensorGridParent != null)
         {
             var bg = sensorGridParent.parent?.Find("SensorBG");
@@ -247,13 +261,134 @@ public class SensorTestManager : MonoBehaviour
 
         InitPresetData(idx);
         BuildSensorBackground();
-        BuildSensorGrid();
-        BuildControlGrid();
+        SetLoadingProgress(0.1f);
+        yield return null;
+
+        yield return StartCoroutine(BuildSensorGridAsync(0.1f, 0.55f));
+        yield return StartCoroutine(BuildControlGridAsync(0.55f, 0.95f));
+
+        SetLoadingProgress(0.97f);
+        yield return null;
+
         SetupSensorGridRT();
         UpdatePresetLabel();
         SetStatusIdle();
 
+        SetLoadingProgress(1f);
+        yield return null;
+
+        ShowLoading(false);
+        _isSwitching = false;
+
         Debug.Log($"[SensorTest] 切換場域 → {presets[idx].presetName}");
+    }
+
+    IEnumerator BuildSensorGridAsync(float progressStart, float progressEnd)
+    {
+        if (sensorGridParent == null || _canvasConfig == null) yield break;
+
+        for (int i = sensorGridParent.childCount - 1; i >= 0; i--)
+            Destroy(sensorGridParent.GetChild(i).gameObject);
+
+        var oldGlg = sensorGridParent.GetComponent<GridLayoutGroup>();
+        if (oldGlg != null) Destroy(oldGlg);
+
+        int totalCells = 0;
+        foreach (var fd in _faces) totalCells += fd.config.colCount * fd.config.rowCount;
+        if (totalCells == 0) yield break;
+
+        int built = 0;
+        const int batchSize = 300;
+
+        for (int fi = 0; fi < _faces.Count; fi++)
+        {
+            var fd  = _faces[fi];
+            var cfg = fd.config;
+            for (int r = 0; r < cfg.rowCount; r++)
+            for (int c = 0; c < cfg.colCount; c++)
+            {
+                int idx = r * cfg.colCount + c;
+                var go = new GameObject($"ST_f{fi}_{idx}");
+                go.layer = 5;
+                go.transform.SetParent(sensorGridParent, false);
+                var rt = go.AddComponent<RectTransform>();
+                PositionSensorCell(rt, cfg, c, r);
+                go.AddComponent<Image>();
+                var cell = go.AddComponent<SensorTileCell>();
+                cell.col   = c;
+                cell.row   = r;
+                cell.index = idx;
+                fd.sensorTiles[idx] = cell;
+
+                built++;
+                if (built % batchSize == 0)
+                {
+                    SetLoadingProgress(Mathf.Lerp(progressStart, progressEnd, (float)built / totalCells));
+                    yield return null;
+                }
+            }
+        }
+        SetLoadingProgress(progressEnd);
+    }
+
+    IEnumerator BuildControlGridAsync(float progressStart, float progressEnd)
+    {
+        if (controlGridParent == null || _canvasConfig == null) yield break;
+
+        for (int i = controlGridParent.childCount - 1; i >= 0; i--)
+            Destroy(controlGridParent.GetChild(i).gameObject);
+
+        var oldGlg = controlGridParent.GetComponent<GridLayoutGroup>();
+        if (oldGlg != null) Destroy(oldGlg);
+
+        float w = controlGridParent.rect.width;
+        float h = controlGridParent.rect.height;
+        if (w <= 0 || h <= 0) { yield return null; w = controlGridParent.rect.width; h = controlGridParent.rect.height; }
+        if (w <= 0 || h <= 0) yield break;
+
+        float sx = w / _canvasConfig.canvasWidth;
+        float sy = h / _canvasConfig.canvasHeight;
+
+        int totalCells = 0;
+        foreach (var fd in _faces) totalCells += fd.config.colCount * fd.config.rowCount;
+        if (totalCells == 0) yield break;
+
+        int built = 0;
+        const int batchSize = 300;
+
+        for (int fi = 0; fi < _faces.Count; fi++)
+        {
+            var fd  = _faces[fi];
+            var cfg = fd.config;
+            int capturedFi = fi;
+
+            for (int r = 0; r < cfg.rowCount; r++)
+            for (int c = 0; c < cfg.colCount; c++)
+            {
+                int idx = r * cfg.colCount + c;
+                var go = new GameObject($"CT_f{fi}_{idx}");
+                go.layer = 5;
+                go.transform.SetParent(controlGridParent, false);
+                var rt = go.AddComponent<RectTransform>();
+                PositionControlCell(rt, cfg, c, r, sx, sy);
+                go.AddComponent<Image>();
+                var cell = go.AddComponent<ControlTileCell>();
+                cell.Init(c, r, cfg.colCount);
+
+                cell.onRightClick = (col2, row2) => ToggleLock(capturedFi, col2, row2);
+                cell.onLeftClick  = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
+                cell.onHover      = (col2, row2, i2, lk) => OnTileHover(capturedFi, col2, row2, i2, lk);
+                fd.controlTiles[idx] = cell;
+
+                built++;
+                if (built % batchSize == 0)
+                {
+                    SetLoadingProgress(Mathf.Lerp(progressStart, progressEnd, (float)built / totalCells));
+                    yield return null;
+                }
+            }
+        }
+        SetLoadingProgress(progressEnd);
     }
 
     // ── 感應格（Display 2）建立 ───────────────────────────────────────────────
@@ -462,6 +597,7 @@ public class SensorTestManager : MonoBehaviour
             Vector2.zero, new Vector2(1f, 0f),
             new Vector2(0f, 90f), new Vector2(0f, 128f));
         BuildSensitivityBar(sensBar, font);
+        BuildLoadingPanel(root, font);
     }
 
     void BuildPresetSelector(RectTransform parent, Font font)
@@ -996,6 +1132,87 @@ public class SensorTestManager : MonoBehaviour
             Debug.LogWarning("[SensorTest] 找不到 Display 2 視窗。");
     }
 #endif
+
+    // ── 載入面板 ──────────────────────────────────────────────────────────────
+
+    void BuildLoadingPanel(RectTransform root, Font font)
+    {
+        // 全螢幕半透明遮罩（建在 root 最上層）
+        var panelRT = CreatePanel(root, "LoadingPanel",
+            new Color(0.02f, 0.02f, 0.04f, 0.88f),
+            Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        panelRT.GetComponent<Image>().raycastTarget = true;  // 擋住下層按鈕
+        _loadingPanel = panelRT.gameObject;
+
+        // 中央卡片
+        var card = CreatePanel(panelRT, "Card", new Color(0.08f, 0.10f, 0.16f),
+            new Vector2(0.25f, 0.38f), new Vector2(0.75f, 0.62f),
+            Vector2.zero, Vector2.zero);
+
+        // 標題文字
+        var titleGO = new GameObject("Title");
+        titleGO.layer = 5;
+        titleGO.transform.SetParent(card, false);
+        var titleRT = titleGO.AddComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0f, 0.55f);
+        titleRT.anchorMax = new Vector2(1f, 0.92f);
+        titleRT.offsetMin = titleRT.offsetMax = Vector2.zero;
+        _loadingTitle = titleGO.AddComponent<Text>();
+        _loadingTitle.text      = "切換場域中...";
+        _loadingTitle.fontSize  = 18;
+        _loadingTitle.alignment = TextAnchor.MiddleCenter;
+        _loadingTitle.color     = new Color(0.80f, 0.85f, 1.00f);
+        if (font != null) _loadingTitle.font = font;
+
+        // 進度百分比文字
+        var progGO = new GameObject("Progress");
+        progGO.layer = 5;
+        progGO.transform.SetParent(card, false);
+        var progRT = progGO.AddComponent<RectTransform>();
+        progRT.anchorMin = new Vector2(0f, 0.38f);
+        progRT.anchorMax = new Vector2(1f, 0.55f);
+        progRT.offsetMin = progRT.offsetMax = Vector2.zero;
+        _loadingProgressText = progGO.AddComponent<Text>();
+        _loadingProgressText.text      = "0 %";
+        _loadingProgressText.fontSize  = 13;
+        _loadingProgressText.alignment = TextAnchor.MiddleCenter;
+        _loadingProgressText.color     = new Color(0.55f, 0.60f, 0.75f);
+        if (font != null) _loadingProgressText.font = font;
+
+        // 進度條底板
+        var barBg = CreatePanel(card, "BarBG", new Color(0.12f, 0.14f, 0.20f),
+            new Vector2(0.08f, 0.12f), new Vector2(0.92f, 0.35f),
+            Vector2.zero, Vector2.zero);
+
+        // 進度條填充（anchorMax.x 動態控制寬度）
+        var fillGO = new GameObject("Fill");
+        fillGO.layer = 5;
+        fillGO.transform.SetParent(barBg, false);
+        _loadingBarFill = fillGO.AddComponent<RectTransform>();
+        _loadingBarFill.anchorMin = Vector2.zero;
+        _loadingBarFill.anchorMax = new Vector2(0f, 1f);
+        _loadingBarFill.offsetMin = _loadingBarFill.offsetMax = Vector2.zero;
+        var fillImg = fillGO.AddComponent<Image>();
+        fillImg.color         = new Color(0.30f, 0.55f, 0.90f);
+        fillImg.raycastTarget = false;
+
+        _loadingPanel.SetActive(false);
+    }
+
+    void ShowLoading(bool show, string title = "切換場域中...")
+    {
+        if (_loadingPanel == null) return;
+        if (_loadingTitle        != null) _loadingTitle.text        = title;
+        if (_loadingProgressText != null) _loadingProgressText.text = "0 %";
+        if (_loadingBarFill      != null) _loadingBarFill.anchorMax = new Vector2(0f, 1f);
+        _loadingPanel.SetActive(show);
+    }
+
+    void SetLoadingProgress(float t)
+    {
+        if (_loadingBarFill      != null) _loadingBarFill.anchorMax      = new Vector2(Mathf.Clamp01(t), 1f);
+        if (_loadingProgressText != null) _loadingProgressText.text = $"{Mathf.RoundToInt(t * 100f)} %";
+    }
 
     // ── UI 輔助方法 ───────────────────────────────────────────────────────────
 
