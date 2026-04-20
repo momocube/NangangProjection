@@ -77,8 +77,9 @@ public class ConsoleGameOverlay : MonoBehaviour
 
         var go = new GameObject("GameDisplayOverlay");
         go.layer = 5;
-        // ★ 與 controlGridParent 同層（掛在同一個父節點下），才能精確對齊晶片格範圍
-        go.transform.SetParent(controlGridParent.parent, false);
+        // ★ 掛在 controlGridParent 內部：座標系與格子相同，UpdateOverlayTransform 的
+        //   offsetX/Y 就是在 controlGridParent 空間裡量的，不需要額外補 Header 偏移。
+        go.transform.SetParent(controlGridParent, false);
 
         var overlayRT = go.AddComponent<RectTransform>();
         // 初始使用 top-left anchor + center pivot；
@@ -94,11 +95,10 @@ public class ConsoleGameOverlay : MonoBehaviour
         _overlayImage.raycastTarget = false;
         _overlayImage.texture       = GameDisplayRT.Current;
 
-        // ★ 插在控制格「前面」（較低的 sibling index = 渲染在後 = 晶片格蓋在上面）
-        int gridIdx = controlGridParent.GetSiblingIndex();
-        go.transform.SetSiblingIndex(gridIdx); // 控制格自動後移一位
+        // ★ 插在控制格所有子物件「最前面」（sibling index 0 = 渲染在最後 = 晶片格蓋在上面）
+        go.transform.SetSiblingIndex(0);
 
-        Debug.Log($"[ConsoleGameOverlay] 疊加層建立，index={go.transform.GetSiblingIndex()}，晶片格 index={controlGridParent.GetSiblingIndex()}");
+        Debug.Log($"[ConsoleGameOverlay] 疊加層建立於 controlGridParent 內部，index=0");
     }
 
     /// <summary>
