@@ -17,7 +17,6 @@ public class ControlTileCell : MonoBehaviour,
     [HideInInspector] public int index; // row * 128 + col
 
     Image     _fill;
-    Text      _label;
     Coroutine _activeRoutine;
     Coroutine _holdRoutine;      // 按住連續觸發
     bool      _locked;
@@ -59,26 +58,6 @@ public class ControlTileCell : MonoBehaviour,
         _fill = fillGO.AddComponent<Image>();
         _fill.color         = ColIdle;
         _fill.raycastTarget = false;
-
-        // 格子編號標籤
-        var labelGO = new GameObject("Num");
-        labelGO.transform.SetParent(fillGO.transform, false);
-        var labelRT = labelGO.AddComponent<RectTransform>();
-        labelRT.anchorMin = Vector2.zero;
-        labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
-        _label = labelGO.AddComponent<Text>();
-        _label.alignment          = TextAnchor.MiddleCenter;
-        _label.fontSize           = 8;
-        _label.resizeTextForBestFit = true;
-        _label.resizeTextMinSize  = 1;
-        _label.resizeTextMaxSize  = 8;
-        _label.color              = new Color(0.40f, 0.40f, 0.45f);
-        _label.raycastTarget      = false;
-
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-        if (font != null) _label.font = font;
     }
 
     /// <summary>建立後立即呼叫，設定格子座標與標籤數字。stride = 每列格數（欄數）。</summary>
@@ -87,7 +66,6 @@ public class ControlTileCell : MonoBehaviour,
         col   = c;
         row   = r;
         index = r * stride + c;
-        if (_label != null) _label.text = (index + 1).ToString();
     }
 
     /// <summary>由 SensorTestManager 呼叫，切換鎖定狀態。</summary>

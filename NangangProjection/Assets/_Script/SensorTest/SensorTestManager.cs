@@ -94,18 +94,35 @@ public class SensorTestManager : MonoBehaviour
     float _controlGridOffsetY = 0f;
 
     /// <summary>
-    /// 計算等比縮放參數：將畫布（canvasW×canvasH）塞進容器（w×h），
-    /// 保持畫面格子的正確比例，多餘空間置中留空。
-    /// rotateDisplay90=true 時，以旋轉後的尺寸（canvasH×canvasW）計算。
+    /// 計算等比縮放參數：自動選擇 0° 或 90° CW 旋轉，讓畫布在容器（w×h）中佔據最大面積。
+    /// 90° CW 時畫布橫放（canvasH 為顯示寬，canvasW 為顯示高）。
     /// </summary>
     void CalcControlScale(float w, float h)
     {
-        float cw = _rotateDisplay90 ? _canvasConfig.canvasHeight : _canvasConfig.canvasWidth;
-        float ch = _rotateDisplay90 ? _canvasConfig.canvasWidth  : _canvasConfig.canvasHeight;
-        float scale = Mathf.Min(w / cw, h / ch);
-        _controlGridScale   = scale;
-        _controlGridOffsetX = (w - cw * scale) * 0.5f;
-        _controlGridOffsetY = (h - ch * scale) * 0.5f;
+        int cW = _canvasConfig.canvasWidth;
+        int cH = _canvasConfig.canvasHeight;
+        float sNormal  = Mathf.Min(w / cW, h / cH);
+        float sRotated = Mathf.Min(w / cH, h / cW);
+        _rotateDisplay90    = sRotated > sNormal;
+        float displayW      = _rotateDisplay90 ? cH : cW;
+        float displayH      = _rotateDisplay90 ? cW : cH;
+        _controlGridScale   = _rotateDisplay90 ? sRotated : sNormal;
+        _controlGridOffsetX = (w - displayW * _controlGridScale) * 0.5f;
+        _controlGridOffsetY = (h - displayH * _controlGridScale) * 0.5f;
+    }
+
+    /// <summary>將目前的縮放 / 旋轉參數推送給 ConsoleGameOverlay。</summary>
+    void NotifyOverlay()
+    {
+        if (_overlay == null || _canvasConfig == null || _controlGridScale <= 0f) return;
+        int cW = _canvasConfig.canvasWidth;
+        int cH = _canvasConfig.canvasHeight;
+        float displayW = (_rotateDisplay90 ? cH : cW) * _controlGridScale;
+        float displayH = (_rotateDisplay90 ? cW : cH) * _controlGridScale;
+        _overlay.UpdateOverlayTransform(
+            _controlGridOffsetX, _controlGridOffsetY,
+            displayW, displayH,
+            _rotateDisplay90, cW, cH, _controlGridScale);
     }
 
     // ── 拖曳互動 ──────────────────────────────────────────────────────────────
@@ -177,6 +194,7 @@ public class SensorTestManager : MonoBehaviour
         SetupSensorGridRT();
         _clickSim = FindObjectOfType<SensorClickSimulator>();
         _overlay  = GetComponent<ConsoleGameOverlay>();
+        NotifyOverlay();
         UpdateClickModeButton();
         UpdateCooldownToggleButton();
         UpdateCooldownText();
@@ -215,9 +233,9 @@ public class SensorTestManager : MonoBehaviour
     /// <summary>初始化場域資料（不建格子）。</summary>
     void InitPresetData(int idx)
     {
-        _presetIdx        = idx;
-        _canvasConfig     = presets[idx].canvasConfig;
-        _rotateDisplay90  = presets[idx].rotateDisplay90;
+        _presetIdx    = idx;
+        _canvasConfig = presets[idx].canvasConfig;
+        // _rotateDisplay90 由 CalcControlScale() 自動決定，此處不手動設定
         _faces.Clear();
         foreach (var fc in presets[idx].faces)
         {
@@ -294,6 +312,7 @@ public class SensorTestManager : MonoBehaviour
         yield return null;
 
         SetupSensorGridRT();
+        NotifyOverlay();
         UpdatePresetLabel();
         SetStatusIdle();
 
@@ -466,7 +485,8 @@ public class SensorTestManager : MonoBehaviour
         }
     }
 
-    /// <summary>在 Canvas_Secondary（感應格）中以像素座標定位格子（1px = 1 canvas unit）。</summary>
+    /// <summary>在 Canvas_Secondary（感應格）中以像素座標定位格子（1px = 1 canvas unit）。
+    /// 永遠使用原始畫布座標；旋轉僅作用於 Display 1 控制格，不影響感應格 RT。</summary>
     static void PositionSensorCell(RectTransform rt, SensorFaceConfig cfg, int c, int r)
     {
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
@@ -966,6 +986,7 @@ public class SensorTestManager : MonoBehaviour
         var sensorCanvas = _canvasSecondary.GetComponent<Canvas>();
         if (sensorCanvas == null) return;
 
+        // 感應格 RT 永遠使用原始畫布尺寸（旋轉只作用於 Display 1 控制格）
         int w = _canvasConfig.canvasWidth;
         int h = _canvasConfig.canvasHeight;
 

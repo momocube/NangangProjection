@@ -81,12 +81,13 @@ public class ConsoleGameOverlay : MonoBehaviour
         go.transform.SetParent(controlGridParent.parent, false);
 
         var overlayRT = go.AddComponent<RectTransform>();
-        // 完整複製 controlGridParent 的 anchor / offset / pivot，讓 RT 畫面只覆蓋晶片格區域
-        overlayRT.anchorMin = controlGridParent.anchorMin;
-        overlayRT.anchorMax = controlGridParent.anchorMax;
-        overlayRT.pivot     = controlGridParent.pivot;
-        overlayRT.offsetMin = controlGridParent.offsetMin;
-        overlayRT.offsetMax = controlGridParent.offsetMax;
+        // 初始使用 top-left anchor + center pivot；
+        // 實際位置／大小／旋轉由 SensorTestManager 呼叫 UpdateOverlayTransform() 設定
+        overlayRT.anchorMin        = new Vector2(0f, 1f);
+        overlayRT.anchorMax        = new Vector2(0f, 1f);
+        overlayRT.pivot            = new Vector2(0.5f, 0.5f);
+        overlayRT.sizeDelta        = Vector2.zero;
+        overlayRT.anchoredPosition = Vector2.zero;
 
         _overlayImage               = go.AddComponent<RawImage>();
         _overlayImage.color         = new Color(1f, 1f, 1f, 0f); // 初始透明
@@ -98,5 +99,43 @@ public class ConsoleGameOverlay : MonoBehaviour
         go.transform.SetSiblingIndex(gridIdx); // 控制格自動後移一位
 
         Debug.Log($"[ConsoleGameOverlay] 疊加層建立，index={go.transform.GetSiblingIndex()}，晶片格 index={controlGridParent.GetSiblingIndex()}");
+    }
+
+    /// <summary>
+    /// 由 SensorTestManager 呼叫，同步疊加層的位置、大小與旋轉，使 RT 與控制格範圍對齊。
+    ///
+    /// 不旋轉時：RawImage 覆蓋 (offsetX, offsetY) 起算 displayW×displayH 的矩形。
+    /// 旋轉 90° CW 時：RT 本身為直向（canvasW×canvasH），RawImage 旋轉 -90° 後視覺變橫向
+    ///   （displayW = canvasH×scale，displayH = canvasW×scale），與控制格排列完全對齊。
+    /// </summary>
+    public void UpdateOverlayTransform(
+        float offsetX, float offsetY,
+        float displayW, float displayH,
+        bool rotate90, int canvasW, int canvasH, float scale)
+    {
+        if (_overlayImage == null) return;
+        var rt = _overlayImage.rectTransform;
+
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+
+        if (!rotate90)
+        {
+            rt.localEulerAngles = Vector3.zero;
+            rt.sizeDelta        = new Vector2(displayW, displayH);
+        }
+        else
+        {
+            // RT 是直向（canvasW×canvasH px）。
+            // 將 RawImage 旋轉 -90°（CW）後，視覺寬 = canvasH*scale = displayW，高 = canvasW*scale = displayH。
+            rt.localEulerAngles = new Vector3(0f, 0f, -90f);
+            rt.sizeDelta        = new Vector2(canvasW * scale, canvasH * scale); // 旋轉前的直向尺寸
+        }
+
+        // 疊加中心 = 顯示區域中心（在 controlGridParent.parent 的 top-left 原點座標系內）
+        rt.anchoredPosition = new Vector2(
+            offsetX + displayW * 0.5f,
+          -(offsetY + displayH * 0.5f)
+        );
     }
 }
