@@ -28,8 +28,13 @@ public class ConsoleGameOverlay : MonoBehaviour
 
     // 內部狀態
     private RawImage      _overlayImage;
-    private RenderTexture _lastRT;
+    private Texture       _lastTex;
     private SensorTestManager _stm;
+    private float         _overlayDisplayW, _overlayDisplayH;
+
+    // 格線
+    private RawImage   _gridLineImage;
+    private Texture2D  _gridLineTex;
 
     private void Start()
     {
@@ -39,28 +44,42 @@ public class ConsoleGameOverlay : MonoBehaviour
 
     private void Update()
     {
-        // 優先使用遊戲 RT，其次使用感應格 RT
-        RenderTexture rt = GameDisplayRT.Current ?? SensorGridRT.Current;
+        // 優先：Display2ScreenCapture 截圖（整個 Display 2 螢幕畫面）
+        // 退後：遊戲 RT → 感應格 RT（原有邏輯）
+        Texture tex;
+        bool usingScreenCapture = Display2ScreenCapture.Instance != null;
 
-        // RT 變化時（遊戲載入 / 卸載）同步疊加層與 Canvas_Secondary
-        if (rt != _lastRT)
+        if (usingScreenCapture)
         {
-            _lastRT = rt;
+            tex = Display2ScreenCapture.Instance.CaptureTexture;
+        }
+        else
+        {
+            RenderTexture rt = GameDisplayRT.Current ?? SensorGridRT.Current;
+            tex = rt;
 
+            // RT 模式：遊戲載入 / 卸載時同步 Canvas_Secondary 顯示
+            if (rt != _lastTex)
+            {
+                bool gameLoaded = GameDisplayRT.Current != null;
+                _stm?.SetGameTileVisible(!gameLoaded);
+            }
+        }
+
+        if (tex != _lastTex)
+        {
+            _lastTex = tex;
             if (_overlayImage != null)
-                _overlayImage.texture = rt;
-
-            // 遊戲載入 → 自動隱藏 Display 2 感應格（避免蓋住遊戲畫面）
-            // 遊戲卸載 → 恢復顯示感應格
-            bool gameLoaded = GameDisplayRT.Current != null;
-            _stm?.SetGameTileVisible(!gameLoaded);
+                _overlayImage.texture = tex;
         }
 
         if (_overlayImage != null)
         {
             var c = _overlayImage.color;
-            c.a = (rt != null) ? overlayAlpha : 0f;
+            c.a = (tex != null) ? overlayAlpha : 0f;
             _overlayImage.color = c;
+
+            _overlayImage.uvRect = new Rect(0f, 0f, 1f, 1f);
         }
     }
 
@@ -93,7 +112,7 @@ public class ConsoleGameOverlay : MonoBehaviour
         _overlayImage               = go.AddComponent<RawImage>();
         _overlayImage.color         = new Color(1f, 1f, 1f, 0f); // 初始透明
         _overlayImage.raycastTarget = false;
-        _overlayImage.texture       = GameDisplayRT.Current;
+        _overlayImage.texture       = null;
 
         // ★ 插在控制格所有子物件「最前面」（sibling index 0 = 渲染在最後 = 晶片格蓋在上面）
         go.transform.SetSiblingIndex(0);
@@ -114,6 +133,8 @@ public class ConsoleGameOverlay : MonoBehaviour
         bool rotate90, int canvasW, int canvasH, float scale)
     {
         if (_overlayImage == null) return;
+        _overlayDisplayW = displayW;
+        _overlayDisplayH = displayH;
         var rt = _overlayImage.rectTransform;
 
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
@@ -137,5 +158,119 @@ public class ConsoleGameOverlay : MonoBehaviour
             offsetX + displayW * 0.5f,
           -(offsetY + displayH * 0.5f)
         );
+    }
+
+    // ── 格線 Texture2D ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 由 SensorTestManager 呼叫，在 Texture2D 上畫格線並貼至 GridLineOverlay。
+    /// texW/texH = faceView 像素尺寸（canvas 座標 1:1），RawImage 負責縮放。
+    /// </summary>
+    public void UpdateGridLines(
+        float offsetX, float offsetY,
+        float displayW, float displayH,
+        bool rotate90, int canvasW, int canvasH, float scale,
+        float faceViewOriginX, float faceViewOriginY,
+        int texW, int texH,
+        SensorFaceConfig[] faces)
+    {
+        EnsureGridLineImage();
+
+        // 位置與旋轉同 overlay
+        var rt = _gridLineImage.rectTransform;
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        if (!rotate90)
+        {
+            rt.localEulerAngles = Vector3.zero;
+            rt.sizeDelta        = new Vector2(displayW, displayH);
+        }
+        else
+        {
+            rt.localEulerAngles = new Vector3(0f, 0f, -90f);
+            rt.sizeDelta        = new Vector2(canvasW * scale, canvasH * scale);
+        }
+        rt.anchoredPosition = new Vector2(offsetX + displayW * 0.5f, -(offsetY + displayH * 0.5f));
+
+        if (texW <= 0 || texH <= 0) return;
+
+        // 重建 Texture2D（尺寸改變時）
+        if (_gridLineTex == null || _gridLineTex.width != texW || _gridLineTex.height != texH)
+        {
+            if (_gridLineTex != null) Destroy(_gridLineTex);
+            _gridLineTex            = new Texture2D(texW, texH, TextureFormat.RGBA32, false);
+            _gridLineTex.filterMode = FilterMode.Bilinear; // Point 在 scale<1 時會跳像素
+            _gridLineImage.texture  = _gridLineTex;
+        }
+
+        var pixels  = new Color32[texW * texH];
+        var lineCol = new Color32(160, 165, 190, 110);
+
+        if (faces != null)
+        {
+            int ox = Mathf.RoundToInt(faceViewOriginX);
+            int oy = Mathf.RoundToInt(faceViewOriginY);
+
+            foreach (var face in faces)
+            {
+                if (face == null) continue;
+                int cw  = face.GizmoCellW;
+                int ch  = face.GizmoCellH;
+                int lox = face.originX - ox;
+                int loy = face.originY - oy;
+
+                // 垂直線（欄邊界），畫 2px 寬確保縮放後仍可見
+                for (int col = 0; col <= face.colCount; col++)
+                {
+                    int rawX = lox + col * cw;
+                    if (rawX < 0 || rawX > texW) continue;
+                    int y0 = Mathf.Clamp(loy,                      0, texH - 1);
+                    int y1 = Mathf.Clamp(loy + face.rowCount * ch, 0, texH - 1);
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        int ty = texH - 1 - y;
+                        for (int dx = 0; dx < 2; dx++)
+                        {
+                            int tx = Mathf.Clamp(rawX + dx, 0, texW - 1);
+                            pixels[ty * texW + tx] = lineCol;
+                        }
+                    }
+                }
+
+                // 水平線（列邊界），畫 2px 高確保縮放後仍可見
+                for (int row = 0; row <= face.rowCount; row++)
+                {
+                    int cy = loy + row * ch;
+                    if (cy < 0 || cy > texH) continue;
+                    int x0 = Mathf.Clamp(lox,                      0, texW - 1);
+                    int x1 = Mathf.Clamp(lox + face.colCount * cw, 0, texW - 1);
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        for (int dy = 0; dy < 2; dy++)
+                        {
+                            int ty = Mathf.Clamp(texH - 1 - cy - dy, 0, texH - 1);
+                            pixels[ty * texW + x] = lineCol;
+                        }
+                    }
+                }
+            }
+        }
+
+        _gridLineTex.SetPixels32(pixels);
+        _gridLineTex.Apply();
+    }
+
+    void EnsureGridLineImage()
+    {
+        if (_gridLineImage != null) return;
+        var go = new GameObject("GridLineOverlay");
+        go.layer = 5;
+        go.transform.SetParent(controlGridParent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        _gridLineImage               = go.AddComponent<RawImage>();
+        _gridLineImage.raycastTarget = false;
+        go.transform.SetSiblingIndex(1); // 在 GameDisplayOverlay(0) 之後、格子之前
     }
 }

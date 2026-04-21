@@ -58,6 +58,25 @@ public partial class SensorTestManager
             _controlGridOffsetX, _controlGridOffsetY,
             displayW, displayH,
             _rotateDisplay90, cW, cH, _controlGridScale);
+
+        // 格線 Texture2D
+        SensorFaceConfig[] visibleFaces;
+        if (_viewFaceIdx >= 0 && _viewFaceIdx < _faces.Count)
+        {
+            visibleFaces = new[] { _faces[_viewFaceIdx].config };
+        }
+        else
+        {
+            visibleFaces = new SensorFaceConfig[_faces.Count];
+            for (int i = 0; i < _faces.Count; i++) visibleFaces[i] = _faces[i].config;
+        }
+        _overlay.UpdateGridLines(
+            _controlGridOffsetX, _controlGridOffsetY,
+            displayW, displayH,
+            _rotateDisplay90, cW, cH, _controlGridScale,
+            _faceViewOriginX, _faceViewOriginY,
+            (int)_faceViewWidth, (int)_faceViewHeight,
+            visibleFaces);
     }
 
     // ── 感應格（Display 2）建立 ───────────────────────────────────────────────

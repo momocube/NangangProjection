@@ -25,9 +25,8 @@ public class ControlTileCell : MonoBehaviour,
     /// <summary>按住時的觸發間隔（秒），模擬感應器連續送封包的頻率。</summary>
     const float HoldInterval = 0.05f; // 20 次/秒
 
-    // 格子顏色（idle/border 透明，讓後方遊戲畫面 / 感應格 RT 透出）
-    static readonly Color ColBorder = new Color(0.35f, 0.35f, 0.40f, 0.20f);  // 極淡邊框
-    static readonly Color ColIdle   = new Color(0f,    0f,    0f,    0f);      // 完全透明
+    // 格子顏色
+    static readonly Color ColIdle   = new Color(0f, 0f, 0f, 0f);  // 完全透明
     static readonly Color ColActive = new Color(0.90f, 0.10f, 0.10f, 0.90f);  // 紅色（90% 不透）
     static readonly Color ColLocked = new Color(0.85f, 0.72f, 0.00f, 0.90f);  // 黃色（90% 不透）
     static readonly Color ColHover  = new Color(0.20f, 0.22f, 0.30f, 0.40f);  // 半透明藍色懸停
@@ -43,19 +42,18 @@ public class ControlTileCell : MonoBehaviour,
 
     void Awake()
     {
-        // 根 Image = 邊框
-        var border = GetComponent<Image>();
-        border.color = ColBorder;
+        var root = GetComponent<Image>();
+        root.color = Color.clear;
 
-        // 內層填色
         var fillGO = new GameObject("Fill");
+        fillGO.layer = gameObject.layer;
         fillGO.transform.SetParent(transform, false);
         var fillRT = fillGO.AddComponent<RectTransform>();
         fillRT.anchorMin = Vector2.zero;
         fillRT.anchorMax = Vector2.one;
-        fillRT.offsetMin = new Vector2(1f,  0f);
-        fillRT.offsetMax = new Vector2(0f, -1f);
-        _fill = fillGO.AddComponent<Image>();
+        fillRT.offsetMin = Vector2.zero;
+        fillRT.offsetMax = Vector2.zero;
+        _fill               = fillGO.AddComponent<Image>();
         _fill.color         = ColIdle;
         _fill.raycastTarget = false;
     }
