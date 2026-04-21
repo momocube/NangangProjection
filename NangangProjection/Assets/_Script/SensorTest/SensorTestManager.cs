@@ -138,17 +138,12 @@ public partial class SensorTestManager : MonoBehaviour
 
     void Awake()
     {
-        // 先讀第一個 preset 取畫布尺寸
-        int w = 2048, h = 768;
-        if (presets != null && presets.Length > 0 && presets[0]?.canvasConfig != null)
-        {
-            w = presets[0].canvasConfig.canvasWidth;
-            h = presets[0].canvasConfig.canvasHeight;
-        }
+        // 用螢幕原生解析度啟動 Display 2，不綁定 canvas 尺寸
+        // RT mirror（ScreenSpaceOverlay RawImage）會自動填滿整個顯示器
         if (Display.displays.Length > 1)
-            Display.displays[1].Activate(w, h, 60);
+            Display.displays[1].Activate();
 
-        Debug.Log($"[SensorTest] 偵測到 {Display.displays.Length} 個螢幕 | Display 2 啟動 {w}×{h}");
+        Debug.Log($"[SensorTest] 偵測到 {Display.displays.Length} 個螢幕 | Display 2 啟動（原生解析度）");
     }
 
     IEnumerator Start()
