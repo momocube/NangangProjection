@@ -78,6 +78,10 @@ public partial class SensorTestManager : MonoBehaviour
 
     Text  _presetLabel;
 
+    Font          _uiFont;
+    RectTransform _faceSelectorParent;
+    Image[]       _faceSelectorBtnImages;
+
     // ── 載入面板 ──────────────────────────────────────────────────────────────
 
     GameObject    _loadingPanel;
@@ -97,6 +101,12 @@ public partial class SensorTestManager : MonoBehaviour
     float _controlGridScale   = 1f;
     float _controlGridOffsetX = 0f;
     float _controlGridOffsetY = 0f;
+
+    // ── 逐面檢視 ──────────────────────────────────────────────────────────────
+
+    int   _viewFaceIdx     = -1;   // -1 = 全覽；>=0 = 單面
+    float _faceViewOriginX, _faceViewOriginY;
+    float _faceViewWidth,   _faceViewHeight;
 
     // ── 拖曳互動 ──────────────────────────────────────────────────────────────
 
@@ -173,6 +183,7 @@ public partial class SensorTestManager : MonoBehaviour
         UpdateCooldownText();
         UpdateOverlayAlphaText();
         UpdatePresetLabel();
+        BuildFaceSelector();
 
 #if !UNITY_EDITOR
         StartCoroutine(FindDisplay2WindowCoroutine());
@@ -208,6 +219,7 @@ public partial class SensorTestManager : MonoBehaviour
     {
         _presetIdx    = idx;
         _canvasConfig = presets[idx].canvasConfig;
+        _viewFaceIdx  = -1;   // 切換場域時重設為全覽
         // _rotateDisplay90 由 CalcControlScale() 自動決定，此處不手動設定
         _faces.Clear();
         foreach (var fc in presets[idx].faces)
@@ -286,6 +298,7 @@ public partial class SensorTestManager : MonoBehaviour
 
         SetupSensorGridRT();
         NotifyOverlay();
+        BuildFaceSelector();
         UpdatePresetLabel();
         SetStatusIdle();
 
@@ -466,22 +479,25 @@ public partial class SensorTestManager : MonoBehaviour
         float cpx, cpy;
         if (_rotateDisplay90)
         {
-            // 90° CCW 反向：display (px,py) → canvas (canvasW - py/s, px/s)
             float dispX = (px - _controlGridOffsetX) / _controlGridScale;
             float dispY = (py - _controlGridOffsetY) / _controlGridScale;
-            cpx = _canvasConfig.canvasWidth  - dispY;
-            cpy = dispX;
+            cpx = _faceViewOriginX + _faceViewWidth - dispY;
+            cpy = _faceViewOriginY + dispX;
         }
         else
         {
-            cpx = (px - _controlGridOffsetX) / _controlGridScale;
-            cpy = (py - _controlGridOffsetY) / _controlGridScale;
+            cpx = _faceViewOriginX + (px - _controlGridOffsetX) / _controlGridScale;
+            cpy = _faceViewOriginY + (py - _controlGridOffsetY) / _controlGridScale;
         }
 
-        if (cpx < 0f || cpy < 0f ||
-            cpx >= _canvasConfig.canvasWidth || cpy >= _canvasConfig.canvasHeight) return false;
+        if (cpx < _faceViewOriginX || cpy < _faceViewOriginY ||
+            cpx >= _faceViewOriginX + _faceViewWidth ||
+            cpy >= _faceViewOriginY + _faceViewHeight) return false;
 
-        for (int fi = 0; fi < _faces.Count; fi++)
+        int faceStart = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
+        int faceEnd   = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
+
+        for (int fi = faceStart; fi < faceEnd; fi++)
         {
             var cfg = _faces[fi].config;
             if (cpx < cfg.originX || cpy < cfg.originY ||
@@ -494,6 +510,32 @@ public partial class SensorTestManager : MonoBehaviour
             return true;
         }
         return false;
+    }
+
+    // ── 按鈕回呼 ─────────────────────────────────────────────────────────────
+
+    // ── 逐面檢視 ──────────────────────────────────────────────────────────────
+
+    void OnFaceView(int fi)
+    {
+        if (_viewFaceIdx == fi) return;
+        _viewFaceIdx = fi;
+        BuildControlGrid();
+        NotifyOverlay();
+        UpdateFaceSelectorButtons();
+    }
+
+    void UpdateFaceSelectorButtons()
+    {
+        if (_faceSelectorBtnImages == null) return;
+        for (int i = 0; i < _faceSelectorBtnImages.Length; i++)
+        {
+            bool active = (i == 0) ? (_viewFaceIdx == -1) : (_viewFaceIdx == i - 1);
+            if (_faceSelectorBtnImages[i] != null)
+                _faceSelectorBtnImages[i].color = active
+                    ? new Color(0.20f, 0.35f, 0.55f)
+                    : new Color(0.12f, 0.14f, 0.20f);
+        }
     }
 
     // ── 按鈕回呼 ─────────────────────────────────────────────────────────────

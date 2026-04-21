@@ -13,12 +13,29 @@ public partial class SensorTestManager
 
     /// <summary>
     /// 計算等比縮放參數：自動選擇 0° 或 90° CW 旋轉，讓畫布在容器（w×h）中佔據最大面積。
-    /// 90° CW 時畫布橫放（canvasH 為顯示寬，canvasW 為顯示高）。
+    /// 逐面模式時，以該面的像素尺寸作為內容範圍。
     /// </summary>
     void CalcControlScale(float w, float h)
     {
-        int cW = _canvasConfig.canvasWidth;
-        int cH = _canvasConfig.canvasHeight;
+        int cW, cH;
+        if (_viewFaceIdx >= 0 && _viewFaceIdx < _faces.Count)
+        {
+            var fc = _faces[_viewFaceIdx].config;
+            cW = fc.TotalPixelWidth;
+            cH = fc.TotalPixelHeight;
+            _faceViewOriginX = fc.originX;
+            _faceViewOriginY = fc.originY;
+        }
+        else
+        {
+            cW = _canvasConfig.canvasWidth;
+            cH = _canvasConfig.canvasHeight;
+            _faceViewOriginX = 0f;
+            _faceViewOriginY = 0f;
+        }
+        _faceViewWidth  = cW;
+        _faceViewHeight = cH;
+
         float sNormal  = Mathf.Min(w / cW, h / cH);
         float sRotated = Mathf.Min(w / cH, h / cW);
         _rotateDisplay90    = sRotated > sNormal;
@@ -181,7 +198,15 @@ public partial class SensorTestManager
 
         CalcControlScale(w, h);
 
-        for (int fi = 0; fi < _faces.Count; fi++)
+        // 切換視圖前先清空所有面的 controlTile 參照，避免懸空引用
+        foreach (var fd in _faces)
+            for (int i = 0; i < fd.controlTiles.Length; i++)
+                fd.controlTiles[i] = null;
+
+        int faceStart = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
+        int faceEnd   = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
+
+        for (int fi = faceStart; fi < faceEnd; fi++)
         {
             var fd  = _faces[fi];
             var cfg = fd.config;
@@ -196,7 +221,7 @@ public partial class SensorTestManager
                 go.transform.SetParent(controlGridParent, false);
                 var rt = go.AddComponent<RectTransform>();
                 PositionControlCell(rt, cfg, c, r, _controlGridScale, _controlGridOffsetX, _controlGridOffsetY,
-                    _rotateDisplay90, _canvasConfig.canvasWidth);
+                    _rotateDisplay90, _faceViewWidth, _faceViewOriginX, _faceViewOriginY);
                 go.AddComponent<Image>();
                 var cell = go.AddComponent<ControlTileCell>();
                 cell.Init(c, r, cfg.colCount);
@@ -227,14 +252,22 @@ public partial class SensorTestManager
 
         CalcControlScale(w, h);
 
+        // 切換視圖前先清空所有面的 controlTile 參照，避免懸空引用
+        foreach (var fd in _faces)
+            for (int i = 0; i < fd.controlTiles.Length; i++)
+                fd.controlTiles[i] = null;
+
+        int faceStart  = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
+        int faceEnd    = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
         int totalCells = 0;
-        foreach (var fd in _faces) totalCells += fd.config.colCount * fd.config.rowCount;
+        for (int fi = faceStart; fi < faceEnd; fi++)
+            totalCells += _faces[fi].config.colCount * _faces[fi].config.rowCount;
         if (totalCells == 0) yield break;
 
         int built = 0;
         const int batchSize = 300;
 
-        for (int fi = 0; fi < _faces.Count; fi++)
+        for (int fi = faceStart; fi < faceEnd; fi++)
         {
             var fd  = _faces[fi];
             var cfg = fd.config;
@@ -249,7 +282,7 @@ public partial class SensorTestManager
                 go.transform.SetParent(controlGridParent, false);
                 var rt = go.AddComponent<RectTransform>();
                 PositionControlCell(rt, cfg, c, r, _controlGridScale, _controlGridOffsetX, _controlGridOffsetY,
-                    _rotateDisplay90, _canvasConfig.canvasWidth);
+                    _rotateDisplay90, _faceViewWidth, _faceViewOriginX, _faceViewOriginY);
                 go.AddComponent<Image>();
                 var cell = go.AddComponent<ControlTileCell>();
                 cell.Init(c, r, cfg.colCount);
@@ -277,22 +310,24 @@ public partial class SensorTestManager
     }
 
     /// <summary>在 controlGridParent 中以等比縮放定位格子（畫布像素 → 控制區像素）。
-    /// rotated90=true 時，將格子座標旋轉 90° CCW 後再定位。</summary>
+    /// rotated90=true 時，將格子座標旋轉 90° CCW 後再定位。
+    /// faceOriginX/Y：逐面模式下從格子座標中扣除，使該面從 (0,0) 起算。</summary>
     static void PositionControlCell(RectTransform rt, SensorFaceConfig cfg,
         int c, int r, float scale, float offsetX, float offsetY,
-        bool rotated90 = false, float canvasWidth = 0f)
+        bool rotated90 = false, float rotRefWidth = 0f,
+        float faceOriginX = 0f, float faceOriginY = 0f)
     {
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
         rt.pivot     = new Vector2(0f, 1f);
 
+        float cx = cfg.originX + c * cfg.GizmoCellW - faceOriginX;
+        float cy = cfg.originY + r * cfg.GizmoCellH - faceOriginY;
+
         if (rotated90)
         {
-            // 90° CCW：canvas (cx,cy) → display (cy, canvasW - cx - cellW)
-            float cx = cfg.originX + c * cfg.GizmoCellW;
-            float cy = cfg.originY + r * cfg.GizmoCellH;
             rt.anchoredPosition = new Vector2(
                  offsetX + cy * scale,
-                -(offsetY + (canvasWidth - cx - cfg.GizmoCellW) * scale)
+                -(offsetY + (rotRefWidth - cx - cfg.GizmoCellW) * scale)
             );
             rt.sizeDelta = new Vector2(
                 Mathf.Max(1f, cfg.GizmoCellH * scale),
@@ -302,8 +337,8 @@ public partial class SensorTestManager
         else
         {
             rt.anchoredPosition = new Vector2(
-                 offsetX + (cfg.originX + c * cfg.GizmoCellW) * scale,
-               -(offsetY + (cfg.originY + r * cfg.GizmoCellH) * scale)
+                 offsetX + cx * scale,
+               -(offsetY + cy * scale)
             );
             rt.sizeDelta = new Vector2(
                 Mathf.Max(1f, cfg.GizmoCellW * scale),

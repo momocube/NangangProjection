@@ -16,8 +16,9 @@ public partial class SensorTestManager
         var root = controlGridParent.parent as RectTransform;
         if (root == null) return;
 
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        _uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (_uiFont == null) _uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        var font = _uiFont;
 
         // 深色背景
         CreatePanel(root, "PrimaryBG", new Color(0.05f, 0.05f, 0.08f),
@@ -79,16 +80,59 @@ public partial class SensorTestManager
 
     void BuildPresetSelector(RectTransform parent, Font font)
     {
-        // [◀]  場域名稱  [▶]
-        CreateButton(parent, "BtnPresetPrev", "◀", OnPresetPrev, 0f,    0.20f, font);
+        // 上半（50%）：[◀] 場域名稱 [▶]
+        var presetRow = CreatePanel(parent, "PresetRow", Color.clear,
+            new Vector2(0f, 0.50f), Vector2.one, Vector2.zero, Vector2.zero);
+        presetRow.GetComponent<Image>().raycastTarget = false;
 
-        var labelBg = CreatePanel(parent, "PresetLabelBg", new Color(0.10f, 0.12f, 0.18f),
-            new Vector2(0.20f, 0.15f), new Vector2(0.80f, 0.85f), Vector2.zero, Vector2.zero);
+        CreateButton(presetRow, "BtnPresetPrev", "◀", OnPresetPrev, 0f,    0.20f, font);
+        var labelBg = CreatePanel(presetRow, "PresetLabelBg", new Color(0.10f, 0.12f, 0.18f),
+            new Vector2(0.20f, 0.10f), new Vector2(0.80f, 0.90f), Vector2.zero, Vector2.zero);
         labelBg.GetComponent<Image>().raycastTarget = false;
         _presetLabel = AddText(labelBg.transform, "PresetLabel", "—",
-            13, TextAnchor.MiddleCenter, new Color(0.85f, 0.90f, 1.00f), font);
+            12, TextAnchor.MiddleCenter, new Color(0.85f, 0.90f, 1.00f), font);
+        CreateButton(presetRow, "BtnPresetNext", "▶", OnPresetNext, 0.80f, 1.00f, font);
 
-        CreateButton(parent, "BtnPresetNext", "▶", OnPresetNext, 0.80f, 1.00f, font);
+        // 下半（50%）：逐面選擇（由 BuildFaceSelector() 動態填入）
+        _faceSelectorParent = CreatePanel(parent, "FaceRow", Color.clear,
+            Vector2.zero, new Vector2(1f, 0.50f), Vector2.zero, Vector2.zero);
+        _faceSelectorParent.GetComponent<Image>().raycastTarget = false;
+    }
+
+    void BuildFaceSelector()
+    {
+        if (_faceSelectorParent == null || _uiFont == null) return;
+
+        for (int i = _faceSelectorParent.childCount - 1; i >= 0; i--)
+            Destroy(_faceSelectorParent.GetChild(i).gameObject);
+
+        int faceCount = _faces.Count;
+        int btnCount  = faceCount + 1;   // +1 for "全"
+        float btnW    = 1f / btnCount;
+
+        _faceSelectorBtnImages = new Image[btnCount];
+
+        // "全覽" 按鈕
+        var allTxt = CreateButton(_faceSelectorParent, "BtnFaceAll", "全",
+            () => OnFaceView(-1), 0f, btnW, _uiFont);
+        allTxt.fontSize = 11;
+        _faceSelectorBtnImages[0] = allTxt.transform.parent.GetComponent<Image>();
+
+        for (int i = 0; i < faceCount; i++)
+        {
+            int   capturedFi = i;
+            string rawName   = _faces[i].config.faceName;
+            // 最多取前兩個字元以符合按鈕寬度
+            string label = rawName.Length > 2 ? rawName.Substring(0, 2) : rawName;
+            float xMin = (i + 1) * btnW;
+            float xMax = (i + 2) * btnW;
+            var txt = CreateButton(_faceSelectorParent, $"BtnFace{i}", label,
+                () => OnFaceView(capturedFi), xMin, xMax, _uiFont);
+            txt.fontSize = 11;
+            _faceSelectorBtnImages[i + 1] = txt.transform.parent.GetComponent<Image>();
+        }
+
+        UpdateFaceSelectorButtons();
     }
 
     void OnPresetPrev() => SwitchPreset((_presetIdx - 1 + presets.Length) % presets.Length);
