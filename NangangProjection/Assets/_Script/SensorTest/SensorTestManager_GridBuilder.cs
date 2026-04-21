@@ -38,7 +38,9 @@ public partial class SensorTestManager
 
         float sNormal  = Mathf.Min(w / cW, h / cH);
         float sRotated = Mathf.Min(w / cH, h / cW);
-        _rotateDisplay90    = sRotated > sNormal;
+        // 讀取 preset 的旋轉設定；preset 不存在時以填滿面積自動選擇
+        var _activePreset = (presets != null && _presetIdx < presets.Length) ? presets[_presetIdx] : null;
+        _rotateDisplay90    = _activePreset != null ? _activePreset.rotateDisplay90 : sRotated > sNormal;
         float displayW      = _rotateDisplay90 ? cH : cW;
         float displayH      = _rotateDisplay90 ? cW : cH;
         _controlGridScale   = _rotateDisplay90 ? sRotated : sNormal;
@@ -226,6 +228,9 @@ public partial class SensorTestManager
         int faceEnd   = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
 
         for (int fi = faceStart; fi < faceEnd; fi++)
+            AddFaceBackground(_faces[fi].config);
+
+        for (int fi = faceStart; fi < faceEnd; fi++)
         {
             var fd  = _faces[fi];
             var cfg = fd.config;
@@ -278,6 +283,10 @@ public partial class SensorTestManager
 
         int faceStart  = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
         int faceEnd    = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
+
+        for (int fi = faceStart; fi < faceEnd; fi++)
+            AddFaceBackground(_faces[fi].config);
+
         int totalCells = 0;
         for (int fi = faceStart; fi < faceEnd; fi++)
             totalCells += _faces[fi].config.colCount * _faces[fi].config.rowCount;
@@ -320,6 +329,64 @@ public partial class SensorTestManager
             }
         }
         SetLoadingProgress(progressEnd);
+    }
+
+    void AddFaceBackground(SensorFaceConfig cfg)
+    {
+        var go = new GameObject($"FaceBG_{cfg.faceName}");
+        go.layer = 5;
+        go.transform.SetParent(controlGridParent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 1f);
+
+        float s  = _controlGridScale;
+        float cx = cfg.originX - _faceViewOriginX;
+        float cy = cfg.originY - _faceViewOriginY;
+
+        if (_rotateDisplay90)
+        {
+            rt.anchoredPosition = new Vector2(
+                 _controlGridOffsetX + cy * s,
+                -(_controlGridOffsetY + (_faceViewWidth - cx - cfg.TotalPixelWidth) * s)
+            );
+            rt.sizeDelta = new Vector2(
+                cfg.TotalPixelHeight * s,
+                cfg.TotalPixelWidth  * s
+            );
+        }
+        else
+        {
+            rt.anchoredPosition = new Vector2(
+                 _controlGridOffsetX + cx * s,
+                -(_controlGridOffsetY + cy * s)
+            );
+            rt.sizeDelta = new Vector2(
+                cfg.TotalPixelWidth  * s,
+                cfg.TotalPixelHeight * s
+            );
+        }
+
+        var img = go.AddComponent<Image>();
+        var col = cfg.gizmoColor;
+        img.color = new Color(col.r, col.g, col.b, 0.12f);
+        img.raycastTarget = false;
+
+        var labelGO = new GameObject("Label");
+        labelGO.layer = 5;
+        labelGO.transform.SetParent(go.transform, false);
+        var labelRT = labelGO.AddComponent<RectTransform>();
+        labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
+        var txt = labelGO.AddComponent<Text>();
+        txt.text          = cfg.faceName;
+        txt.font          = _uiFont;
+        txt.fontSize      = 11;
+        txt.alignment     = TextAnchor.MiddleCenter;
+        txt.color         = new Color(col.r, col.g, col.b, 0.60f);
+        txt.raycastTarget = false;
+
+        go.transform.SetSiblingIndex(2);
     }
 
     IEnumerator RebuildControlGridNextFrame()
