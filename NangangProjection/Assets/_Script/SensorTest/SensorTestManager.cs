@@ -612,6 +612,10 @@ public partial class SensorTestManager : MonoBehaviour
         _gameTileVisible = visible;
         if (_canvasSecondary != null) _canvasSecondary.SetActive(visible);
         if (_display2MirrorCanvas != null) _display2MirrorCanvas.SetActive(visible);
+        if (visible)
+            foreach (var f in _faces)
+                foreach (var t in f.sensorTiles)
+                    if (t != null && !f.locked[t.index % f.locked.Length]) t.ResetToIdle();
 #if !UNITY_EDITOR
         if (_display2Hwnd != System.IntPtr.Zero)
             ShowWindow(_display2Hwnd, visible ? SW_SHOW : SW_HIDE);

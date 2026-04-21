@@ -56,6 +56,13 @@ public class SensorTileCell : MonoBehaviour
         RefreshColor();
     }
 
+    /// <summary>Canvas 重新顯示時強制還原 idle 狀態（中斷的 Coroutine 不會自動還原顏色）。</summary>
+    public void ResetToIdle()
+    {
+        if (_activeRoutine != null) { StopCoroutine(_activeRoutine); _activeRoutine = null; }
+        RefreshColor();
+    }
+
     /// <summary>由 SensorTestManager 呼叫，觸發 1.5 秒亮紅。</summary>
     public void Activate()
     {
