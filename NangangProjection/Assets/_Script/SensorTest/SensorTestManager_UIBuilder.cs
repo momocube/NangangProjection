@@ -58,17 +58,23 @@ public partial class SensorTestManager
             Vector2.zero, new Vector2(1f, 0f),
             new Vector2(0f, 38f), new Vector2(0f, 90f));
 
-        CreateButton(btnBar, "BtnQuit",   "離開遊戲", OnQuit,      0f,    1f/5f, font);
+        CreateButton(btnBar, "BtnQuit",    "離開遊戲",   OnQuit,               0f,    1f/7f, font);
         _smartLockBtnText =
-        CreateButton(btnBar, "BtnSmart",  "智慧鎖格", OnSmartLock, 1f/5f, 2f/5f, font);
+        CreateButton(btnBar, "BtnSmart",   "智慧鎖格",   OnSmartLock,          1f/7f, 2f/7f, font);
         _smartLockBtnImage = _smartLockBtnText.transform.parent.GetComponent<Image>();
-        CreateButton(btnBar, "BtnUnlock", "解除鎖格", OnUnlockAll, 2f/5f, 3f/5f, font);
+        CreateButton(btnBar, "BtnUnlock",  "解除鎖格",   OnUnlockAll,          2f/7f, 3f/7f, font);
         _gameTileBtnText =
-        CreateButton(btnBar, "BtnGameTile", "晶片示意 ✓", OnToggleGameTile, 3f/5f, 4f/5f, font);
+        CreateButton(btnBar, "BtnGameTile","晶片示意 ✓", OnToggleGameTile,     3f/7f, 4f/7f, font);
         _gameTileBtnImage = _gameTileBtnText.transform.parent.GetComponent<Image>();
         _clickModeBtnText =
-        CreateButton(btnBar, "BtnClickMode", "滑鼠點擊 ✓", OnToggleClickMode, 4f/5f, 1f, font);
+        CreateButton(btnBar, "BtnClickMode","滑鼠點擊 ✓",OnToggleClickMode,    4f/7f, 5f/7f, font);
         _clickModeBtnImage = _clickModeBtnText.transform.parent.GetComponent<Image>();
+        _gridLineBtnText =
+        CreateButton(btnBar, "BtnGridLine","格線 ✓",     OnToggleGridLine,     5f/7f, 6f/7f, font);
+        _gridLineBtnImage = _gridLineBtnText.transform.parent.GetComponent<Image>();
+        _screenOverlayBtnText =
+        CreateButton(btnBar, "BtnScreenOverlay","疊加 ✓",OnToggleScreenOverlay,6f/7f, 1f,    font);
+        _screenOverlayBtnImage = _screenOverlayBtnText.transform.parent.GetComponent<Image>();
 
         // 靈敏度列 (38 px)
         var sensBar = CreatePanel(root, "SensitivityBar", new Color(0.06f, 0.08f, 0.12f),

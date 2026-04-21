@@ -31,11 +31,11 @@ public class SensorFaceConfig : ScriptableObject
     public int colCount = 128;  // 畫面 X 方向格數
     public int rowCount = 24;   // 畫面 Y 方向格數
 
-    [Header("原始感應值範圍")]
-    public float rawMinX;
-    public float rawMaxX = 4095;
-    public float rawMinY;
-    public float rawMaxY = 4095;
+    [Header("原始感應值範圍（由 VenuePresetConfig 畫布校準值自動算出，不需手動填寫）")]
+    [HideInInspector] public float rawMinX;
+    [HideInInspector] public float rawMaxX = 4095;
+    [HideInInspector] public float rawMinY;
+    [HideInInspector] public float rawMaxY = 4095;
 
     [Header("座標翻轉（方向裝反時勾選）")]
     public bool flipX;
@@ -68,9 +68,14 @@ public class SensorFaceConfig : ScriptableObject
 
     /// <summary>換算原始感應值 → 格子座標（col = 畫面 X，row = 畫面 Y）</summary>
     public (int col, int row) RawToCell(float rawX, float rawY)
+        => RawToCell(rawX, rawY, rawMinX, rawMaxX, rawMinY, rawMaxY);
+
+    /// <summary>換算原始感應值 → 格子座標，使用外部傳入的有效範圍（由 VenuePresetConfig 畫布校準值計算）</summary>
+    public (int col, int row) RawToCell(float rawX, float rawY,
+        float minX, float maxX, float minY, float maxY)
     {
-        float nx = Mathf.Clamp01((rawX - rawMinX) / (rawMaxX - rawMinX));
-        float ny = Mathf.Clamp01((rawY - rawMinY) / (rawMaxY - rawMinY));
+        float nx = Mathf.Clamp01((rawX - minX) / (maxX - minX));
+        float ny = Mathf.Clamp01((rawY - minY) / (maxY - minY));
 
         if (flipX) nx = 1f - nx;
         if (flipY) ny = 1f - ny;

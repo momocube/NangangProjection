@@ -16,3 +16,8 @@ MonoBehaviour:
   canvasConfig: {fileID: 11400000, guid: 1276ddaeded4be147905fe485e391b3a, type: 2}
   faces:
   - {fileID: 11400000, guid: ac943813c9518e0428bf6b9acfffc1f2, type: 2}
+  rotateDisplay90: 0
+  canvasRawMinX: 1928
+  canvasRawMaxX: 3960
+  canvasRawMinY: 16
+  canvasRawMaxY: 752

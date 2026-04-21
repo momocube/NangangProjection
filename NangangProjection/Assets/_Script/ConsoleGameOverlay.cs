@@ -260,6 +260,18 @@ public class ConsoleGameOverlay : MonoBehaviour
         _gridLineTex.Apply();
     }
 
+    public void SetGridLineVisible(bool visible)
+    {
+        if (_gridLineImage != null)
+            _gridLineImage.gameObject.SetActive(visible);
+    }
+
+    public void SetScreenOverlayVisible(bool visible)
+    {
+        if (_overlayImage != null)
+            _overlayImage.gameObject.SetActive(visible);
+    }
+
     void EnsureGridLineImage()
     {
         if (_gridLineImage != null) return;

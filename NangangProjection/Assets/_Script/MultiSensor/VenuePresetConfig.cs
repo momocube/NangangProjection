@@ -19,4 +19,15 @@ public class VenuePresetConfig : ScriptableObject
     [Header("控制格顯示旋轉")]
     [Tooltip("開啟時：控制格顯示旋轉 90° CCW（直向畫布建議開啟，讓畫面在橫向螢幕填滿更多空間）。")]
     public bool rotateDisplay90 = false;
+
+    [Header("感應座標校準（整體畫布四角測試）")]
+    [Tooltip("在整個畫布的四個角踩出的原始感應值。程式會依各面的 originX/Y 與格數自動算出每個面的有效範圍。留 0 表示未設定，回退至各面 SensorFaceConfig 的 rawMin/Max。")]
+    public float canvasRawMinX;
+    public float canvasRawMaxX;
+    public float canvasRawMinY;
+    public float canvasRawMaxY;
+
+    [Tooltip("感應實際涵蓋的像素範圍（四角測試踩得到的區域）。若小於畫布尺寸（例如 3328 < 3840），填入此值讓比例計算正確。留 0 表示與畫布同尺寸。")]
+    public int sensorAreaWidth;
+    public int sensorAreaHeight;
 }

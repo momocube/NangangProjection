@@ -44,6 +44,8 @@ public partial class SensorTestManager : MonoBehaviour
         public ControlTileCell[] controlTiles;
         public bool[]            locked;
         public int               lockedCount;
+        // 由畫布校準值計算得出的有效感應範圍（取代 config.rawMin/Max）
+        public float rawMinX, rawMaxX, rawMinY, rawMaxY;
     }
 
     int                  _presetIdx;
@@ -72,6 +74,14 @@ public partial class SensorTestManager : MonoBehaviour
     Text  _cooldownText;
     Text  _cooldownToggleBtnText;
     Image _cooldownToggleBtnImage;
+
+    bool  _gridLineVisible      = true;
+    Text  _gridLineBtnText;
+    Image _gridLineBtnImage;
+
+    bool  _screenOverlayVisible = true;
+    Text  _screenOverlayBtnText;
+    Image _screenOverlayBtnImage;
 
     ConsoleGameOverlay _overlay;
     Text               _overlayAlphaText;
@@ -228,7 +238,51 @@ public partial class SensorTestManager : MonoBehaviour
                 locked       = new bool[fc.colCount * fc.rowCount],
                 lockedCount  = 0
             };
+            ComputeFaceRawBounds(fd, presets[idx]);
             _faces.Add(fd);
+        }
+    }
+
+    /// <summary>
+    /// 依畫布四角校準值與面的幾何位置，計算各面有效的原始感應範圍。
+    /// 若 VenuePresetConfig 未設定校準值（canvasRawMaxX == 0），回退至 SensorFaceConfig 欄位。
+    /// </summary>
+    void ComputeFaceRawBounds(FaceData fd, VenuePresetConfig preset)
+    {
+        var cfg = fd.config;
+        if (preset.canvasRawMaxX == 0f)
+        {
+            // 未校準：沿用 SensorFaceConfig 內的值（向後相容）
+            fd.rawMinX = cfg.rawMinX;
+            fd.rawMaxX = cfg.rawMaxX;
+            fd.rawMinY = cfg.rawMinY;
+            fd.rawMaxY = cfg.rawMaxY;
+            return;
+        }
+
+        float cw = preset.sensorAreaWidth  > 0 ? preset.sensorAreaWidth
+                 : (_canvasConfig != null ? _canvasConfig.canvasWidth  : 2048f);
+        float ch = preset.sensorAreaHeight > 0 ? preset.sensorAreaHeight
+                 : (_canvasConfig != null ? _canvasConfig.canvasHeight : 768f);
+
+        float facePixelW = cfg.TotalPixelWidth;
+        float facePixelH = cfg.TotalPixelHeight;
+
+        if (cfg.orientation == SensorFaceConfig.ChipOrientation.橫)
+        {
+            // rawX ↔ 畫面 X，rawY ↔ 畫面 Y
+            fd.rawMinX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, cfg.originX / cw);
+            fd.rawMaxX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, (cfg.originX + facePixelW) / cw);
+            fd.rawMinY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, cfg.originY / ch);
+            fd.rawMaxY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, (cfg.originY + facePixelH) / ch);
+        }
+        else
+        {
+            // rawX ↔ 畫面 Y，rawY ↔ 畫面 X
+            fd.rawMinX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, cfg.originY / ch);
+            fd.rawMaxX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, (cfg.originY + facePixelH) / ch);
+            fd.rawMinY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, cfg.originX / cw);
+            fd.rawMaxY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, (cfg.originX + facePixelW) / cw);
         }
     }
 
@@ -316,11 +370,11 @@ public partial class SensorTestManager : MonoBehaviour
             var cfg = fd.config;
 
             // 過濾明顯超出此面範圍的封包（各面 rawMin/Max 不同，避免跨面觸發）
-            float nx = Mathf.InverseLerp(cfg.rawMinX, cfg.rawMaxX, rawX);
-            float ny = Mathf.InverseLerp(cfg.rawMinY, cfg.rawMaxY, rawY);
+            float nx = Mathf.InverseLerp(fd.rawMinX, fd.rawMaxX, rawX);
+            float ny = Mathf.InverseLerp(fd.rawMinY, fd.rawMaxY, rawY);
             if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) continue;
 
-            var (col, row) = cfg.RawToCell(rawX, rawY);
+            var (col, row) = cfg.RawToCell(rawX, rawY, fd.rawMinX, fd.rawMaxX, fd.rawMinY, fd.rawMaxY);
             ActivateCell(fi, row * cfg.colCount + col);
         }
     }
@@ -630,6 +684,38 @@ public partial class SensorTestManager : MonoBehaviour
     // ── 點擊模式切換 ──────────────────────────────────────────────────────────
 
     void OnToggleGameTile()  => SetGameTileVisible(!_gameTileVisible);
+
+    void OnToggleGridLine()
+    {
+        _gridLineVisible = !_gridLineVisible;
+        _overlay?.SetGridLineVisible(_gridLineVisible);
+        UpdateGridLineButton();
+    }
+
+    void UpdateGridLineButton()
+    {
+        if (_gridLineBtnText  != null) _gridLineBtnText.text = _gridLineVisible ? "格線 ✓" : "格線";
+        if (_gridLineBtnImage != null)
+            _gridLineBtnImage.color = _gridLineVisible
+                ? new Color(0.15f, 0.18f, 0.25f)
+                : new Color(0.30f, 0.18f, 0.12f);
+    }
+
+    void OnToggleScreenOverlay()
+    {
+        _screenOverlayVisible = !_screenOverlayVisible;
+        _overlay?.SetScreenOverlayVisible(_screenOverlayVisible);
+        UpdateScreenOverlayButton();
+    }
+
+    void UpdateScreenOverlayButton()
+    {
+        if (_screenOverlayBtnText  != null) _screenOverlayBtnText.text = _screenOverlayVisible ? "疊加 ✓" : "疊加";
+        if (_screenOverlayBtnImage != null)
+            _screenOverlayBtnImage.color = _screenOverlayVisible
+                ? new Color(0.15f, 0.18f, 0.25f)
+                : new Color(0.30f, 0.18f, 0.12f);
+    }
 
     void OnToggleClickMode()
     {

@@ -11,10 +11,9 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc2ddbd61cc4488459899e3cef2b16f9, type: 3}
   m_Name: Preset_2688x3840
-  m_EditorClassIdentifier:
+  m_EditorClassIdentifier: 
   presetName: "\u5149\u57DF704 2688\xD73840"
   canvasConfig: {fileID: 11400000, guid: cfc1f27b6534ce3498e75d4d0ddba684, type: 2}
-  rotateDisplay90: 1
   faces:
   - {fileID: 11400000, guid: f04948127e14acf43b923fa372bbf3b5, type: 2}
   - {fileID: 11400000, guid: f7c005a27f251fc48beed9bb74bacddc, type: 2}
@@ -23,3 +22,10 @@ MonoBehaviour:
   - {fileID: 11400000, guid: c875b0b260d12a64a889b57ac5f27887, type: 2}
   - {fileID: 11400000, guid: efc2dbf0957c6d74097f09ea1b285302, type: 2}
   - {fileID: 11400000, guid: 08a26bb0027fcea44a7dcb9218442d21, type: 2}
+  rotateDisplay90: 1
+  canvasRawMinX: 1928
+  canvasRawMaxX: 4600
+  canvasRawMinY: 16
+  canvasRawMaxY: 3312
+  sensorAreaWidth: 2688
+  sensorAreaHeight: 3328
