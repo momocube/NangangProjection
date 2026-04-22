@@ -201,9 +201,13 @@ public partial class SensorTestManager
     {
         if (controlGridParent == null || _canvasConfig == null) return;
 
-        // 清除舊格子
+        // 清除舊格子（保留 ConsoleGameOverlay 建立的 GameDisplayOverlay / GridLineOverlay）
         for (int i = controlGridParent.childCount - 1; i >= 0; i--)
-            Destroy(controlGridParent.GetChild(i).gameObject);
+        {
+            var child = controlGridParent.GetChild(i);
+            if (child.name == "GameDisplayOverlay" || child.name == "GridLineOverlay") continue;
+            Destroy(child.gameObject);
+        }
 
         // 移除 GridLayoutGroup（改用絕對定位）
         var oldGlg = controlGridParent.GetComponent<GridLayoutGroup>();
@@ -228,8 +232,9 @@ public partial class SensorTestManager
         int faceStart = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
         int faceEnd   = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
 
-        for (int fi = faceStart; fi < faceEnd; fi++)
-            AddFaceBackground(_faces[fi].config);
+        if (faceEnd - faceStart > 1)
+            for (int fi = faceStart; fi < faceEnd; fi++)
+                AddFaceBackground(_faces[fi].config);
 
         for (int fi = faceStart; fi < faceEnd; fi++)
         {
@@ -265,7 +270,11 @@ public partial class SensorTestManager
         if (controlGridParent == null || _canvasConfig == null) yield break;
 
         for (int i = controlGridParent.childCount - 1; i >= 0; i--)
-            Destroy(controlGridParent.GetChild(i).gameObject);
+        {
+            var child = controlGridParent.GetChild(i);
+            if (child.name == "GameDisplayOverlay" || child.name == "GridLineOverlay") continue;
+            Destroy(child.gameObject);
+        }
 
         var oldGlg = controlGridParent.GetComponent<GridLayoutGroup>();
         if (oldGlg != null) Destroy(oldGlg);
@@ -282,11 +291,12 @@ public partial class SensorTestManager
             for (int i = 0; i < fd.controlTiles.Length; i++)
                 fd.controlTiles[i] = null;
 
-        int faceStart  = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
-        int faceEnd    = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
+        int faceStart = _viewFaceIdx >= 0 ? _viewFaceIdx : 0;
+        int faceEnd   = _viewFaceIdx >= 0 ? _viewFaceIdx + 1 : _faces.Count;
 
-        for (int fi = faceStart; fi < faceEnd; fi++)
-            AddFaceBackground(_faces[fi].config);
+        if (faceEnd - faceStart > 1)
+            for (int fi = faceStart; fi < faceEnd; fi++)
+                AddFaceBackground(_faces[fi].config);
 
         int totalCells = 0;
         for (int fi = faceStart; fi < faceEnd; fi++)
@@ -449,6 +459,12 @@ public partial class SensorTestManager
         int h = _canvasConfig.canvasHeight;
 
         var rt = SensorGridRT.GetOrCreate(w, h);
+
+        // 清除舊畫面，避免 SensorGridCam 第一幀前 overlay 顯示殘影
+        var prev = RenderTexture.active;
+        RenderTexture.active = rt;
+        GL.Clear(true, true, new Color(0.04f, 0.04f, 0.05f));
+        RenderTexture.active = prev;
 
         // 建立 SensorCam
         var camGO = new GameObject("SensorGridCam");

@@ -661,6 +661,8 @@ public partial class SensorTestManager : MonoBehaviour
 
     // ── 晶片示意（Display 2）開關 ─────────────────────────────────────────────
 
+    public bool GameTileVisible => _gameTileVisible;
+
     public void SetGameTileVisible(bool visible)
     {
         _gameTileVisible = visible;

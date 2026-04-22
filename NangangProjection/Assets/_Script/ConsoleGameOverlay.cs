@@ -29,6 +29,7 @@ public class ConsoleGameOverlay : MonoBehaviour
     // 內部狀態
     private RawImage      _overlayImage;
     private Texture       _lastTex;
+    private RenderTexture _lastGameRT;
     private SensorTestManager _stm;
     private float         _overlayDisplayW, _overlayDisplayH;
 
@@ -39,32 +40,28 @@ public class ConsoleGameOverlay : MonoBehaviour
     private void Start()
     {
         _stm = GetComponent<SensorTestManager>();
-        BuildOverlayImage();
     }
 
     private void Update()
     {
-        // 優先：Display2ScreenCapture 截圖（整個 Display 2 螢幕畫面）
-        // 退後：遊戲 RT → 感應格 RT（原有邏輯）
-        Texture tex;
-        bool usingScreenCapture = Display2ScreenCapture.Instance != null;
+        // 優先順序：
+        //   1. GameDisplayRT  — 遊戲場景 Mirror Camera RT
+        //   2. SensorGridRT   — 晶片示意 ON 時，Unity Camera 捕捉感應格
+        //   3. Display2ScreenCapture — 晶片示意 OFF 時，GDI 桌面截圖（顯示 D2 桌面/瀏覽器）
+        bool tilesVisible = _stm == null || _stm.GameTileVisible;
+        RenderTexture rt = GameDisplayRT.Current ?? (tilesVisible ? SensorGridRT.Current : null);
+        Texture tex = rt;
 
-        if (usingScreenCapture)
+        // 只追蹤 GameDisplayRT 的載入/卸載，同步 Canvas_Secondary 顯示
+        var gameRT = GameDisplayRT.Current;
+        if (gameRT != _lastGameRT)
         {
+            _lastGameRT = gameRT;
+            _stm?.SetGameTileVisible(gameRT == null);
+        }
+
+        if (tex == null && Display2ScreenCapture.Instance != null)
             tex = Display2ScreenCapture.Instance.CaptureTexture;
-        }
-        else
-        {
-            RenderTexture rt = GameDisplayRT.Current ?? SensorGridRT.Current;
-            tex = rt;
-
-            // RT 模式：遊戲載入 / 卸載時同步 Canvas_Secondary 顯示
-            if (rt != _lastTex)
-            {
-                bool gameLoaded = GameDisplayRT.Current != null;
-                _stm?.SetGameTileVisible(!gameLoaded);
-            }
-        }
 
         if (tex != _lastTex)
         {
@@ -85,6 +82,7 @@ public class ConsoleGameOverlay : MonoBehaviour
 
     private void BuildOverlayImage()
     {
+        if (_overlayImage != null) return; // 已存在則跳過
         if (controlGridParent == null)
         {
             Debug.LogWarning("[ConsoleGameOverlay] controlGridParent 未設定");
@@ -117,6 +115,9 @@ public class ConsoleGameOverlay : MonoBehaviour
         // ★ 插在控制格所有子物件「最前面」（sibling index 0 = 渲染在最後 = 晶片格蓋在上面）
         go.transform.SetSiblingIndex(0);
 
+        // 重置快取，讓 Update() 強制重新賦值 texture（_lastTex 殘留舊值會跳過賦值）
+        _lastTex = null;
+
         Debug.Log($"[ConsoleGameOverlay] 疊加層建立於 controlGridParent 內部，index=0");
     }
 
@@ -132,6 +133,7 @@ public class ConsoleGameOverlay : MonoBehaviour
         float displayW, float displayH,
         bool rotate90, int canvasW, int canvasH, float scale)
     {
+        BuildOverlayImage(); // 若被 BuildControlGrid 清除則重建
         if (_overlayImage == null) return;
         _overlayDisplayW = displayW;
         _overlayDisplayH = displayH;
