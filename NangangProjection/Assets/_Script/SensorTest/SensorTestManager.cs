@@ -25,6 +25,10 @@ public partial class SensorTestManager : MonoBehaviour
     [Header("場域預設（Inspector 設定，至少一個）")]
     public VenuePresetConfig[] presets;
 
+    [Header("UI 選項")]
+    [Tooltip("顯示標題列右側的場域切換 ◀/▶（多場域場景使用）")]
+    public bool showPresetSelector = true;
+
     [Header("場景引用（Inspector 設定）")]
     public RectTransform controlGridParent;   // Canvas_Primary 的子容器
     public RectTransform sensorGridParent;    // Canvas_Secondary 的子容器

@@ -29,20 +29,24 @@ public partial class SensorTestManager
             new Vector2(0f, 1f), new Vector2(1f, 1f),
             new Vector2(0f, -58f), Vector2.zero);
 
-        // 標題（左側 55%）
+        // 標題（showPresetSelector = false 時佔滿整列）
+        float titleRight = showPresetSelector ? 0.55f : 1f;
         var titleArea = CreatePanel(header, "TitleArea", Color.clear,
-            new Vector2(0f, 0f), new Vector2(0.55f, 1f), Vector2.zero, Vector2.zero);
+            new Vector2(0f, 0f), new Vector2(titleRight, 1f), Vector2.zero, Vector2.zero);
         titleArea.GetComponent<Image>().raycastTarget = false;
         var titleTxt = AddText(titleArea.transform, "TitleText",
             "感應測試控制台",
             18, TextAlignmentOptions.MidlineLeft, new Color(0.80f, 0.85f, 1.00f), font);
         (titleTxt.transform as RectTransform).offsetMin = new Vector2(12f, 0f);
 
-        // 場域選擇（右側 45%）
-        var presetArea = CreatePanel(header, "PresetArea", Color.clear,
-            new Vector2(0.55f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
-        presetArea.GetComponent<Image>().raycastTarget = false;
-        BuildPresetSelector(presetArea, font);
+        // 場域選擇（右側 45%，多場域才顯示）
+        if (showPresetSelector)
+        {
+            var presetArea = CreatePanel(header, "PresetArea", Color.clear,
+                new Vector2(0.55f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+            presetArea.GetComponent<Image>().raycastTarget = false;
+            BuildPresetSelector(presetArea, font);
+        }
 
         // 底部狀態列 (38 px)
         var status = CreatePanel(root, "StatusBar", new Color(0.07f, 0.09f, 0.13f),
