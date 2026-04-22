@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0034c6d3aa7bd3c45a0cd2b8f3f545ce, type: 3}
   m_Name: Face_Back_Right_Center
   m_EditorClassIdentifier: 
-  faceName: "\u524D\u65B9\u87A2\u5E55\uFF08\u7D05\uFF09"
+  faceName: "\u53F3\u4E2D"
   gizmoColor: {r: 0, g: 1, b: 0.9832821, a: 1}
   showInVisualizer: 0
   originX: 2048
