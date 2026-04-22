@@ -116,7 +116,7 @@ rawMinY = 16    rawMaxY = 752
    - EventSystem：`76c392e42b5098c458856cdf6ecaaaa1`
    - StandaloneInputModule：`4f231c4fb786f3946a6b90b886c48677`
 3. **Display 2 不顯示**：需要 `Display.displays[1].Activate()` 且 Windows 設為延伸顯示（非複製）
-4. **TMP 未安裝**：此專案不使用 TextMeshPro，用 `UnityEngine.UI.Text` 代替
+4. **TMP 已啟用**：控制台 UI 全面改用 `TextMeshProUGUI`（`com.unity.textmeshpro: 3.0.7`）。`InputField` 例外，仍保留 `UnityEngine.UI.Text`。預設字體由 `TMP_Settings.defaultFontAsset` 決定，需確認已設定支援中文的 TMP 字體 Asset
 5. **SensorTileCell inactive 時不能 StartCoroutine**：晶片示意關閉後 Canvas_Secondary 變 inactive，`Activate()` 有 `activeInHierarchy` 守衛；`ActivateCell` 也會跳過 inactive 的感應格
 6. **遊戲場景需加入 Build Settings**：`gameSceneName` 填寫的場景必須在 `File → Build Settings` 中，否則會跳過並印 Warning
 

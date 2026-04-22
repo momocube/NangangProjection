@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
 /// 格子建立、感應格 RT 捕捉、縮放計算（partial）。
@@ -378,13 +379,14 @@ public partial class SensorTestManager
         var labelRT = labelGO.AddComponent<RectTransform>();
         labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
         labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
-        var txt = labelGO.AddComponent<Text>();
+        var txt = labelGO.AddComponent<TextMeshProUGUI>();
         txt.text          = cfg.faceName;
         txt.font          = _uiFont;
         txt.fontSize      = 11;
-        txt.alignment     = TextAnchor.MiddleCenter;
+        txt.alignment     = TextAlignmentOptions.Midline;
         txt.color         = new Color(col.r, col.g, col.b, 0.60f);
         txt.raycastTarget = false;
+        txt.overflowMode  = TextOverflowModes.Overflow;
 
         go.transform.SetSiblingIndex(2);
     }

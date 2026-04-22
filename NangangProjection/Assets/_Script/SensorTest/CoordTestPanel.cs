@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
 /// 座標測試面板：在 Display 0 右上角提供 rawX / rawY 輸入框，
@@ -15,9 +16,9 @@ public class CoordTestPanel : MonoBehaviour
     // Inspector 可選填；留空時自動 FindObjectOfType
     public SensorTestManager sensorTestManager;
 
-    InputField _inputX;
-    InputField _inputY;
-    Text       _resultLabel;
+    InputField      _inputX;
+    InputField      _inputY;
+    TextMeshProUGUI _resultLabel;
 
     // ---------------------------------------------------------------
     IEnumerator Start()
@@ -56,8 +57,9 @@ public class CoordTestPanel : MonoBehaviour
     // ---------------------------------------------------------------
     void BuildPanel(RectTransform canvasRT)
     {
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        var font    = TMP_Settings.defaultFontAsset;
+        var legFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (legFont == null) legFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
 
         // ── 根面板：右上角，280×126 px，緊貼 header 下方 ────────────
         var panel = NewGO("CoordTestPanel", canvasRT);
@@ -72,21 +74,21 @@ public class CoordTestPanel : MonoBehaviour
         // ── 標題（24 px）────────────────────────────────────────────
         MakeLabel(panel.transform, "Title", "座標測試",
             0f, 1f, 0f, -24f,
-            13, TextAnchor.MiddleLeft, new Color(0.80f, 0.85f, 1.00f), font, padLeft: 6f);
+            13, TextAlignmentOptions.MidlineLeft, new Color(0.80f, 0.85f, 1.00f), font, padLeft: 6f);
 
         // ── 原始 X（28 px）──────────────────────────────────────────
         MakeLabel(panel.transform, "LabelX", "原始 X",
             0f, 0.22f, -24f, -52f,
-            12, TextAnchor.MiddleCenter, new Color(0.60f, 0.65f, 0.75f), font);
+            12, TextAlignmentOptions.Midline, new Color(0.60f, 0.65f, 0.75f), font);
         _inputX = MakeInputField(panel.transform, "InputX",
-            0.22f, 1f, -24f, -52f, "rawX", font);
+            0.22f, 1f, -24f, -52f, "rawX", legFont);
 
         // ── 原始 Y（28 px）──────────────────────────────────────────
         MakeLabel(panel.transform, "LabelY", "原始 Y",
             0f, 0.22f, -52f, -80f,
-            12, TextAnchor.MiddleCenter, new Color(0.60f, 0.65f, 0.75f), font);
+            12, TextAlignmentOptions.Midline, new Color(0.60f, 0.65f, 0.75f), font);
         _inputY = MakeInputField(panel.transform, "InputY",
-            0.22f, 1f, -52f, -80f, "rawY", font);
+            0.22f, 1f, -52f, -80f, "rawY", legFont);
 
         // ── 觸發按鈕 + 結果標籤（28 px）────────────────────────────
         var btn = MakeButton(panel.transform, "BtnTrigger", "觸 發",
@@ -95,7 +97,7 @@ public class CoordTestPanel : MonoBehaviour
 
         _resultLabel = MakeLabel(panel.transform, "Result", "→",
             0.30f, 1f, -80f, -108f,
-            12, TextAnchor.MiddleLeft, new Color(0.55f, 0.58f, 0.65f), font);
+            12, TextAlignmentOptions.MidlineLeft, new Color(0.55f, 0.58f, 0.65f), font);
     }
 
     // ---------------------------------------------------------------
@@ -151,20 +153,21 @@ public class CoordTestPanel : MonoBehaviour
         return rt;
     }
 
-    static Text MakeLabel(Transform parent, string name, string text,
+    static TextMeshProUGUI MakeLabel(Transform parent, string name, string text,
         float axMin, float axMax, float oyTop, float oyBot,
-        int fontSize, TextAnchor anchor, Color color, Font font,
+        int fontSize, TextAlignmentOptions anchor, Color color, TMP_FontAsset font,
         float padLeft = 0f)
     {
         var go = NewGO(name, parent);
         AttachRT(go, axMin, axMax, oyTop, oyBot, padLeft);
-        var t = go.AddComponent<Text>();
+        var t = go.AddComponent<TextMeshProUGUI>();
         t.text          = text;
         t.font          = font;
         t.fontSize      = fontSize;
         t.color         = color;
         t.alignment     = anchor;
         t.raycastTarget = false;
+        t.overflowMode  = TextOverflowModes.Overflow;
         return t;
     }
 
@@ -210,7 +213,7 @@ public class CoordTestPanel : MonoBehaviour
     }
 
     static Button MakeButton(Transform parent, string name, string label,
-        float axMin, float axMax, float oyTop, float oyBot, Font font)
+        float axMin, float axMax, float oyTop, float oyBot, TMP_FontAsset font)
     {
         var go = NewGO(name, parent);
         AttachRT(go, axMin, axMax, oyTop, oyBot, oxLeft: 2f, oxRight: -2f);
@@ -221,11 +224,14 @@ public class CoordTestPanel : MonoBehaviour
         var tRT = textGO.AddComponent<RectTransform>();
         tRT.anchorMin = Vector2.zero; tRT.anchorMax = Vector2.one;
         tRT.offsetMin = Vector2.zero; tRT.offsetMax = Vector2.zero;
-        var tComp = textGO.AddComponent<Text>();
-        tComp.text = label; tComp.font = font;
-        tComp.fontSize = 13; tComp.alignment = TextAnchor.MiddleCenter;
-        tComp.color = new Color(0.85f, 0.90f, 1.00f);
+        var tComp = textGO.AddComponent<TextMeshProUGUI>();
+        tComp.text         = label;
+        tComp.font         = font;
+        tComp.fontSize     = 13;
+        tComp.alignment    = TextAlignmentOptions.Midline;
+        tComp.color        = new Color(0.85f, 0.90f, 1.00f);
         tComp.raycastTarget = false;
+        tComp.overflowMode = TextOverflowModes.Overflow;
 
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = bg;

@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
 /// UI 骨架建立（partial）。
@@ -16,8 +17,7 @@ public partial class SensorTestManager
         var root = controlGridParent.parent as RectTransform;
         if (root == null) return;
 
-        _uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (_uiFont == null) _uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        _uiFont = TMP_Settings.defaultFontAsset;
         var font = _uiFont;
 
         // 深色背景
@@ -35,7 +35,7 @@ public partial class SensorTestManager
         titleArea.GetComponent<Image>().raycastTarget = false;
         var titleTxt = AddText(titleArea.transform, "TitleText",
             "感應測試控制台",
-            18, TextAnchor.MiddleLeft, new Color(0.80f, 0.85f, 1.00f), font);
+            18, TextAlignmentOptions.MidlineLeft, new Color(0.80f, 0.85f, 1.00f), font);
         (titleTxt.transform as RectTransform).offsetMin = new Vector2(12f, 0f);
 
         // 場域選擇（右側 45%）
@@ -50,7 +50,7 @@ public partial class SensorTestManager
             Vector2.zero, new Vector2(0f, 38f));
         _statusText = AddText(status.transform, "StatusText",
             "感應測試",
-            13, TextAnchor.MiddleLeft, new Color(0.60f, 0.65f, 0.75f), font);
+            13, TextAlignmentOptions.MidlineLeft, new Color(0.60f, 0.65f, 0.75f), font);
         (_statusText.transform as RectTransform).offsetMin = new Vector2(12f, 0f);
 
         // 按鈕列 (52 px)
@@ -64,16 +64,16 @@ public partial class SensorTestManager
         _smartLockBtnImage = _smartLockBtnText.transform.parent.GetComponent<Image>();
         CreateButton(btnBar, "BtnUnlock",  "解除鎖格",   OnUnlockAll,          2f/7f, 3f/7f, font);
         _gameTileBtnText =
-        CreateButton(btnBar, "BtnGameTile","晶片示意 ✓", OnToggleGameTile,     3f/7f, 4f/7f, font);
+        CreateButton(btnBar, "BtnGameTile","晶片示意 ON", OnToggleGameTile,     3f/7f, 4f/7f, font);
         _gameTileBtnImage = _gameTileBtnText.transform.parent.GetComponent<Image>();
         _clickModeBtnText =
-        CreateButton(btnBar, "BtnClickMode","滑鼠點擊 ✓",OnToggleClickMode,    4f/7f, 5f/7f, font);
+        CreateButton(btnBar, "BtnClickMode","滑鼠點擊 ON",OnToggleClickMode,    4f/7f, 5f/7f, font);
         _clickModeBtnImage = _clickModeBtnText.transform.parent.GetComponent<Image>();
         _gridLineBtnText =
-        CreateButton(btnBar, "BtnGridLine","格線 ✓",     OnToggleGridLine,     5f/7f, 6f/7f, font);
+        CreateButton(btnBar, "BtnGridLine","格線 ON",     OnToggleGridLine,     5f/7f, 6f/7f, font);
         _gridLineBtnImage = _gridLineBtnText.transform.parent.GetComponent<Image>();
         _screenOverlayBtnText =
-        CreateButton(btnBar, "BtnScreenOverlay","疊加 ✓",OnToggleScreenOverlay,6f/7f, 1f,    font);
+        CreateButton(btnBar, "BtnScreenOverlay","疊加 ON",OnToggleScreenOverlay,6f/7f, 1f,    font);
         _screenOverlayBtnImage = _screenOverlayBtnText.transform.parent.GetComponent<Image>();
 
         // 靈敏度列 (38 px)
@@ -84,7 +84,7 @@ public partial class SensorTestManager
         BuildLoadingPanel(root, font);
     }
 
-    void BuildPresetSelector(RectTransform parent, Font font)
+    void BuildPresetSelector(RectTransform parent, TMP_FontAsset font)
     {
         // 上半（50%）：[◀] 場域名稱 [▶]
         var presetRow = CreatePanel(parent, "PresetRow", Color.clear,
@@ -96,7 +96,7 @@ public partial class SensorTestManager
             new Vector2(0.20f, 0.10f), new Vector2(0.80f, 0.90f), Vector2.zero, Vector2.zero);
         labelBg.GetComponent<Image>().raycastTarget = false;
         _presetLabel = AddText(labelBg.transform, "PresetLabel", "—",
-            12, TextAnchor.MiddleCenter, new Color(0.85f, 0.90f, 1.00f), font);
+            12, TextAlignmentOptions.Midline, new Color(0.85f, 0.90f, 1.00f), font);
         CreateButton(presetRow, "BtnPresetNext", "▶", OnPresetNext, 0.80f, 1.00f, font);
 
         // 下半（50%）：逐面選擇（由 BuildFaceSelector() 動態填入）
@@ -155,14 +155,14 @@ public partial class SensorTestManager
 
     // ── 感應冷卻 / 疊加透明調整列 ────────────────────────────────────────────
 
-    void BuildSensitivityBar(RectTransform parent, Font font)
+    void BuildSensitivityBar(RectTransform parent, TMP_FontAsset font)
     {
         // 說明標籤（0-10%）
         var cooldownLabel = CreatePanel(parent, "CooldownLabel", Color.clear,
             new Vector2(0f, 0f), new Vector2(0.10f, 1f), Vector2.zero, Vector2.zero);
         cooldownLabel.GetComponent<Image>().raycastTarget = false;
         AddText(cooldownLabel.transform, "LabelText", "感應冷卻",
-            13, TextAnchor.MiddleRight, new Color(0.60f, 0.65f, 0.75f), font);
+            13, TextAlignmentOptions.MidlineRight, new Color(0.60f, 0.65f, 0.75f), font);
 
         _cooldownToggleBtnText =
             CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.10f, 0.24f, font);
@@ -174,7 +174,7 @@ public partial class SensorTestManager
             new Vector2(0.32f, 0.1f), new Vector2(0.43f, 0.9f), Vector2.zero, Vector2.zero);
         valPanel.GetComponent<Image>().raycastTarget = false;
         _cooldownText = AddText(valPanel.transform, "ValueText", "1.0 秒",
-            14, TextAnchor.MiddleCenter, new Color(0.95f, 0.95f, 1.00f), font);
+            14, TextAlignmentOptions.Midline, new Color(0.95f, 0.95f, 1.00f), font);
 
         CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.43f, 0.51f, font);
 
@@ -186,7 +186,7 @@ public partial class SensorTestManager
             new Vector2(0.52f, 0f), new Vector2(0.62f, 1f), Vector2.zero, Vector2.zero);
         alphaLabel.GetComponent<Image>().raycastTarget = false;
         AddText(alphaLabel.transform, "LabelText", "疊加透明",
-            13, TextAnchor.MiddleRight, new Color(0.60f, 0.65f, 0.75f), font);
+            13, TextAlignmentOptions.MidlineRight, new Color(0.60f, 0.65f, 0.75f), font);
 
         CreateButton(parent, "BtnOverlayDec", "−", OnDecreaseOverlayAlpha, 0.62f, 0.71f, font);
 
@@ -194,7 +194,7 @@ public partial class SensorTestManager
             new Vector2(0.71f, 0.1f), new Vector2(0.84f, 0.9f), Vector2.zero, Vector2.zero);
         alphaValPanel.GetComponent<Image>().raycastTarget = false;
         _overlayAlphaText = AddText(alphaValPanel.transform, "ValueText", "100 %",
-            14, TextAnchor.MiddleCenter, new Color(0.95f, 0.95f, 1.00f), font);
+            14, TextAlignmentOptions.Midline, new Color(0.95f, 0.95f, 1.00f), font);
 
         CreateButton(parent, "BtnOverlayInc", "+", OnIncreaseOverlayAlpha, 0.84f, 0.93f, font);
 
@@ -202,7 +202,7 @@ public partial class SensorTestManager
             new Vector2(0.93f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
         alphaHint.GetComponent<Image>().raycastTarget = false;
         AddText(alphaHint.transform, "HintText", "0~100%",
-            11, TextAnchor.MiddleLeft, new Color(0.40f, 0.44f, 0.52f), font);
+            11, TextAlignmentOptions.MidlineLeft, new Color(0.40f, 0.44f, 0.52f), font);
 
         UpdateCooldownToggleButton();
         UpdateCooldownText();
@@ -211,7 +211,7 @@ public partial class SensorTestManager
 
     // ── 載入面板 ──────────────────────────────────────────────────────────────
 
-    void BuildLoadingPanel(RectTransform root, Font font)
+    void BuildLoadingPanel(RectTransform root, TMP_FontAsset font)
     {
         // 全螢幕半透明遮罩（建在 root 最上層）
         var panelRT = CreatePanel(root, "LoadingPanel",
@@ -233,11 +233,12 @@ public partial class SensorTestManager
         titleRT.anchorMin = new Vector2(0f, 0.55f);
         titleRT.anchorMax = new Vector2(1f, 0.92f);
         titleRT.offsetMin = titleRT.offsetMax = Vector2.zero;
-        _loadingTitle = titleGO.AddComponent<Text>();
-        _loadingTitle.text      = "切換場域中...";
-        _loadingTitle.fontSize  = 18;
-        _loadingTitle.alignment = TextAnchor.MiddleCenter;
-        _loadingTitle.color     = new Color(0.80f, 0.85f, 1.00f);
+        _loadingTitle = titleGO.AddComponent<TextMeshProUGUI>();
+        _loadingTitle.text         = "切換場域中...";
+        _loadingTitle.fontSize     = 18;
+        _loadingTitle.alignment    = TextAlignmentOptions.Midline;
+        _loadingTitle.color        = new Color(0.80f, 0.85f, 1.00f);
+        _loadingTitle.overflowMode = TextOverflowModes.Overflow;
         if (font != null) _loadingTitle.font = font;
 
         // 進度百分比文字
@@ -248,11 +249,12 @@ public partial class SensorTestManager
         progRT.anchorMin = new Vector2(0f, 0.38f);
         progRT.anchorMax = new Vector2(1f, 0.55f);
         progRT.offsetMin = progRT.offsetMax = Vector2.zero;
-        _loadingProgressText = progGO.AddComponent<Text>();
-        _loadingProgressText.text      = "0 %";
-        _loadingProgressText.fontSize  = 13;
-        _loadingProgressText.alignment = TextAnchor.MiddleCenter;
-        _loadingProgressText.color     = new Color(0.55f, 0.60f, 0.75f);
+        _loadingProgressText = progGO.AddComponent<TextMeshProUGUI>();
+        _loadingProgressText.text         = "0 %";
+        _loadingProgressText.fontSize     = 13;
+        _loadingProgressText.alignment    = TextAlignmentOptions.Midline;
+        _loadingProgressText.color        = new Color(0.55f, 0.60f, 0.75f);
+        _loadingProgressText.overflowMode = TextOverflowModes.Overflow;
         if (font != null) _loadingProgressText.font = font;
 
         // 進度條底板
@@ -312,8 +314,8 @@ public partial class SensorTestManager
         return rt;
     }
 
-    static Text CreateButton(RectTransform parent, string name, string label,
-        UnityEngine.Events.UnityAction onClick, float anchorXMin, float anchorXMax, Font font)
+    static TextMeshProUGUI CreateButton(RectTransform parent, string name, string label,
+        UnityEngine.Events.UnityAction onClick, float anchorXMin, float anchorXMax, TMP_FontAsset font)
     {
         var go = new GameObject(name);
         go.layer = 5;
@@ -335,13 +337,13 @@ public partial class SensorTestManager
         btn.targetGraphic   = img;
         btn.onClick.AddListener(onClick);
         var txt = AddText(go.transform, "Label", label, 15,
-            TextAnchor.MiddleCenter, new Color(0.85f, 0.90f, 1.00f), font);
+            TextAlignmentOptions.Midline, new Color(0.85f, 0.90f, 1.00f), font);
         txt.raycastTarget = false;
         return txt;
     }
 
-    static Text AddText(Transform parent, string name, string content,
-        int fontSize, TextAnchor alignment, Color color, Font font)
+    static TextMeshProUGUI AddText(Transform parent, string name, string content,
+        int fontSize, TextAlignmentOptions alignment, Color color, TMP_FontAsset font)
     {
         var go = new GameObject(name);
         go.layer = 5;
@@ -350,12 +352,13 @@ public partial class SensorTestManager
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero;
-        var txt = go.AddComponent<Text>();
-        txt.text          = content;
-        txt.fontSize      = fontSize;
-        txt.alignment     = alignment;
-        txt.color         = color;
-        txt.raycastTarget = false;
+        var txt = go.AddComponent<TextMeshProUGUI>();
+        txt.text           = content;
+        txt.fontSize       = fontSize;
+        txt.alignment      = alignment;
+        txt.color          = color;
+        txt.raycastTarget  = false;
+        txt.overflowMode   = TextOverflowModes.Overflow;
         if (font != null) txt.font = font;
         return txt;
     }

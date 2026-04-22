@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
+using TMPro;
 
 /// <summary>
 /// 雙螢幕感應測試主控（多場域預設版）。
@@ -58,45 +59,45 @@ public partial class SensorTestManager : MonoBehaviour
 
     // ── 執行期 UI 狀態 ─────────────────────────────────────────────────────────
 
-    Text  _statusText;
+    TextMeshProUGUI  _statusText;
     bool  _smartLockActive;
-    Text  _smartLockBtnText;
+    TextMeshProUGUI  _smartLockBtnText;
     Image _smartLockBtnImage;
 
     bool  _gameTileVisible = true;
-    Text  _gameTileBtnText;
+    TextMeshProUGUI  _gameTileBtnText;
     Image _gameTileBtnImage;
 
     SensorClickSimulator _clickSim;
-    Text                 _clickModeBtnText;
+    TextMeshProUGUI      _clickModeBtnText;
     Image                _clickModeBtnImage;
 
-    Text  _cooldownText;
-    Text  _cooldownToggleBtnText;
+    TextMeshProUGUI  _cooldownText;
+    TextMeshProUGUI  _cooldownToggleBtnText;
     Image _cooldownToggleBtnImage;
 
     bool  _gridLineVisible      = true;
-    Text  _gridLineBtnText;
+    TextMeshProUGUI  _gridLineBtnText;
     Image _gridLineBtnImage;
 
     bool  _screenOverlayVisible = true;
-    Text  _screenOverlayBtnText;
+    TextMeshProUGUI  _screenOverlayBtnText;
     Image _screenOverlayBtnImage;
 
     ConsoleGameOverlay _overlay;
-    Text               _overlayAlphaText;
+    TextMeshProUGUI    _overlayAlphaText;
 
-    Text  _presetLabel;
+    TextMeshProUGUI  _presetLabel;
 
-    Font          _uiFont;
+    TMP_FontAsset _uiFont;
     RectTransform _faceSelectorParent;
     Image[]       _faceSelectorBtnImages;
 
     // ── 載入面板 ──────────────────────────────────────────────────────────────
 
     GameObject    _loadingPanel;
-    Text          _loadingTitle;
-    Text          _loadingProgressText;
+    TextMeshProUGUI _loadingTitle;
+    TextMeshProUGUI _loadingProgressText;
     RectTransform _loadingBarFill;
     bool          _isSwitching;
 
@@ -612,7 +613,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     void UpdateSmartLockButton()
     {
-        if (_smartLockBtnText  != null) _smartLockBtnText.text = _smartLockActive ? "智慧鎖格 ✓" : "智慧鎖格";
+        if (_smartLockBtnText  != null) _smartLockBtnText.text = _smartLockActive ? "智慧鎖格 ON" : "智慧鎖格";
         if (_smartLockBtnImage != null)
             _smartLockBtnImage.color = _smartLockActive
                 ? new Color(0.20f, 0.45f, 0.20f)
@@ -674,7 +675,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     void UpdateGameTileButton()
     {
-        if (_gameTileBtnText  != null) _gameTileBtnText.text = _gameTileVisible ? "晶片示意 ✓" : "晶片示意";
+        if (_gameTileBtnText  != null) _gameTileBtnText.text = _gameTileVisible ? "晶片示意 ON" : "晶片示意";
         if (_gameTileBtnImage != null)
             _gameTileBtnImage.color = _gameTileVisible
                 ? new Color(0.15f, 0.18f, 0.25f)
@@ -694,7 +695,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     void UpdateGridLineButton()
     {
-        if (_gridLineBtnText  != null) _gridLineBtnText.text = _gridLineVisible ? "格線 ✓" : "格線";
+        if (_gridLineBtnText  != null) _gridLineBtnText.text = _gridLineVisible ? "格線 ON" : "格線";
         if (_gridLineBtnImage != null)
             _gridLineBtnImage.color = _gridLineVisible
                 ? new Color(0.15f, 0.18f, 0.25f)
@@ -710,7 +711,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     void UpdateScreenOverlayButton()
     {
-        if (_screenOverlayBtnText  != null) _screenOverlayBtnText.text = _screenOverlayVisible ? "疊加 ✓" : "疊加";
+        if (_screenOverlayBtnText  != null) _screenOverlayBtnText.text = _screenOverlayVisible ? "疊加 ON" : "疊加";
         if (_screenOverlayBtnImage != null)
             _screenOverlayBtnImage.color = _screenOverlayVisible
                 ? new Color(0.15f, 0.18f, 0.25f)
