@@ -40,6 +40,9 @@ public class SensorClickSimulator : MonoBehaviour
     [Tooltip("最後一次觸碰後等待多少秒才放開滑鼠。")]
     public float dragReleaseDelay = 0.5f;
 
+    [Header("Debug")]
+    public bool debugLog = false;
+
     [Header("目前模式（唯讀，由按鈕切換）")]
     [SerializeField] ClickMode _mode = ClickMode.SendInput;
 
@@ -123,7 +126,7 @@ public class SensorClickSimulator : MonoBehaviour
         {
             case ClickMode.Internal:
                 if (!CheckCooldown()) return;
-                Debug.Log($"[SensorClick] 內部監聽 格({col},{row})");
+                if (debugLog) Debug.Log($"[SensorClick] 內部監聽 格({col},{row})");
                 OnSimEvent?.Invoke($"內部監聽  格({col},{row})");
                 break;
 
@@ -185,7 +188,7 @@ public class SensorClickSimulator : MonoBehaviour
         var hwnd = WindowFromPoint(new POINT { x = absX, y = absY });
         if (hwnd == System.IntPtr.Zero)
         {
-            Debug.LogWarning($"[SensorClick] PostMessage: 找不到目標視窗 ({absX},{absY})");
+            if (debugLog) Debug.LogWarning($"[SensorClick] PostMessage: 找不到目標視窗 ({absX},{absY})");
             return;
         }
 
@@ -197,7 +200,7 @@ public class SensorClickSimulator : MonoBehaviour
         PostMessage(hwnd, WM_LBUTTONDOWN, (System.IntPtr)MK_LBUTTON, lp);
         PostMessage(hwnd, WM_LBUTTONUP,   System.IntPtr.Zero,        lp);
 
-        Debug.Log($"[SensorClick] PostMessage 格({col},{row}) → 視窗局部({lx},{ly})");
+        if (debugLog) Debug.Log($"[SensorClick] PostMessage 格({col},{row}) → 視窗局部({lx},{ly})");
         OnSimEvent?.Invoke($"PostMessage  格({col},{row})  視窗局部({lx},{ly})");
     }
 
@@ -325,7 +328,7 @@ public class SensorClickSimulator : MonoBehaviour
         if (sent != 4)
             Debug.LogWarning($"[SensorClick] SendInput 只送出 {sent}/4（錯誤碼 {Marshal.GetLastWin32Error()}）");
         else
-            Debug.Log($"[SensorClick] 點擊 格({col},{row}) → 螢幕({absX},{absY})");
+            if (debugLog) Debug.Log($"[SensorClick] 點擊 格({col},{row}) → 螢幕({absX},{absY})");
 
         OnSimEvent?.Invoke($"滑鼠點擊  格({col},{row})  螢幕({absX},{absY})");
     }
@@ -340,7 +343,7 @@ public class SensorClickSimulator : MonoBehaviour
         SendMouseMove(normX, normY);
         SendMouseDown(normX, normY);
         OnSimEvent?.Invoke($"按壓開始  格({col},{row})  螢幕({absX},{absY})  持續 {pressHoldDuration:F2}s");
-        Debug.Log($"[SensorClick] 按壓開始 格({col},{row}) → 螢幕({absX},{absY})");
+        if (debugLog) Debug.Log($"[SensorClick] 按壓開始 格({col},{row}) → 螢幕({absX},{absY})");
 
         yield return new WaitForSeconds(pressHoldDuration);
 
@@ -348,7 +351,7 @@ public class SensorClickSimulator : MonoBehaviour
         var (normSX, normSY) = AbsToNorm(saved.x, saved.y);
         SendMouseMove(normSX, normSY);
         OnSimEvent?.Invoke($"按壓結束  格({col},{row})");
-        Debug.Log($"[SensorClick] 按壓結束 格({col},{row})");
+        if (debugLog) Debug.Log($"[SensorClick] 按壓結束 格({col},{row})");
 
         _pressCoroutine = null;
     }
@@ -373,7 +376,7 @@ public class SensorClickSimulator : MonoBehaviour
             SendMouseDown(normX, normY);
             _isDragging = true;
             OnSimEvent?.Invoke($"拖曳開始  格({col},{row})  螢幕({absX},{absY})");
-            Debug.Log($"[SensorClick] 拖曳開始 格({col},{row}) → 螢幕({absX},{absY})");
+            if (debugLog) Debug.Log($"[SensorClick] 拖曳開始 格({col},{row}) → 螢幕({absX},{absY})");
         }
         else
         {
@@ -395,7 +398,7 @@ public class SensorClickSimulator : MonoBehaviour
             SendMouseMove(normSX, normSY);
             _isDragging = false;
             OnSimEvent?.Invoke($"拖曳結束  格({col},{row})  超時 {dragReleaseDelay:F2}s");
-            Debug.Log($"[SensorClick] 拖曳結束 格({col},{row})（超時）");
+            if (debugLog) Debug.Log($"[SensorClick] 拖曳結束 格({col},{row})（超時）");
         }
 
         _dragReleaseCoroutine = null;
@@ -411,7 +414,7 @@ public class SensorClickSimulator : MonoBehaviour
         try
         {
             _udp.Send(bytes, bytes.Length, _udpEndpoint);
-            Debug.Log($"[SensorClick] 外部監聽 格({col},{row}) → {externalIP}:{externalPort}");
+            if (debugLog) Debug.Log($"[SensorClick] 外部監聽 格({col},{row}) → {externalIP}:{externalPort}");
             OnSimEvent?.Invoke($"外部監聽  格({col},{row})  → {externalIP}:{externalPort}");
         }
         catch (System.Exception e)

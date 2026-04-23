@@ -21,7 +21,7 @@ public class TouchDebugLogger : MonoBehaviour
 
     [Header("每秒統計")]
     [Tooltip("關閉可減少 Console 輸出量")]
-    public bool showPerSecondStat = true;
+    public bool showPerSecondStat = false;
 
     // ── 內部狀態 ────────────────────────────────────────────────────────────
     private struct CollapseEntry
