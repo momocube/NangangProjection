@@ -7,44 +7,43 @@ using UnityEngine;
 
 /// <summary>
 /// 感應觸碰 → Display 2 點擊事件。
-/// 訂閱 SensorBus.OnTouch（已通過鎖定檢查），支援六種模式循環：
+/// 訂閱 SensorBus.OnTouch（已通過鎖定檢查），支援三種主模式：
 ///
-///   內部監聽  — 只走 SensorBus，不發 OS 事件
+///   監聽       — 走 SensorBus 廣播；若 externalEnabled=true 同時送 UDP
 ///   PostMessage — 直送目標視窗訊息，游標不動
-///   滑鼠點擊  — SendInput 模擬點擊（LEFTDOWN + LEFTUP）
-///   滑鼠按壓  — SendInput 按住 pressHoldDuration 秒後放開
-///   滑鼠拖曳  — SendInput 按住不放，持續移動，無訊號 dragReleaseDelay 秒後放開
-///   外部監聽  — UDP 封包傳出觸碰座標
+///   滑鼠       — SendInput 模擬，子行為由 mouseBehavior 決定（點擊／按壓／拖曳）
 /// </summary>
 public class SensorClickSimulator : MonoBehaviour
 {
-    public enum ClickMode { Internal, PostMessage, SendInput, Press, Drag, External }
+    public enum ClickMode    { Listen, PostMessage, Mouse }
+    public enum MouseBehavior { Click, Press, Drag }
 
     [Header("Display 2 在 Windows 桌面的起始位置")]
     public int display2OffsetX = 1920;
     public int display2OffsetY = 0;
 
-    [Header("外部監聽 UDP 目標")]
-    public string externalIP   = "127.0.0.1";
-    public int    externalPort = 20002;
+    [Header("監聽模式")]
+    [Tooltip("開啟後在監聽模式同時送出 UDP 座標。")]
+    public bool   externalEnabled = false;
+    public string externalIP      = "127.0.0.1";
+    public int    externalPort    = 20002;
 
-    [Header("點擊冷卻（內部監聽 / PostMessage / 滑鼠點擊 有效）")]
+    [Header("點擊冷卻（監聽 / PostMessage / 滑鼠·點擊 有效）")]
     public bool  cooldownEnabled = true;
     public float clickCooldown   = 1f;
 
-    [Header("按壓模式")]
-    [Tooltip("LEFTDOWN 後持續按住的秒數。")]
+    [Header("滑鼠模式")]
+    public MouseBehavior mouseBehavior = MouseBehavior.Click;
+    [Tooltip("按壓：LEFTDOWN 後持續按住的秒數。")]
     public float pressHoldDuration = 0.3f;
-
-    [Header("拖曳模式")]
-    [Tooltip("最後一次觸碰後等待多少秒才放開滑鼠。")]
-    public float dragReleaseDelay = 0.5f;
+    [Tooltip("拖曳：最後一次觸碰後等待多少秒才放開滑鼠。")]
+    public float dragReleaseDelay  = 0.5f;
 
     [Header("Debug")]
     public bool debugLog = false;
 
     [Header("目前模式（唯讀，由按鈕切換）")]
-    [SerializeField] ClickMode _mode = ClickMode.SendInput;
+    [SerializeField] ClickMode _mode = ClickMode.Mouse;
 
     /// <summary>記錄模組可訂閱：每次發出 OS 事件時通知（描述字串）。</summary>
     public static event System.Action<string> OnSimEvent;
@@ -68,27 +67,33 @@ public class SensorClickSimulator : MonoBehaviour
 
     public string ModeLabel => _mode switch
     {
-        ClickMode.Internal    => "內部監聽",
+        ClickMode.Listen      => "監聽",
         ClickMode.PostMessage => "PostMessage",
-        ClickMode.SendInput   => "滑鼠點擊",
-        ClickMode.Press       => "滑鼠按壓",
-        ClickMode.Drag        => "滑鼠拖曳",
-        ClickMode.External    => "外部監聽",
-        _                     => "?"
+        ClickMode.Mouse       => mouseBehavior switch
+        {
+            MouseBehavior.Click => "滑鼠·點擊",
+            MouseBehavior.Press => "滑鼠·按壓",
+            MouseBehavior.Drag  => "滑鼠·拖曳",
+            _                   => "滑鼠"
+        },
+        _ => "?"
     };
 
     public Color ModeColor => _mode switch
     {
-        ClickMode.Internal    => new Color(0.15f, 0.18f, 0.25f),
+        ClickMode.Listen      => new Color(0.15f, 0.18f, 0.25f),
         ClickMode.PostMessage => new Color(0.15f, 0.35f, 0.20f),
-        ClickMode.SendInput   => new Color(0.15f, 0.25f, 0.40f),
-        ClickMode.Press       => new Color(0.35f, 0.25f, 0.10f),
-        ClickMode.Drag        => new Color(0.25f, 0.15f, 0.40f),
-        ClickMode.External    => new Color(0.30f, 0.20f, 0.40f),
-        _                     => Color.gray
+        ClickMode.Mouse       => mouseBehavior switch
+        {
+            MouseBehavior.Click => new Color(0.15f, 0.25f, 0.40f),
+            MouseBehavior.Press => new Color(0.35f, 0.25f, 0.10f),
+            MouseBehavior.Drag  => new Color(0.25f, 0.15f, 0.40f),
+            _                   => Color.gray
+        },
+        _ => Color.gray
     };
 
-    public void CycleMode() => _mode = (ClickMode)(((int)_mode + 1) % 6);
+    public void CycleMode() => _mode = (ClickMode)(((int)_mode + 1) % 3);
 
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
@@ -106,7 +111,6 @@ public class SensorClickSimulator : MonoBehaviour
         _udp?.Close();
         _udp = null;
 
-        // 強制結束拖曳，避免滑鼠卡住
         if (_isDragging)
         {
             SendMouseUp();
@@ -124,10 +128,11 @@ public class SensorClickSimulator : MonoBehaviour
 
         switch (_mode)
         {
-            case ClickMode.Internal:
+            case ClickMode.Listen:
                 if (!CheckCooldown()) return;
-                if (debugLog) Debug.Log($"[SensorClick] 內部監聽 格({col},{row})");
-                OnSimEvent?.Invoke($"內部監聽  格({col},{row})");
+                if (debugLog) Debug.Log($"[SensorClick] 監聽 格({col},{row})");
+                OnSimEvent?.Invoke($"監聽  格({col},{row})");
+                if (externalEnabled) ExternalUdpSend(col, row);
                 break;
 
             case ClickMode.PostMessage:
@@ -135,23 +140,21 @@ public class SensorClickSimulator : MonoBehaviour
                 PostMessageClick(absX, absY, col, row);
                 break;
 
-            case ClickMode.SendInput:
-                if (!CheckCooldown()) return;
-                SendInputClick(absX, absY, col, row);
-                break;
-
-            case ClickMode.Press:
-                if (_pressCoroutine == null)
-                    _pressCoroutine = StartCoroutine(PressCoroutine(absX, absY, col, row));
-                break;
-
-            case ClickMode.Drag:
-                HandleDragTouch(absX, absY, col, row);
-                break;
-
-            case ClickMode.External:
-                if (!CheckCooldown()) return;
-                ExternalUdpSend(col, row);
+            case ClickMode.Mouse:
+                switch (mouseBehavior)
+                {
+                    case MouseBehavior.Click:
+                        if (!CheckCooldown()) return;
+                        SendInputClick(absX, absY, col, row);
+                        break;
+                    case MouseBehavior.Press:
+                        if (_pressCoroutine == null)
+                            _pressCoroutine = StartCoroutine(PressCoroutine(absX, absY, col, row));
+                        break;
+                    case MouseBehavior.Drag:
+                        HandleDragTouch(absX, absY, col, row);
+                        break;
+                }
                 break;
         }
     }
@@ -269,34 +272,31 @@ public class SensorClickSimulator : MonoBehaviour
 
     void SendMouseMove(int normX, int normY)
     {
-        uint flags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         var inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
-        inputs[0].u.mi.dwFlags = flags;
+        inputs[0].u.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
     void SendMouseDown(int normX, int normY)
     {
-        uint flags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         var inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
-        inputs[0].u.mi.dwFlags = flags;
+        inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
     void SendMouseUp()
     {
-        uint flags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         var inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
-        inputs[0].u.mi.dwFlags = flags;
+        inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
-    // ── 滑鼠點擊（原有邏輯，維持原位還原）────────────────────────────────────
+    // ── 滑鼠點擊 ─────────────────────────────────────────────────────────────
 
     void SendInputClick(int absX, int absY, int col, int row)
     {
@@ -327,13 +327,13 @@ public class SensorClickSimulator : MonoBehaviour
         uint sent = SendInput(4, inputs, Marshal.SizeOf(typeof(INPUT)));
         if (sent != 4)
             Debug.LogWarning($"[SensorClick] SendInput 只送出 {sent}/4（錯誤碼 {Marshal.GetLastWin32Error()}）");
-        else
-            if (debugLog) Debug.Log($"[SensorClick] 點擊 格({col},{row}) → 螢幕({absX},{absY})");
+        else if (debugLog)
+            Debug.Log($"[SensorClick] 點擊 格({col},{row}) → 螢幕({absX},{absY})");
 
-        OnSimEvent?.Invoke($"滑鼠點擊  格({col},{row})  螢幕({absX},{absY})");
+        OnSimEvent?.Invoke($"滑鼠·點擊  格({col},{row})  螢幕({absX},{absY})");
     }
 
-    // ── 滑鼠按壓（按住 pressHoldDuration 秒）────────────────────────────────
+    // ── 滑鼠按壓 ─────────────────────────────────────────────────────────────
 
     IEnumerator PressCoroutine(int absX, int absY, int col, int row)
     {
@@ -342,7 +342,7 @@ public class SensorClickSimulator : MonoBehaviour
 
         SendMouseMove(normX, normY);
         SendMouseDown(normX, normY);
-        OnSimEvent?.Invoke($"按壓開始  格({col},{row})  螢幕({absX},{absY})  持續 {pressHoldDuration:F2}s");
+        OnSimEvent?.Invoke($"滑鼠·按壓開始  格({col},{row})  持續 {pressHoldDuration:F2}s");
         if (debugLog) Debug.Log($"[SensorClick] 按壓開始 格({col},{row}) → 螢幕({absX},{absY})");
 
         yield return new WaitForSeconds(pressHoldDuration);
@@ -350,17 +350,16 @@ public class SensorClickSimulator : MonoBehaviour
         SendMouseUp();
         var (normSX, normSY) = AbsToNorm(saved.x, saved.y);
         SendMouseMove(normSX, normSY);
-        OnSimEvent?.Invoke($"按壓結束  格({col},{row})");
+        OnSimEvent?.Invoke($"滑鼠·按壓結束  格({col},{row})");
         if (debugLog) Debug.Log($"[SensorClick] 按壓結束 格({col},{row})");
 
         _pressCoroutine = null;
     }
 
-    // ── 滑鼠拖曳（按住移動，超時放開）───────────────────────────────────────
+    // ── 滑鼠拖曳 ─────────────────────────────────────────────────────────────
 
     void HandleDragTouch(int absX, int absY, int col, int row)
     {
-        // 取消之前的放開計時器
         if (_dragReleaseCoroutine != null)
         {
             StopCoroutine(_dragReleaseCoroutine);
@@ -375,13 +374,13 @@ public class SensorClickSimulator : MonoBehaviour
             SendMouseMove(normX, normY);
             SendMouseDown(normX, normY);
             _isDragging = true;
-            OnSimEvent?.Invoke($"拖曳開始  格({col},{row})  螢幕({absX},{absY})");
+            OnSimEvent?.Invoke($"滑鼠·拖曳開始  格({col},{row})  螢幕({absX},{absY})");
             if (debugLog) Debug.Log($"[SensorClick] 拖曳開始 格({col},{row}) → 螢幕({absX},{absY})");
         }
         else
         {
             SendMouseMove(normX, normY);
-            OnSimEvent?.Invoke($"拖曳移動  格({col},{row})  螢幕({absX},{absY})");
+            OnSimEvent?.Invoke($"滑鼠·拖曳移動  格({col},{row})  螢幕({absX},{absY})");
         }
 
         _dragReleaseCoroutine = StartCoroutine(DragReleaseCoroutine(col, row));
@@ -397,7 +396,7 @@ public class SensorClickSimulator : MonoBehaviour
             var (normSX, normSY) = AbsToNorm(_savedDragCursor.x, _savedDragCursor.y);
             SendMouseMove(normSX, normSY);
             _isDragging = false;
-            OnSimEvent?.Invoke($"拖曳結束  格({col},{row})  超時 {dragReleaseDelay:F2}s");
+            OnSimEvent?.Invoke($"滑鼠·拖曳結束  格({col},{row})  超時 {dragReleaseDelay:F2}s");
             if (debugLog) Debug.Log($"[SensorClick] 拖曳結束 格({col},{row})（超時）");
         }
 
@@ -414,12 +413,11 @@ public class SensorClickSimulator : MonoBehaviour
         try
         {
             _udp.Send(bytes, bytes.Length, _udpEndpoint);
-            if (debugLog) Debug.Log($"[SensorClick] 外部監聽 格({col},{row}) → {externalIP}:{externalPort}");
-            OnSimEvent?.Invoke($"外部監聽  格({col},{row})  → {externalIP}:{externalPort}");
+            if (debugLog) Debug.Log($"[SensorClick] UDP 外送 格({col},{row}) → {externalIP}:{externalPort}");
         }
         catch (System.Exception e)
         {
-            Debug.LogWarning($"[SensorClick] 外部監聽 傳送失敗: {e.Message}");
+            Debug.LogWarning($"[SensorClick] UDP 外送失敗: {e.Message}");
         }
     }
 }
