@@ -17,7 +17,7 @@ public partial class SensorTestManager
         var root = controlGridParent.parent as RectTransform;
         if (root == null) return;
 
-        _uiFont = TMP_Settings.defaultFontAsset;
+        _uiFont = uiFontOverride != null ? uiFontOverride : TMP_Settings.defaultFontAsset;
         var font = _uiFont;
 
         // 深色背景
@@ -161,56 +161,85 @@ public partial class SensorTestManager
 
     void BuildSensitivityBar(RectTransform parent, TMP_FontAsset font)
     {
-        // 說明標籤（0-10%）
+        // ── Section 1：感應冷卻 (0 → 0.33) ──────────────────────────────────────
         var cooldownLabel = CreatePanel(parent, "CooldownLabel", Color.clear,
-            new Vector2(0f, 0f), new Vector2(0.10f, 1f), Vector2.zero, Vector2.zero);
+            new Vector2(0.000f, 0f), new Vector2(0.080f, 1f), Vector2.zero, Vector2.zero);
         cooldownLabel.GetComponent<Image>().raycastTarget = false;
         AddText(cooldownLabel.transform, "LabelText", "感應冷卻",
             13, TextAlignmentOptions.MidlineRight, new Color(0.60f, 0.65f, 0.75f), font);
 
         _cooldownToggleBtnText =
-            CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.10f, 0.24f, font);
+            CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.080f, 0.200f, font);
         _cooldownToggleBtnImage = _cooldownToggleBtnText.transform.parent.GetComponent<Image>();
 
-        CreateButton(parent, "BtnCooldownDec", "−", OnDecreaseCooldown, 0.24f, 0.32f, font);
+        CreateButton(parent, "BtnCooldownDec", "-", OnDecreaseCooldown, 0.200f, 0.250f, font);
 
-        var valPanel = CreatePanel(parent, "CooldownValue", new Color(0.10f, 0.12f, 0.16f),
-            new Vector2(0.32f, 0.1f), new Vector2(0.43f, 0.9f), Vector2.zero, Vector2.zero);
-        valPanel.GetComponent<Image>().raycastTarget = false;
-        _cooldownText = AddText(valPanel.transform, "ValueText", "1.0 秒",
+        var cooldownValPanel = CreatePanel(parent, "CooldownValue", new Color(0.10f, 0.12f, 0.16f),
+            new Vector2(0.250f, 0.1f), new Vector2(0.310f, 0.9f), Vector2.zero, Vector2.zero);
+        cooldownValPanel.GetComponent<Image>().raycastTarget = false;
+        _cooldownText = AddText(cooldownValPanel.transform, "ValueText", "1.0 秒",
             14, TextAlignmentOptions.Midline, new Color(0.95f, 0.95f, 1.00f), font);
 
-        CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.43f, 0.51f, font);
+        CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.310f, 0.330f, font);
 
-        var divider = CreatePanel(parent, "BarDivider", new Color(0.30f, 0.32f, 0.40f),
-            new Vector2(0.51f, 0.1f), new Vector2(0.52f, 0.9f), Vector2.zero, Vector2.zero);
-        divider.GetComponent<Image>().raycastTarget = false;
+        var div1 = CreatePanel(parent, "BarDivider1", new Color(0.30f, 0.32f, 0.40f),
+            new Vector2(0.333f, 0.1f), new Vector2(0.340f, 0.9f), Vector2.zero, Vector2.zero);
+        div1.GetComponent<Image>().raycastTarget = false;
 
+        // ── Section 2：疊加透明 (0.34 → 0.66) ───────────────────────────────────
         var alphaLabel = CreatePanel(parent, "OverlayAlphaLabel", Color.clear,
-            new Vector2(0.52f, 0f), new Vector2(0.62f, 1f), Vector2.zero, Vector2.zero);
+            new Vector2(0.340f, 0f), new Vector2(0.415f, 1f), Vector2.zero, Vector2.zero);
         alphaLabel.GetComponent<Image>().raycastTarget = false;
         AddText(alphaLabel.transform, "LabelText", "疊加透明",
             13, TextAlignmentOptions.MidlineRight, new Color(0.60f, 0.65f, 0.75f), font);
 
-        CreateButton(parent, "BtnOverlayDec", "−", OnDecreaseOverlayAlpha, 0.62f, 0.71f, font);
+        CreateButton(parent, "BtnOverlayDec", "-", OnDecreaseOverlayAlpha, 0.415f, 0.465f, font);
 
         var alphaValPanel = CreatePanel(parent, "OverlayAlphaValue", new Color(0.10f, 0.12f, 0.16f),
-            new Vector2(0.71f, 0.1f), new Vector2(0.84f, 0.9f), Vector2.zero, Vector2.zero);
+            new Vector2(0.465f, 0.1f), new Vector2(0.575f, 0.9f), Vector2.zero, Vector2.zero);
         alphaValPanel.GetComponent<Image>().raycastTarget = false;
         _overlayAlphaText = AddText(alphaValPanel.transform, "ValueText", "100 %",
             14, TextAlignmentOptions.Midline, new Color(0.95f, 0.95f, 1.00f), font);
 
-        CreateButton(parent, "BtnOverlayInc", "+", OnIncreaseOverlayAlpha, 0.84f, 0.93f, font);
+        CreateButton(parent, "BtnOverlayInc", "+", OnIncreaseOverlayAlpha, 0.575f, 0.625f, font);
 
-        var alphaHint = CreatePanel(parent, "OverlayAlphaHint", Color.clear,
-            new Vector2(0.93f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
-        alphaHint.GetComponent<Image>().raycastTarget = false;
-        AddText(alphaHint.transform, "HintText", "0~100%",
-            11, TextAlignmentOptions.MidlineLeft, new Color(0.40f, 0.44f, 0.52f), font);
+        var div2 = CreatePanel(parent, "BarDivider2", new Color(0.30f, 0.32f, 0.40f),
+            new Vector2(0.660f, 0.1f), new Vector2(0.667f, 0.9f), Vector2.zero, Vector2.zero);
+        div2.GetComponent<Image>().raycastTarget = false;
+
+        // ── Section 3：調暗 (0.667 → 0.862) ─────────────────────────────────────
+        var dimLabel = CreatePanel(parent, "DimLabel", Color.clear,
+            new Vector2(0.667f, 0f), new Vector2(0.720f, 1f), Vector2.zero, Vector2.zero);
+        dimLabel.GetComponent<Image>().raycastTarget = false;
+        AddText(dimLabel.transform, "LabelText", "調暗",
+            13, TextAlignmentOptions.MidlineRight, new Color(0.60f, 0.65f, 0.75f), font);
+
+        CreateButton(parent, "BtnDimDec", "-", OnDecreaseDim, 0.720f, 0.760f, font);
+
+        var dimValPanel = CreatePanel(parent, "DimValue", new Color(0.10f, 0.12f, 0.16f),
+            new Vector2(0.760f, 0.1f), new Vector2(0.848f, 0.9f), Vector2.zero, Vector2.zero);
+        dimValPanel.GetComponent<Image>().raycastTarget = false;
+        _dimAlphaText = AddText(dimValPanel.transform, "ValueText", "0 %",
+            14, TextAlignmentOptions.Midline, new Color(0.95f, 0.95f, 1.00f), font);
+
+        CreateButton(parent, "BtnDimInc", "+", OnIncreaseDim, 0.848f, 0.862f, font);
+
+        var div3 = CreatePanel(parent, "BarDivider3", new Color(0.30f, 0.32f, 0.40f),
+            new Vector2(0.863f, 0.1f), new Vector2(0.869f, 0.9f), Vector2.zero, Vector2.zero);
+        div3.GetComponent<Image>().raycastTarget = false;
+
+        // ── Section 4：訊號記錄 (0.872 → 1.0，可由 Inspector 關閉）────────────────
+        if (showLogButton)
+        {
+            _loggerBtnText =
+                CreateButton(parent, "BtnSignalLog", "訊號記錄", OnToggleLog, 0.872f, 1.000f, font);
+            _loggerBtnImage = _loggerBtnText.transform.parent.GetComponent<Image>();
+        }
 
         UpdateCooldownToggleButton();
         UpdateCooldownText();
         UpdateOverlayAlphaText();
+        UpdateDimAlphaText();
     }
 
     // ── 載入面板 ──────────────────────────────────────────────────────────────

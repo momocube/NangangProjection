@@ -259,6 +259,7 @@ GameObject:
   - component: {fileID: 114401}
   - component: {fileID: 114402}
   - component: {fileID: 114403}
+  - component: {fileID: 114404}
   - component: {fileID: 400401}
   - component: {fileID: 400402}
   - component: {fileID: 400403}
@@ -439,10 +440,23 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cc33dd44ee55ff667788990011223344, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   controlGridParent: {fileID: 224110}
   overlayAlpha: 0.45
+--- !u!114 &114404
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100400}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b1d3223bb19e99a4a9f6d30447861a1b, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  dimAlpha: 0
 --- !u!114 &114500
 MonoBehaviour:
   m_ObjectHideFlags: 0

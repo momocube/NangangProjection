@@ -78,7 +78,7 @@ public class ControlTileCell : MonoBehaviour,
         RefreshColor();
     }
 
-    /// <summary>由 SensorTestManager 呼叫，觸發 1.5 秒亮紅。</summary>
+    /// <summary>由 SensorTestManager 呼叫，觸發亮紅（持續 SensorTileCell.ActiveDuration 秒）。</summary>
     public void Activate()
     {
         if (_locked) return;
@@ -89,7 +89,7 @@ public class ControlTileCell : MonoBehaviour,
     IEnumerator ActiveRoutine()
     {
         _fill.color = ColActive;
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(SensorTileCell.ActiveDuration);
         _activeRoutine = null;
         RefreshColor();
     }

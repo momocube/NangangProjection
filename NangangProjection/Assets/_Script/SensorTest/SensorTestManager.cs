@@ -36,9 +36,17 @@ public partial class SensorTestManager : MonoBehaviour
     [Header("遊戲場景（留空則不自動載入）")]
     public string gameSceneName = "Map_CybercubeLogo_J_2048x768";
 
+    [Header("UI 字型")]
+    [Tooltip("控制台 UI 使用的 TMP 字型，留空則使用 TMP Settings 預設。")]
+    public TMP_FontAsset uiFontOverride;
+
     [Header("Display 2 視窗偵測")]
     [Tooltip("Display 2 在 Windows 桌面的 X 起始位置（預設 1920）。")]
     public int display2WindowOffsetX = 1920;
+
+    [Header("格子亮燈")]
+    [Tooltip("觸發後亮紅持續秒數（同步套用至 SensorTileCell / ControlTileCell）。")]
+    public float activeDuration = 1.5f;
 
     // ── 場域資料 ──────────────────────────────────────────────────────────────
 
@@ -57,6 +65,9 @@ public partial class SensorTestManager : MonoBehaviour
     DisplayCanvasConfig  _canvasConfig;
     bool                 _rotateDisplay90;
     List<FaceData>       _faces = new List<FaceData>();
+
+    // key = faceIdx * 100000 + cellIdx；value = 1 秒滑動窗口的觸發時間戳
+    readonly Dictionary<int, Queue<float>> _cellHitTimes = new Dictionary<int, Queue<float>>();
 
     int TotalLocked    { get { int n = 0; foreach (var f in _faces) n += f.lockedCount; return n; } }
     int TotalCells     { get { int n = 0; foreach (var f in _faces) n += f.config.colCount * f.config.rowCount; return n; } }
@@ -90,6 +101,9 @@ public partial class SensorTestManager : MonoBehaviour
 
     ConsoleGameOverlay _overlay;
     TextMeshProUGUI    _overlayAlphaText;
+
+    Display2DimOverlay _dimOverlay;
+    TextMeshProUGUI    _dimAlphaText;
 
     TextMeshProUGUI  _presetLabel;
 
@@ -185,19 +199,23 @@ public partial class SensorTestManager : MonoBehaviour
         yield return null;   // 等一幀讓佈局完成
 
         SetupSensorGridRT();
-        _clickSim = FindObjectOfType<SensorClickSimulator>();
-        _overlay  = GetComponent<ConsoleGameOverlay>();
+        _clickSim   = FindObjectOfType<SensorClickSimulator>();
+        _overlay    = GetComponent<ConsoleGameOverlay>();
+        _dimOverlay = GetComponent<Display2DimOverlay>();
         NotifyOverlay();
         UpdateClickModeButton();
         UpdateCooldownToggleButton();
         UpdateCooldownText();
         UpdateOverlayAlphaText();
+        UpdateDimAlphaText();
         UpdatePresetLabel();
         BuildFaceSelector();
 
 #if !UNITY_EDITOR
         StartCoroutine(FindDisplay2WindowCoroutine());
 #endif
+
+        SensorTileCell.ActiveDuration = activeDuration;
 
         UdpSensorReceiver.OnPacketReceived += OnUdpPacket;
         SetStatusIdle();
@@ -369,19 +387,32 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnUdpPacket(int rawX, int rawY)
     {
+        bool anyHit = false;
         for (int fi = 0; fi < _faces.Count; fi++)
         {
             var fd  = _faces[fi];
             var cfg = fd.config;
 
-            // 過濾明顯超出此面範圍的封包（各面 rawMin/Max 不同，避免跨面觸發）
+            // 未校準的面（rawMin >= rawMax）跳過，避免 InverseLerp(0,0,x) 全部回傳 0 造成多面觸發
+            if (fd.rawMinX >= fd.rawMaxX || fd.rawMinY >= fd.rawMaxY) continue;
+
             float nx = Mathf.InverseLerp(fd.rawMinX, fd.rawMaxX, rawX);
             float ny = Mathf.InverseLerp(fd.rawMinY, fd.rawMaxY, rawY);
             if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) continue;
 
             var (col, row) = cfg.RawToCell(rawX, rawY, fd.rawMinX, fd.rawMaxX, fd.rawMinY, fd.rawMaxY);
             ActivateCell(fi, row * cfg.colCount + col);
+            anyHit = true;
+
+            // Debug：在 status bar 顯示觸發資訊，方便校準座標
+            if (_statusText != null && !_smartLockActive)
+                _statusText.text = $"raw({rawX},{rawY})  →  {cfg.faceName} 面  欄{col} 列{row}" +
+                    $"  [{_lastHitPerSec} 次/秒]" +
+                    $"  |  rawX範圍[{fd.rawMinX:0}-{fd.rawMaxX:0}]  rawY範圍[{fd.rawMinY:0}-{fd.rawMaxY:0}]";
         }
+
+        if (!anyHit && _statusText != null && !_smartLockActive)
+            _statusText.text = $"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）";
     }
 
     // ── 觸發 / 鎖定 ──────────────────────────────────────────────────────────
@@ -406,7 +437,28 @@ public partial class SensorTestManager : MonoBehaviour
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         SensorBus.Touch(col, row);
+
+        // 滑動窗口：計算此格最近 1 秒的觸發次數
+        int key = faceIdx * 100000 + cellIdx;
+        if (!_cellHitTimes.TryGetValue(key, out var q))
+        {
+            q = new Queue<float>();
+            _cellHitTimes[key] = q;
+        }
+        float now = Time.realtimeSinceStartup;
+        q.Enqueue(now);
+        while (q.Count > 0 && now - q.Peek() > 1f) q.Dequeue();
+        _lastHitKey    = key;
+        _lastHitPerSec = q.Count;
+        _lastHitCol    = col;
+        _lastHitRow    = row;
+        _lastHitFace   = fd.config.faceName;
     }
+
+    int    _lastHitKey;
+    int    _lastHitPerSec;
+    int    _lastHitCol, _lastHitRow;
+    string _lastHitFace;
 
     void ToggleLock(int faceIdx, int col, int row)
     {
@@ -806,6 +858,27 @@ public partial class SensorTestManager : MonoBehaviour
         if (_overlayAlphaText == null) return;
         int pct = Mathf.RoundToInt((_overlay != null ? _overlay.overlayAlpha : 1f) * 100f);
         _overlayAlphaText.text = $"{pct} %";
+    }
+
+    void OnDecreaseDim()
+    {
+        if (_dimOverlay == null) return;
+        _dimOverlay.dimAlpha = Mathf.Clamp(Mathf.Round((_dimOverlay.dimAlpha - 0.1f) * 10f) / 10f, 0f, 1f);
+        UpdateDimAlphaText();
+    }
+
+    void OnIncreaseDim()
+    {
+        if (_dimOverlay == null) return;
+        _dimOverlay.dimAlpha = Mathf.Clamp(Mathf.Round((_dimOverlay.dimAlpha + 0.1f) * 10f) / 10f, 0f, 1f);
+        UpdateDimAlphaText();
+    }
+
+    void UpdateDimAlphaText()
+    {
+        if (_dimAlphaText == null) return;
+        int pct = Mathf.RoundToInt((_dimOverlay != null ? _dimOverlay.dimAlpha : 0f) * 100f);
+        _dimAlphaText.text = $"{pct} %";
     }
 
     // ── Display 2 視窗控制（獨立執行檔專用）────────────────────────────────────

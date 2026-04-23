@@ -4,12 +4,15 @@ using UnityEngine.UI;
 
 /// <summary>
 /// 次螢幕 (2048x768) 上的感應晶片格子。
-/// 每格 16x32 px，只有左側與上側有邊線，觸摸後亮紅 1.5 秒。
+/// 每格 16x32 px，只有左側與上側有邊線，觸摸後亮紅 ActiveDuration 秒。
 /// 由 SensorTestManager 在執行期動態建立並管理。
 /// </summary>
 [RequireComponent(typeof(Image))]
 public class SensorTileCell : MonoBehaviour
 {
+    /// <summary>亮紅持續秒數，由 SensorTestManager.activeDuration 統一設定。</summary>
+    public static float ActiveDuration = 1.5f;
+
     [HideInInspector] public int col;
     [HideInInspector] public int row;
     [HideInInspector] public int index; // row * 128 + col
@@ -63,7 +66,7 @@ public class SensorTileCell : MonoBehaviour
         RefreshColor();
     }
 
-    /// <summary>由 SensorTestManager 呼叫，觸發 1.5 秒亮紅。</summary>
+    /// <summary>由 SensorTestManager 呼叫，觸發亮紅（持續 ActiveDuration 秒）。</summary>
     public void Activate()
     {
         if (_locked) return;
@@ -75,7 +78,7 @@ public class SensorTileCell : MonoBehaviour
     IEnumerator ActiveRoutine()
     {
         _fill.color = ColActive;
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(ActiveDuration);
         _activeRoutine = null;
         RefreshColor();
     }
