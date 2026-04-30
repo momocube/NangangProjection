@@ -79,7 +79,7 @@ public partial class SensorTestManager : MonoBehaviour
     TextMeshProUGUI  _smartLockBtnText;
     Image _smartLockBtnImage;
 
-    bool  _gameTileVisible = true;
+    [SerializeField] bool  _gameTileVisible = false;
     TextMeshProUGUI  _gameTileBtnText;
     Image _gameTileBtnImage;
 
@@ -148,7 +148,9 @@ public partial class SensorTestManager : MonoBehaviour
 
     // ── Display 2 視窗控制 ────────────────────────────────────────────────────
 
-    System.IntPtr _display2Hwnd = System.IntPtr.Zero;
+    System.IntPtr _display2Hwnd      = System.IntPtr.Zero;
+    bool          _display2Activated = false;
+    public System.IntPtr Display2Hwnd => _display2Hwnd;
 
     // ── Windows API ──────────────────────────────────────────────────────────
 
@@ -167,12 +169,21 @@ public partial class SensorTestManager : MonoBehaviour
 
     void Awake()
     {
-        // 用螢幕原生解析度啟動 Display 2，不綁定 canvas 尺寸
-        // RT mirror（ScreenSpaceOverlay RawImage）會自動填滿整個顯示器
-        if (Display.displays.Length > 1)
+        // 只在晶片示意預設開啟時才啟動 Display 2；預設關閉則等使用者手動開啟
+        if (_gameTileVisible && Display.displays.Length > 1)
+        {
             Display.displays[1].Activate();
+            _display2Activated = true;
+        }
 
         Debug.Log($"[SensorTest] 偵測到 {Display.displays.Length} 個螢幕 | Display 2 啟動（原生解析度）");
+
+        // 在第一幀渲染前就隱藏晶片示意，避免啟動時閃現
+        if (!_gameTileVisible)
+        {
+            var canvas = sensorGridParent?.GetComponentInParent<Canvas>()?.gameObject;
+            if (canvas != null) canvas.SetActive(false);
+        }
     }
 
     IEnumerator Start()
@@ -210,9 +221,12 @@ public partial class SensorTestManager : MonoBehaviour
         UpdateDimAlphaText();
         UpdatePresetLabel();
         BuildFaceSelector();
+        UpdateGestureBar();
+        UpdateTapBoundaryText();
 
 #if !UNITY_EDITOR
-        StartCoroutine(FindDisplay2WindowCoroutine());
+        if (_display2Activated)
+            StartCoroutine(FindDisplay2WindowCoroutine());
 #endif
 
         SensorTileCell.ActiveDuration = activeDuration;
@@ -228,16 +242,19 @@ public partial class SensorTestManager : MonoBehaviour
                 if (SceneUtility.GetScenePathByBuildIndex(i).Contains(gameSceneName)) { found = true; break; }
             }
             if (found)
-                SceneManager.LoadSceneAsync(gameSceneName, LoadSceneMode.Additive);
+                yield return SceneManager.LoadSceneAsync(gameSceneName, LoadSceneMode.Additive);
             else
                 Debug.LogWarning($"[SensorTest] 場景 '{gameSceneName}' 未加入 Build Settings，略過載入。");
         }
+
+        SetGameTileVisible(_gameTileVisible);
     }
 
     void OnDestroy()
     {
         UdpSensorReceiver.OnPacketReceived -= OnUdpPacket;
         SensorGridRT.Release();
+        DestroyClickLog();
     }
 
     // ── 場域預設切換 ──────────────────────────────────────────────────────────
@@ -311,6 +328,9 @@ public partial class SensorTestManager : MonoBehaviour
 
     void DestroyGridTiles()
     {
+        _smartTouches.Clear();    // 切換場域時清除殘留觸碰狀態
+        _cellHitTimes.Clear();
+        _pendingCells.Clear();    // tile GameObject 即將被 Destroy，無需清視覺
         foreach (var fd in _faces)
         {
             if (fd.sensorTiles  != null) foreach (var t in fd.sensorTiles)  if (t) Destroy(t.gameObject);
@@ -401,7 +421,10 @@ public partial class SensorTestManager : MonoBehaviour
             if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) continue;
 
             var (col, row) = cfg.RawToCell(rawX, rawY, fd.rawMinX, fd.rawMaxX, fd.rawMinY, fd.rawMaxY);
-            ActivateCell(fi, row * cfg.colCount + col);
+            int cellIdx = row * cfg.colCount + col;
+            if (!ProcessGhostTouch(fi, cellIdx)) continue;  // 孤點尚未確認：同時跳過 ActivateCell + SmartTouch
+            ActivateCell(fi, cellIdx, skipVisual: true);  // 視覺交由 SmartTouch 解算後觸發
+            UpdateSmartTouch(fi, cellIdx);
             anyHit = true;
 
             // Debug：在 status bar 顯示觸發資訊，方便校準座標
@@ -417,7 +440,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     // ── 觸發 / 鎖定 ──────────────────────────────────────────────────────────
 
-    void ActivateCell(int faceIdx, int cellIdx)
+    void ActivateCell(int faceIdx, int cellIdx, bool skipVisual = false)
     {
         var fd = _faces[faceIdx];
         if (_smartLockActive && !fd.locked[cellIdx])
@@ -430,9 +453,12 @@ public partial class SensorTestManager : MonoBehaviour
         }
         if (fd.locked[cellIdx]) return;
 
-        fd.controlTiles[cellIdx]?.Activate();
-        if (_gameTileVisible)
-            fd.sensorTiles[cellIdx]?.Activate();
+        if (!skipVisual)
+        {
+            fd.controlTiles[cellIdx]?.Activate();
+            if (_gameTileVisible)
+                fd.sensorTiles[cellIdx]?.Activate();
+        }
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
@@ -475,6 +501,28 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnLeftClick(int faceIdx, int cellIdx) => ActivateCell(faceIdx, cellIdx);
 
+    void OnHoldTick(int faceIdx, int cellIdx) => ActivateCell(faceIdx, cellIdx, skipVisual: true);
+
+    void OnMousePressStart(int faceIdx, int cellIdx)
+    {
+        var fd = _faces[faceIdx];
+        if (fd.locked[cellIdx]) return;
+        if (_gameTileVisible) fd.sensorTiles[cellIdx]?.SetPressState(true);
+        int col = cellIdx % fd.config.colCount;
+        int row = cellIdx / fd.config.colCount;
+        SensorBus.PressStart(col, row);
+    }
+
+    void OnMousePressEnd(int faceIdx, int cellIdx)
+    {
+        var fd = _faces[faceIdx];
+        fd.controlTiles[cellIdx]?.SetPressState(false);
+        if (_gameTileVisible) fd.sensorTiles[cellIdx]?.SetPressState(false);
+        int col = cellIdx % fd.config.colCount;
+        int row = cellIdx / fd.config.colCount;
+        SensorBus.PressEnd(col, row);
+    }
+
     /// <summary>CoordTestPanel 呼叫：以原始感應座標觸發（與真實 UDP 封包路徑相同）。</summary>
     public void TriggerRawCoord(int rawX, int rawY) => OnUdpPacket(rawX, rawY);
 
@@ -506,10 +554,18 @@ public partial class SensorTestManager : MonoBehaviour
             _statusText.text = $"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格";
 
         HandleDragInteract();
+        UpdateClickLogPanel();
+        FlushExpiredSmartTouches();
+        CleanExpiredPendingCells();
     }
 
     void HandleDragInteract()
     {
+        // 忽略 SensorClickSimulator 剛剛注入的合成 OS 滑鼠事件（50ms 時間窗），防止回饋迴圈
+        if (_clickSim != null &&
+            Time.realtimeSinceStartup - _clickSim.LastSendInputTime < 0.05f)
+            return;
+
         bool leftHeld  = Input.GetMouseButton(0);
         bool rightHeld = Input.GetMouseButton(1);
 
@@ -725,7 +781,13 @@ public partial class SensorTestManager : MonoBehaviour
                 foreach (var t in f.sensorTiles)
                     if (t != null && !f.locked[t.index % f.locked.Length]) t.ResetToIdle();
 #if !UNITY_EDITOR
-        if (_display2Hwnd != System.IntPtr.Zero)
+        if (visible && !_display2Activated && Display.displays.Length > 1)
+        {
+            Display.displays[1].Activate();
+            _display2Activated = true;
+            StartCoroutine(FindDisplay2WindowCoroutine());
+        }
+        else if (_display2Hwnd != System.IntPtr.Zero)
             ShowWindow(_display2Hwnd, visible ? SW_SHOW : SW_HIDE);
 #endif
         UpdateGameTileButton();
@@ -886,24 +948,33 @@ public partial class SensorTestManager : MonoBehaviour
 #if !UNITY_EDITOR
     IEnumerator FindDisplay2WindowCoroutine()
     {
-        yield return new WaitForSeconds(0.5f);
-
-        System.IntPtr found   = System.IntPtr.Zero;
         int           threshold = display2WindowOffsetX;
+        System.IntPtr found     = System.IntPtr.Zero;
+        float         elapsed   = 0f;
 
-        EnumWindows((hwnd, _) =>
+        while (found == System.IntPtr.Zero && elapsed < 3f)
         {
-            var sb = new System.Text.StringBuilder(128);
-            GetClassName(hwnd, sb, 128);
-            if (sb.ToString() != "UnityWndClass") return true;
-            GetWindowRect(hwnd, out RECT rect);
-            if (rect.left >= threshold) { found = hwnd; return false; }
-            return true;
-        }, System.IntPtr.Zero);
+            yield return null;
+            elapsed += Time.unscaledDeltaTime;
+
+            EnumWindows((hwnd, _) =>
+            {
+                var sb = new System.Text.StringBuilder(128);
+                GetClassName(hwnd, sb, 128);
+                if (sb.ToString() != "UnityWndClass") return true;
+                GetWindowRect(hwnd, out RECT rect);
+                if (rect.left >= threshold) { found = hwnd; return false; }
+                return true;
+            }, System.IntPtr.Zero);
+        }
 
         _display2Hwnd = found;
+        _clickSim?.SetDisplay2Hwnd(found);
         if (found != System.IntPtr.Zero)
+        {
             Debug.Log($"[SensorTest] Display 2 HWND = 0x{found.ToInt64():X}");
+            ShowWindow(found, _gameTileVisible ? SW_SHOW : SW_HIDE);
+        }
         else
             Debug.LogWarning("[SensorTest] 找不到 Display 2 視窗。");
     }

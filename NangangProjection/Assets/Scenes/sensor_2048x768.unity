@@ -406,9 +406,20 @@ MonoBehaviour:
   gameSceneName: Map_CybercubeLogo_J_2048x768
   uiFontOverride: {fileID: 11400000, guid: 81dece84d7b6e884da6c2dcadd303782, type: 2}
   display2WindowOffsetX: 1920
-  activeDuration: 1.5
+  activeDuration: 0.05
+  _gameTileVisible: 0
+  showClickLogPanel: 1
+  clickLogMaxLines: 6
+  clickLogCollapseWindow: 0.3
+  ghostTouchMode: 2
+  ghostTouchWindowMs: 300
+  ghostNeighborCols: 3
+  ghostNeighborRows: 2
+  ghostConfirmCount: 2
   showLogButton: 1
   logRecordDuration: 5
+  tapBoundaryMs: 160
+  touchEndTimeoutMs: 160
 --- !u!114 &114401
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -422,7 +433,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   listenPort: 20001
-  debugLog: 1
+  debugLog: 0
 --- !u!114 &114402
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -837,7 +848,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   enableLog: 1
   collapseWindow: 0.1
-  showPerSecondStat: 1
+  showPerSecondStat: 0
 --- !u!114 &400403
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -852,13 +863,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   display2OffsetX: 1920
   display2OffsetY: 0
+  externalEnabled: 0
   externalIP: 127.0.0.1
   externalPort: 20002
   cooldownEnabled: 1
   clickCooldown: 0.1
+  tapClickEnabled: 1
+  pressClickEnabled: 1
+  dragClickEnabled: 1
+  mouseBehavior: 0
   pressHoldDuration: 0.3
   dragReleaseDelay: 0.5
-  _mode: 2
+  debugLog: 0
+  _mode: 1
 --- !u!114 &400404
 MonoBehaviour:
   m_ObjectHideFlags: 0

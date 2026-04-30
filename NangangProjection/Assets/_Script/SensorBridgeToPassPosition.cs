@@ -35,6 +35,8 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     public float touchTimeout = 0.3f;
     [Tooltip("最近鄰配對半徑（格子單位）")]
     public float matchRadiusCells = 3f;
+    [Tooltip("按壓結束後淡出持續秒數（須 ≥ radius / 0.8 ≈ 0.5s）")]
+    public float pressReleaseHoldSeconds = 0.7f;
 
     // ── 內部狀態 ────────────────────────────────────────────────────────────
     private const int   MAX_SLOTS = 20;
@@ -50,7 +52,10 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     }
 
     private PassPositionToMaterial _pptm;
-    private TouchSlot[]   _slots       = new TouchSlot[MAX_SLOTS];
+    private TouchSlot[]   _slots        = new TouchSlot[MAX_SLOTS];
+    private bool[]        _pressActive  = new bool[MAX_SLOTS];   // 此 slot 是否處於按壓狀態
+    private bool[]        _fadingOut    = new bool[MAX_SLOTS];   // 此 slot 是否正在淡出
+    private float[]       _fadeEndTime  = new float[MAX_SLOTS];  // 淡出結束時間
     private List<Vector2Int> _frameHits = new List<Vector2Int>(MAX_SLOTS);
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -70,12 +75,18 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         for (int i = 0; i < MAX_SLOTS; i++)
             _pptm.inputPosition.Add(new Vector4(PARK_X, PARK_Y, 0f, 0f));
 
-        SensorBus.OnTouch += OnSensorTouch;
+        SensorBus.OnTouch      += OnSensorTouch;
+        SensorBus.OnPressStart += OnSensorPressStart;
+        SensorBus.OnPressEnd   += OnSensorPressEnd;
+        SensorBus.OnDrag       += OnSensorDrag;
     }
 
     private void OnDestroy()
     {
-        SensorBus.OnTouch -= OnSensorTouch;
+        SensorBus.OnTouch      -= OnSensorTouch;
+        SensorBus.OnPressStart -= OnSensorPressStart;
+        SensorBus.OnPressEnd   -= OnSensorPressEnd;
+        SensorBus.OnDrag       -= OnSensorDrag;
     }
 
     // ── 事件接收 ────────────────────────────────────────────────────────────
@@ -125,8 +136,18 @@ public class SensorBridgeToPassPosition : MonoBehaviour
                 _slots[s].screenPos = ColRowToScreen(_slots[s].col, _slots[s].row);
                 _slots[s].lastSeen  = now;
             }
-            else if (now - _slots[s].lastSeen > touchTimeout)
+            else if (_fadingOut[s])
             {
+                // 淡出中：等淡出時間結束才停用
+                if (now >= _fadeEndTime[s])
+                {
+                    _slots[s].active = false;
+                    _fadingOut[s]    = false;
+                }
+            }
+            else if (!_pressActive[s] && now - _slots[s].lastSeen > touchTimeout)
+            {
+                // 按壓中的 slot 不逾時，等 PressEnd 才清除
                 _slots[s].active = false;
             }
         }
@@ -153,6 +174,67 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             _pptm.inputPosition[i] = _slots[i].active
                 ? new Vector4(_slots[i].screenPos.x, _slots[i].screenPos.y, 0f, 0f)
                 : new Vector4(PARK_X, PARK_Y, 0f, 0f);
+        }
+
+        // 同步按壓 / 淡出狀態給 PPTM
+        if (_pptm.slotPressHeld != null && _pptm.slotPressHeld.Length >= MAX_SLOTS)
+            for (int i = 0; i < MAX_SLOTS; i++)
+                _pptm.slotPressHeld[i] = _pressActive[i] && _slots[i].active;
+
+        if (_pptm.slotFadingOut != null && _pptm.slotFadingOut.Length >= MAX_SLOTS)
+            for (int i = 0; i < MAX_SLOTS; i++)
+                _pptm.slotFadingOut[i] = _fadingOut[i] && _slots[i].active;
+    }
+
+    // ── 按壓 / 拖曳事件 ─────────────────────────────────────────────────────
+
+    /// <summary>按壓開始：找到對應 slot 並標記為 pressActive，防止逾時失效。</summary>
+    private void OnSensorPressStart(int col, int row)
+    {
+        // 優先找已存在的 slot
+        for (int i = 0; i < MAX_SLOTS; i++)
+        {
+            if (_slots[i].active && _slots[i].col == col && _slots[i].row == row)
+            {
+                _pressActive[i] = true;
+                return;
+            }
+        }
+        // OnTouch 應該已建立 slot；若未建立（感應器只送一次封包），手動補建
+        int free = FindFreeSlot();
+        if (free < 0) return;
+        _slots[free].active    = true;
+        _slots[free].lastSeen  = Time.time;
+        _slots[free].col       = col;
+        _slots[free].row       = row;
+        _slots[free].screenPos = ColRowToScreen(col, row);
+        _pressActive[free]     = true;
+    }
+
+    /// <summary>按壓結束：進入淡出狀態，slot 在 pressReleaseHoldSeconds 後停用。</summary>
+    private void OnSensorPressEnd(int col, int row)
+    {
+        float endTime = Time.time + pressReleaseHoldSeconds;
+        for (int i = 0; i < MAX_SLOTS; i++)
+        {
+            if (!_pressActive[i]) continue;
+            _pressActive[i]  = false;
+            _fadingOut[i]    = true;
+            _fadeEndTime[i]  = endTime;
+        }
+    }
+
+    /// <summary>拖曳：將按壓 slot 的位置更新到新格子（暴度已開時效果跟著手移動）。</summary>
+    private void OnSensorDrag(int col, int row)
+    {
+        for (int i = 0; i < MAX_SLOTS; i++)
+        {
+            if (!_pressActive[i] || !_slots[i].active) continue;
+            _slots[i].col       = col;
+            _slots[i].row       = row;
+            _slots[i].screenPos = ColRowToScreen(col, row);
+            _slots[i].lastSeen  = Time.time;
+            return;  // 只更新第一個按壓 slot（單點觸碰）
         }
     }
 

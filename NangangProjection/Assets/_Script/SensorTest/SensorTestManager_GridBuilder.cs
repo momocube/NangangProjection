@@ -257,9 +257,12 @@ public partial class SensorTestManager
                 cell.Init(c, r, cfg.colCount);
 
                 int capturedIdx = idx;
-                cell.onRightClick = (col2, row2) => ToggleLock(capturedFi, col2, row2);
-                cell.onLeftClick  = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
-                cell.onHover      = (col2, row2, i2, lk) => OnTileHover(capturedFi, col2, row2, i2, lk);
+                cell.onRightClick  = (col2, row2) => ToggleLock(capturedFi, col2, row2);
+                cell.onLeftClick   = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
+                cell.onHoldTick    = (col2, row2) => OnHoldTick(capturedFi, row2 * cfg.colCount + col2);
+                cell.onPressStart  = (col2, row2) => OnMousePressStart(capturedFi, row2 * cfg.colCount + col2);
+                cell.onPressEnd    = (col2, row2) => OnMousePressEnd(capturedFi, row2 * cfg.colCount + col2);
+                cell.onHover       = (col2, row2, i2, lk) => OnTileHover(capturedFi, col2, row2, i2, lk);
                 fd.controlTiles[idx] = cell;
             }
         }
@@ -326,9 +329,12 @@ public partial class SensorTestManager
                 var cell = go.AddComponent<ControlTileCell>();
                 cell.Init(c, r, cfg.colCount);
 
-                cell.onRightClick = (col2, row2) => ToggleLock(capturedFi, col2, row2);
-                cell.onLeftClick  = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
-                cell.onHover      = (col2, row2, i2, lk) => OnTileHover(capturedFi, col2, row2, i2, lk);
+                cell.onRightClick  = (col2, row2) => ToggleLock(capturedFi, col2, row2);
+                cell.onLeftClick   = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
+                cell.onHoldTick    = (col2, row2) => OnHoldTick(capturedFi, row2 * cfg.colCount + col2);
+                cell.onPressStart  = (col2, row2) => OnMousePressStart(capturedFi, row2 * cfg.colCount + col2);
+                cell.onPressEnd    = (col2, row2) => OnMousePressEnd(capturedFi, row2 * cfg.colCount + col2);
+                cell.onHover       = (col2, row2, i2, lk) => OnTileHover(capturedFi, col2, row2, i2, lk);
                 fd.controlTiles[idx] = cell;
 
                 built++;
@@ -490,6 +496,7 @@ public partial class SensorTestManager
         sensorCanvas.worldCamera = _sensorGridCam;
 
         _display2MirrorCanvas = BuildDisplay2Mirror(rt);
+        if (!_gameTileVisible) _display2MirrorCanvas.SetActive(false);
 
         Debug.Log($"[SensorTest] SensorGridRT 捕捉設定完成（{w}×{h}）");
     }

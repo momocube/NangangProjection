@@ -32,6 +32,14 @@ public class SensorClickSimulator : MonoBehaviour
     public bool  cooldownEnabled = true;
     public float clickCooldown   = 1f;
 
+    [Header("智慧觸碰效果勾選（配合 SmartTouch 辨識）")]
+    [Tooltip("輕觸解算時發出 OS 點擊事件。")]
+    public bool tapClickEnabled   = true;
+    [Tooltip("按壓開始 / 結束時發出 OS LEFTDOWN / LEFTUP 事件。")]
+    public bool pressClickEnabled = true;
+    [Tooltip("拖曳手勢時移動滑鼠（Mouse / PostMessage 模式，需同時開啟按壓才有效果）。")]
+    public bool dragClickEnabled  = true;
+
     [Header("滑鼠模式")]
     public MouseBehavior mouseBehavior = MouseBehavior.Click;
     [Tooltip("按壓：LEFTDOWN 後持續按住的秒數。")]
@@ -43,7 +51,7 @@ public class SensorClickSimulator : MonoBehaviour
     public bool debugLog = false;
 
     [Header("目前模式（唯讀，由按鈕切換）")]
-    [SerializeField] ClickMode _mode = ClickMode.Mouse;
+    [SerializeField] ClickMode _mode = ClickMode.PostMessage;
 
     /// <summary>記錄模組可訂閱：每次發出 OS 事件時通知（描述字串）。</summary>
     public static event System.Action<string> OnSimEvent;
@@ -60,6 +68,16 @@ public class SensorClickSimulator : MonoBehaviour
     bool      _isDragging;
     POINT     _savedDragCursor;
     Coroutine _dragReleaseCoroutine;
+
+    // 智慧按壓狀態（由 SmartTouch PressStart / PressEnd 驅動）
+    bool  _smartPressStarted;
+    POINT _smartPressSavedCursor;
+
+    // Display 2 HWND 白名單（由 SensorTestManager 注入，防止 PostMessage 打到 Display 1）
+    System.IntPtr _knownDisplay2Hwnd = System.IntPtr.Zero;
+
+    // 上一次送出 SendInput 的時間（供 HandleDragInteract 時間窗守衛使用）
+    public float LastSendInputTime { get; private set; }
 
     // ── 公開介面 ──────────────────────────────────────────────────────────────
 
@@ -95,27 +113,47 @@ public class SensorClickSimulator : MonoBehaviour
 
     public void CycleMode() => _mode = (ClickMode)(((int)_mode + 1) % 3);
 
+    /// <summary>由 SensorTestManager 在找到 Display 2 視窗後注入，確保 PostMessage 只打到正確的目標視窗。</summary>
+    public void SetDisplay2Hwnd(System.IntPtr hwnd) => _knownDisplay2Hwnd = hwnd;
+
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
     void OnEnable()
     {
         _udp         = new UdpClient();
         _udpEndpoint = new IPEndPoint(IPAddress.Parse(externalIP), externalPort);
-        SensorBus.OnTouch -= OnTouch;
-        SensorBus.OnTouch += OnTouch;
+        SensorBus.OnTouch      -= OnTouch;
+        SensorBus.OnTouch      += OnTouch;
+        SensorBus.OnTap        -= OnSmartTap;
+        SensorBus.OnTap        += OnSmartTap;
+        SensorBus.OnPressStart -= OnSmartPressStart;
+        SensorBus.OnPressStart += OnSmartPressStart;
+        SensorBus.OnPressEnd   -= OnSmartPressEnd;
+        SensorBus.OnPressEnd   += OnSmartPressEnd;
+        SensorBus.OnDrag       -= OnSmartDrag;
+        SensorBus.OnDrag       += OnSmartDrag;
     }
 
     void OnDisable()
     {
-        SensorBus.OnTouch -= OnTouch;
+        SensorBus.OnTouch      -= OnTouch;
+        SensorBus.OnTap        -= OnSmartTap;
+        SensorBus.OnPressStart -= OnSmartPressStart;
+        SensorBus.OnPressEnd   -= OnSmartPressEnd;
+        SensorBus.OnDrag       -= OnSmartDrag;
         _udp?.Close();
         _udp = null;
 
         if (_isDragging)
         {
             SendMouseUp();
-            SetCursorPos(_savedDragCursor.x, _savedDragCursor.y);
             _isDragging = false;
+        }
+
+        if (_smartPressStarted)
+        {
+            SendMouseUp();
+            _smartPressStarted = false;
         }
     }
 
@@ -169,6 +207,20 @@ public class SensorClickSimulator : MonoBehaviour
 
     // ── PostMessage ───────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// 驗證 hwnd 是合法的 Display 2 目標。
+    /// 若已知 Display 2 HWND，則只允許完全匹配；未知時退回原本的「不是 Zero 即可」邏輯。
+    /// </summary>
+    bool IsValidDisplay2Hwnd(System.IntPtr hwnd)
+    {
+        if (hwnd == System.IntPtr.Zero) return false;
+#if !UNITY_EDITOR
+        if (_knownDisplay2Hwnd != System.IntPtr.Zero && hwnd != _knownDisplay2Hwnd)
+            return false;
+#endif
+        return true;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     struct POINT { public int x, y; }
 
@@ -189,9 +241,9 @@ public class SensorClickSimulator : MonoBehaviour
     void PostMessageClick(int absX, int absY, int col, int row)
     {
         var hwnd = WindowFromPoint(new POINT { x = absX, y = absY });
-        if (hwnd == System.IntPtr.Zero)
+        if (!IsValidDisplay2Hwnd(hwnd))
         {
-            if (debugLog) Debug.LogWarning($"[SensorClick] PostMessage: 找不到目標視窗 ({absX},{absY})");
+            if (debugLog) Debug.LogWarning($"[SensorClick] PostMessage: 目標視窗無效或不是 Display 2 ({absX},{absY}) hwnd=0x{hwnd.ToInt64():X}");
             return;
         }
 
@@ -300,33 +352,23 @@ public class SensorClickSimulator : MonoBehaviour
 
     void SendInputClick(int absX, int absY, int col, int row)
     {
-        GetCursorPos(out POINT savedPos);
-
-        var (normX, normY)   = AbsToNorm(absX, absY);
-        var (normSX, normSY) = AbsToNorm(savedPos.x, savedPos.y);
+        var (normX, normY) = AbsToNorm(absX, absY);
 
         uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        var inputs = new INPUT[4];
+        var inputs = new INPUT[2];
 
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
-        inputs[0].u.mi.dwFlags = MOUSEEVENTF_MOVE | flags;
+        inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | flags;
 
         inputs[1].type = INPUT_MOUSE;
         inputs[1].u.mi.dx = normX; inputs[1].u.mi.dy = normY;
-        inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | flags;
+        inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | flags;
 
-        inputs[2].type = INPUT_MOUSE;
-        inputs[2].u.mi.dx = normX; inputs[2].u.mi.dy = normY;
-        inputs[2].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | flags;
-
-        inputs[3].type = INPUT_MOUSE;
-        inputs[3].u.mi.dx = normSX; inputs[3].u.mi.dy = normSY;
-        inputs[3].u.mi.dwFlags = MOUSEEVENTF_MOVE | flags;
-
-        uint sent = SendInput(4, inputs, Marshal.SizeOf(typeof(INPUT)));
-        if (sent != 4)
-            Debug.LogWarning($"[SensorClick] SendInput 只送出 {sent}/4（錯誤碼 {Marshal.GetLastWin32Error()}）");
+        uint sent = SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+        LastSendInputTime = Time.realtimeSinceStartup;
+        if (sent != 2)
+            Debug.LogWarning($"[SensorClick] SendInput 只送出 {sent}/2（錯誤碼 {Marshal.GetLastWin32Error()}）");
         else if (debugLog)
             Debug.Log($"[SensorClick] 點擊 格({col},{row}) → 螢幕({absX},{absY})");
 
@@ -337,19 +379,16 @@ public class SensorClickSimulator : MonoBehaviour
 
     IEnumerator PressCoroutine(int absX, int absY, int col, int row)
     {
-        GetCursorPos(out POINT saved);
         var (normX, normY) = AbsToNorm(absX, absY);
 
-        SendMouseMove(normX, normY);
         SendMouseDown(normX, normY);
+        LastSendInputTime = Time.realtimeSinceStartup;
         OnSimEvent?.Invoke($"滑鼠·按壓開始  格({col},{row})  持續 {pressHoldDuration:F2}s");
         if (debugLog) Debug.Log($"[SensorClick] 按壓開始 格({col},{row}) → 螢幕({absX},{absY})");
 
         yield return new WaitForSeconds(pressHoldDuration);
 
         SendMouseUp();
-        var (normSX, normSY) = AbsToNorm(saved.x, saved.y);
-        SendMouseMove(normSX, normSY);
         OnSimEvent?.Invoke($"滑鼠·按壓結束  格({col},{row})");
         if (debugLog) Debug.Log($"[SensorClick] 按壓結束 格({col},{row})");
 
@@ -370,9 +409,8 @@ public class SensorClickSimulator : MonoBehaviour
 
         if (!_isDragging)
         {
-            GetCursorPos(out _savedDragCursor);
-            SendMouseMove(normX, normY);
             SendMouseDown(normX, normY);
+            LastSendInputTime = Time.realtimeSinceStartup;
             _isDragging = true;
             OnSimEvent?.Invoke($"滑鼠·拖曳開始  格({col},{row})  螢幕({absX},{absY})");
             if (debugLog) Debug.Log($"[SensorClick] 拖曳開始 格({col},{row}) → 螢幕({absX},{absY})");
@@ -393,8 +431,6 @@ public class SensorClickSimulator : MonoBehaviour
         if (_isDragging)
         {
             SendMouseUp();
-            var (normSX, normSY) = AbsToNorm(_savedDragCursor.x, _savedDragCursor.y);
-            SendMouseMove(normSX, normSY);
             _isDragging = false;
             OnSimEvent?.Invoke($"滑鼠·拖曳結束  格({col},{row})  超時 {dragReleaseDelay:F2}s");
             if (debugLog) Debug.Log($"[SensorClick] 拖曳結束 格({col},{row})（超時）");
@@ -418,6 +454,141 @@ public class SensorClickSimulator : MonoBehaviour
         catch (System.Exception e)
         {
             Debug.LogWarning($"[SensorClick] UDP 外送失敗: {e.Message}");
+        }
+    }
+
+    // ── 智慧觸碰事件（由 SensorBus.OnTap / OnPressStart / OnPressEnd 觸發）────
+
+    void OnSmartTap(int col, int row)
+    {
+        if (!tapClickEnabled) return;
+        int absX = display2OffsetX + col * CellW + CellW / 2;
+        int absY = display2OffsetY + row * CellH + CellH / 2;
+
+        switch (_mode)
+        {
+            case ClickMode.Listen:
+                if (!CheckCooldown()) return;
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·輕觸 監聽 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·輕觸  監聽  格({col},{row})");
+                if (externalEnabled) ExternalUdpSend(col, row);
+                break;
+            case ClickMode.PostMessage:
+                if (!CheckCooldown()) return;
+                PostMessageClick(absX, absY, col, row);
+                OnSimEvent?.Invoke($"智慧·輕觸  PostMessage  格({col},{row})");
+                break;
+            case ClickMode.Mouse:
+                SendInputClick(absX, absY, col, row);
+                OnSimEvent?.Invoke($"智慧·輕觸  滑鼠  格({col},{row})");
+                break;
+        }
+    }
+
+    void OnSmartPressStart(int col, int row)
+    {
+        if (!pressClickEnabled) return;
+        int absX = display2OffsetX + col * CellW + CellW / 2;
+        int absY = display2OffsetY + row * CellH + CellH / 2;
+
+        switch (_mode)
+        {
+            case ClickMode.Mouse:
+            {
+                if (_smartPressStarted) return;
+                var (normX, normY) = AbsToNorm(absX, absY);
+                SendMouseDown(normX, normY);
+                LastSendInputTime = Time.realtimeSinceStartup;
+                _smartPressStarted = true;
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·按壓開始 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·按壓開始  格({col},{row})");
+                break;
+            }
+            case ClickMode.PostMessage:
+            {
+                if (_smartPressStarted) return;
+                var hwnd = WindowFromPoint(new POINT { x = absX, y = absY });
+                if (!IsValidDisplay2Hwnd(hwnd)) break;
+                GetWindowRect(hwnd, out RECT rect);
+                var lp = MakeLParam(absX - rect.left, absY - rect.top);
+                PostMessage(hwnd, WM_LBUTTONDOWN, (System.IntPtr)MK_LBUTTON, lp);
+                _smartPressStarted = true;
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·按壓開始 PostMessage 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·按壓開始  PostMessage  格({col},{row})");
+                break;
+            }
+        }
+    }
+
+    void OnSmartPressEnd(int col, int row)
+    {
+        if (!pressClickEnabled) return;
+        if (!_smartPressStarted) return;
+        _smartPressStarted = false;
+
+        int absX = display2OffsetX + col * CellW + CellW / 2;
+        int absY = display2OffsetY + row * CellH + CellH / 2;
+
+        switch (_mode)
+        {
+            case ClickMode.Mouse:
+            {
+                SendMouseUp();
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·按壓結束 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·按壓結束  格({col},{row})");
+                break;
+            }
+            case ClickMode.PostMessage:
+            {
+                var hwnd = WindowFromPoint(new POINT { x = absX, y = absY });
+                if (!IsValidDisplay2Hwnd(hwnd)) break;
+                GetWindowRect(hwnd, out RECT rect);
+                var lp = MakeLParam(absX - rect.left, absY - rect.top);
+                PostMessage(hwnd, WM_LBUTTONUP, System.IntPtr.Zero, lp);
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·按壓結束 PostMessage 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·按壓結束  PostMessage  格({col},{row})");
+                break;
+            }
+        }
+    }
+
+    void OnSmartDrag(int col, int row)
+    {
+        if (!dragClickEnabled) return;
+        int absX = display2OffsetX + col * CellW + CellW / 2;
+        int absY = display2OffsetY + row * CellH + CellH / 2;
+
+        switch (_mode)
+        {
+            case ClickMode.Mouse:
+            {
+                if (!_smartPressStarted) return;
+                var (normX, normY) = AbsToNorm(absX, absY);
+                SendMouseMove(normX, normY);
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·拖曳 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·拖曳  格({col},{row})");
+                break;
+            }
+            case ClickMode.PostMessage:
+            {
+                if (!_smartPressStarted) return;
+                var hwnd = WindowFromPoint(new POINT { x = absX, y = absY });
+                if (!IsValidDisplay2Hwnd(hwnd)) break;
+                GetWindowRect(hwnd, out RECT rect);
+                var lp = MakeLParam(absX - rect.left, absY - rect.top);
+                const uint WM_MOUSEMOVE = 0x0200;
+                PostMessage(hwnd, WM_MOUSEMOVE, (System.IntPtr)MK_LBUTTON, lp);
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·拖曳 PostMessage 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·拖曳  PostMessage  格({col},{row})");
+                break;
+            }
+            case ClickMode.Listen:
+            {
+                if (debugLog) Debug.Log($"[SensorClick] 智慧·拖曳 監聽 格({col},{row})");
+                OnSimEvent?.Invoke($"智慧·拖曳  監聽  格({col},{row})");
+                if (externalEnabled) ExternalUdpSend(col, row);
+                break;
+            }
         }
     }
 }

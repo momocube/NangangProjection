@@ -20,12 +20,16 @@ public class SensorTileCell : MonoBehaviour
     Image     _fill;
     Coroutine _activeRoutine;
 
-    static readonly Color ColBorder = new Color(0.28f, 0.28f, 0.28f, 1f);
-    static readonly Color ColIdle   = new Color(0.06f, 0.06f, 0.08f, 1f);
-    static readonly Color ColActive = new Color(0.90f, 0.10f, 0.10f, 1f);
-    static readonly Color ColLocked = new Color(0.85f, 0.72f, 0.00f, 1f);
+    static readonly Color ColBorder  = new Color(0.28f, 0.28f, 0.28f, 1f);
+    static readonly Color ColIdle    = new Color(0.06f, 0.06f, 0.08f, 1f);
+    static readonly Color ColActive  = new Color(0.90f, 0.10f, 0.10f, 1f);
+    static readonly Color ColLocked  = new Color(0.85f, 0.72f, 0.00f, 1f);
+    static readonly Color ColPress   = new Color(1.00f, 0.55f, 0.00f, 1f);  // 橘色常亮（按壓中）
+    static readonly Color ColPending = new Color(0.55f, 0.55f, 0.60f, 1f);  // 灰白（孤點等待中）
 
     bool _locked;
+    bool _isPressing;
+    bool _isPending;
 
     void Awake()
     {
@@ -50,7 +54,8 @@ public class SensorTileCell : MonoBehaviour
     /// <summary>由 SensorTestManager 呼叫，設定鎖定狀態。</summary>
     public void SetLocked(bool locked)
     {
-        _locked = locked;
+        _locked     = locked;
+        _isPressing = false;
         if (_locked && _activeRoutine != null)
         {
             StopCoroutine(_activeRoutine);
@@ -62,17 +67,48 @@ public class SensorTileCell : MonoBehaviour
     /// <summary>Canvas 重新顯示時強制還原 idle 狀態（中斷的 Coroutine 不會自動還原顏色）。</summary>
     public void ResetToIdle()
     {
+        _isPressing = false;
+        _isPending  = false;
         if (_activeRoutine != null) { StopCoroutine(_activeRoutine); _activeRoutine = null; }
         RefreshColor();
     }
 
-    /// <summary>由 SensorTestManager 呼叫，觸發亮紅（持續 ActiveDuration 秒）。</summary>
+    /// <summary>由 SensorTestManager 呼叫，設定孤點等待（灰白）狀態。</summary>
+    public void SetPendingState(bool pending)
+    {
+        _isPending = pending;
+        if (pending)
+        {
+            if (_activeRoutine != null) { StopCoroutine(_activeRoutine); _activeRoutine = null; }
+            _isPressing = false;
+        }
+        RefreshColor();
+    }
+
+    /// <summary>由 SensorTestManager 呼叫，觸發亮紅（持續 ActiveDuration 秒）。按壓中不蓋橘燈。</summary>
     public void Activate()
     {
-        if (_locked) return;
-        if (!gameObject.activeInHierarchy) return;   // Canvas 關閉時 inactive，不能 StartCoroutine
+        if (_locked)     return;
+        if (_isPressing) return;  // 按壓中不蓋橘燈
+        if (!gameObject.activeInHierarchy) return;
         if (_activeRoutine != null) StopCoroutine(_activeRoutine);
         _activeRoutine = StartCoroutine(ActiveRoutine());
+    }
+
+    /// <summary>由 SensorTestManager 呼叫，設定按壓橘燈（true = 亮橘，false = 熄滅）。</summary>
+    public void SetPressState(bool pressing)
+    {
+        if (_locked) return;
+        _isPressing = pressing;
+        if (pressing)
+        {
+            if (_activeRoutine != null) { StopCoroutine(_activeRoutine); _activeRoutine = null; }
+            if (_fill != null) _fill.color = ColPress;
+        }
+        else
+        {
+            RefreshColor();
+        }
     }
 
     IEnumerator ActiveRoutine()
@@ -86,6 +122,9 @@ public class SensorTileCell : MonoBehaviour
     void RefreshColor()
     {
         if (_fill == null) return;
-        _fill.color = _locked ? ColLocked : ColIdle;
+        if (_locked)     { _fill.color = ColLocked;  return; }
+        if (_isPending)  { _fill.color = ColPending; return; }
+        if (_isPressing) { _fill.color = ColPress;   return; }
+        _fill.color = ColIdle;
     }
 }

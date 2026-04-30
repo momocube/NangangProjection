@@ -85,7 +85,16 @@ public partial class SensorTestManager
             Vector2.zero, new Vector2(1f, 0f),
             new Vector2(0f, 90f), new Vector2(0f, 128f));
         BuildSensitivityBar(sensBar, font);
+
+        // 手勢列 (38 px)：點擊 / 按壓 / 滑動勾選 + 按壓判定 ms 調整
+        // 與其他 bar 相同，疊加在格子上方（不調整 controlGridParent 大小）
+        var gestureBar = CreatePanel(root, "GestureBar", new Color(0.06f, 0.08f, 0.12f),
+            Vector2.zero, new Vector2(1f, 0f),
+            new Vector2(0f, 128f), new Vector2(0f, 166f));
+        BuildGestureBar(gestureBar, font);
+
         BuildLoadingPanel(root, font);
+        BuildClickLogPanel(root, font);
     }
 
     void BuildPresetSelector(RectTransform parent, TMP_FontAsset font)
@@ -241,6 +250,8 @@ public partial class SensorTestManager
         UpdateOverlayAlphaText();
         UpdateDimAlphaText();
     }
+
+
 
     // ── 載入面板 ──────────────────────────────────────────────────────────────
 

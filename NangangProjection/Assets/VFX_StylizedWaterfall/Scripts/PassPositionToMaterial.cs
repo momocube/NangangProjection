@@ -29,6 +29,18 @@ public class PassPositionToMaterial : MonoBehaviour {
     [SerializeField] private int splashFXPoolNum = 40;
     [SerializeField] private GameObject[] splashFXPool;
 
+    /// <summary>
+    /// ç”± SensorBridgeToPassPosition è¨­å®šï¼šå°æ‡‰ slot æ˜¯å¦è™•æ–¼æŒ‰å£“ç‹€æ…‹ã€‚
+    /// æŒ‰å£“ + æš´åº¦å·²å…¨é–‹æ™‚ï¼Œç§»å‹•ä½ç½®ä¸ç¸®å° radiusï¼ˆè®“æ•ˆæœè·Ÿè‘—æ‰‹ç§»å‹•ï¼‰ã€‚
+    /// </summary>
+    public bool[] slotPressHeld = new bool[20];
+
+    /// <summary>
+    /// ç”± SensorBridgeToPassPosition è¨­å®šï¼šå°æ‡‰ slot æ˜¯å¦æ­£åœ¨æ·¡å‡ºã€‚
+    /// æ·¡å‡ºæ™‚ä»¥è¼ƒæ…¢é€Ÿåº¦ç¸®å° radiusï¼Œè¦–è¦ºä¸Šç·©æ…¢æ¶ˆå¤±ã€‚
+    /// </summary>
+    public bool[] slotFadingOut = new bool[20];
+
     private string positionProperty = "_ObjectPosition";
     private string radiusProperty = "_ObjectRadius";
 
@@ -54,7 +66,7 @@ public class PassPositionToMaterial : MonoBehaviour {
             currentPositionNum = inputPosition.Count;
             material.SetInt("currentPositionNum", Mathf.Min(currentPositionNum, maxPositionNum));
 
-            //¥ıÃö³¬¤W¤@¦¸¤ñ¥Ø«e§ó¦hªº°»´úÂI¡A¦h¥X¨Óªºªº¯S®Ä
+            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Wï¿½@ï¿½ï¿½ï¿½ï¿½Ø«eï¿½ï¿½hï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Aï¿½hï¿½Xï¿½Óªï¿½ï¿½ï¿½ï¿½Sï¿½ï¿½
             if (lastPositionNum > currentPositionNum)
             {
                 for (int i = currentPositionNum; i < lastPositionNum; i++)
@@ -63,7 +75,7 @@ public class PassPositionToMaterial : MonoBehaviour {
                 }
             }
 
-            //¥Ø«e°»´úÂI¼Æ¶q¤p©ó³Ì¤j(20­Ó)°»´úÂI¼Æ¶q
+            //ï¿½Ø«eï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶qï¿½pï¿½ï¿½Ì¤j(20ï¿½ï¿½)ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶q
             if (currentPositionNum < maxPositionNum)
             {
                 for (int i = 0; i < currentPositionNum; i++)
@@ -126,6 +138,12 @@ public class PassPositionToMaterial : MonoBehaviour {
         if (radiusOffsetTemp == null || radiusOffsetTemp.Length == 0)
             radiusOffsetTemp = new float[maxPositionNum];
 
+        if (slotPressHeld == null || slotPressHeld.Length < maxPositionNum)
+            slotPressHeld = new bool[maxPositionNum];
+
+        if (slotFadingOut == null || slotFadingOut.Length < maxPositionNum)
+            slotFadingOut = new bool[maxPositionNum];
+
         material.SetInt("maxPositionNum", maxPositionNum);
     }
 
@@ -147,32 +165,53 @@ public class PassPositionToMaterial : MonoBehaviour {
             {
                 if (inputPosition[i].w == 0)
                 {
-                    //¥Ø«e°»´úÂI¼Æ¶q¤p©ó³Ì¤j(20­Ó)°»´úÂI¼Æ¶q
+                    //ï¿½Ø«eï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶qï¿½pï¿½ï¿½Ì¤j(20ï¿½ï¿½)ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶q
                     if (currentPositionNum < maxPositionNum)
                     {
                         if (i > currentPositionNum - 1) break;
                     }
 
-                    if (Mathf.Abs(inputPosition[i].x - maxPositionLast[i].x) < 0.01f)
+                    // åœè»Šæ ¼ï¼ˆ-9999ï¼‰ï¼šradius å¼·åˆ¶æœ€å°ï¼Œä¸è®“é–’ç½® slot ç´¯ç©åˆ°æœ€å¤§
+                    if (inputPosition[i].x < -1000f)
                     {
-                        if (radiusOffsetTemp[i] <= maxRadiusOffset)
-                            radiusOffsetTemp[i] += Time.deltaTime * 1.5f;
+                        radiusOffsetTemp[i] = -0.2f;
+                        maxPositionLast[i]  = inputPosition[i];
+                    }
+                    // æ·¡å‡ºç‹€æ…‹ï¼šç·©æ…¢ç¸®å° radiusï¼Œè¦–è¦ºä¸Šæ¶ˆå¤±
+                    else if (i < slotFadingOut.Length && slotFadingOut[i])
+                    {
+                        if (radiusOffsetTemp[i] > -0.2f)
+                            radiusOffsetTemp[i] -= Time.deltaTime * 0.8f;
                         else
-                            radiusOffsetTemp[i] = maxRadiusOffset;
+                            radiusOffsetTemp[i] = -0.2f;
+                        maxPositionLast[i] = inputPosition[i];
                     }
                     else
                     {
-                        if (radiusOffsetTemp[i] >= -0.2f)
-                            radiusOffsetTemp[i] -= Time.deltaTime * 10.0f;
-                        else
-                            radiusOffsetTemp[i] = -0.2f;
-                    }
+                        bool posStable = Mathf.Abs(inputPosition[i].x - maxPositionLast[i].x) < 0.01f;
+                        bool holdOpen  = i < slotPressHeld.Length && slotPressHeld[i];
 
-                    maxPositionLast[i] = inputPosition[i];
+                        if (posStable || holdOpen)
+                        {
+                            if (radiusOffsetTemp[i] <= maxRadiusOffset)
+                                radiusOffsetTemp[i] += Time.deltaTime * 1.5f;
+                            else
+                                radiusOffsetTemp[i] = maxRadiusOffset;
+                        }
+                        else
+                        {
+                            if (radiusOffsetTemp[i] >= -0.2f)
+                                radiusOffsetTemp[i] -= Time.deltaTime * 10.0f;
+                            else
+                                radiusOffsetTemp[i] = -0.2f;
+                        }
+
+                        maxPositionLast[i] = inputPosition[i];
+                    }
                 }
                 else if (inputPosition[i].w == -1)
                 {
-                    //¥Ø«e°»´úÂI¼Æ¶q¤p©ó³Ì¤j(20­Ó)°»´úÂI¼Æ¶q
+                    //ï¿½Ø«eï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶qï¿½pï¿½ï¿½Ì¤j(20ï¿½ï¿½)ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶q
                     if (currentPositionNum < maxPositionNum)
                     {
                         if (i > currentPositionNum - 1) break;
@@ -200,7 +239,7 @@ public class PassPositionToMaterial : MonoBehaviour {
             }
         }
 
-        if(testByMouse) //¥Î·Æ¹«´ú¸Õ
+        if(testByMouse) //ï¿½Î·Æ¹ï¿½ï¿½ï¿½ï¿½ï¿½
         {
             if (inputPosDetect)
             {
@@ -248,7 +287,7 @@ public class PassPositionToMaterial : MonoBehaviour {
                 {
                     for (int i = mouseIndex; i < mouseIndex + 1; i++)
                     {
-                        //¥Ø«e°»´úÂI¼Æ¶q¤p©ó³Ì¤j(20­Ó)°»´úÂI¼Æ¶q
+                        //ï¿½Ø«eï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶qï¿½pï¿½ï¿½Ì¤j(20ï¿½ï¿½)ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Æ¶q
                         if (currentPositionNum < maxPositionNum)
                         {
                             if (i > currentPositionNum - 1) break;
