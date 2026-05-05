@@ -33,6 +33,9 @@ public class ConsoleGameOverlay : MonoBehaviour
     private SensorTestManager _stm;
     private float         _overlayDisplayW, _overlayDisplayH;
 
+    // 旋轉狀態（由 UpdateOverlayTransform 同步）
+    private bool _rotate90;
+
     // 格線
     private RawImage   _gridLineImage;
     private Texture2D  _gridLineTex;
@@ -76,7 +79,10 @@ public class ConsoleGameOverlay : MonoBehaviour
             c.a = (tex != null) ? overlayAlpha : 0f;
             _overlayImage.color = c;
 
-            _overlayImage.uvRect = new Rect(0f, 0f, 1f, 1f);
+            // 旋轉 -90° 後：u→(1-u)、v→(1-v) 才能和控制格位置對齊
+            _overlayImage.uvRect = _rotate90
+                ? new Rect(1f, 1f, -1f, -1f)
+                : new Rect(0f, 0f,  1f,  1f);
         }
     }
 
@@ -133,6 +139,7 @@ public class ConsoleGameOverlay : MonoBehaviour
         float displayW, float displayH,
         bool rotate90, int canvasW, int canvasH, float scale)
     {
+        _rotate90 = rotate90;
         BuildOverlayImage(); // 若被 BuildControlGrid 清除則重建
         if (_overlayImage == null) return;
         _overlayDisplayW = displayW;
@@ -222,6 +229,7 @@ public class ConsoleGameOverlay : MonoBehaviour
                 int loy = face.originY - oy;
 
                 // 垂直線（欄邊界），畫 2px 寬確保縮放後仍可見
+                // rotate90: Texture_Y→Screen_X、Texture_X→Screen_-Y，故 ty=y（不翻轉）、tx=texW-rawX（翻轉X）
                 for (int col = 0; col <= face.colCount; col++)
                 {
                     int rawX = lox + col * cw;
@@ -230,11 +238,23 @@ public class ConsoleGameOverlay : MonoBehaviour
                     int y1 = Mathf.Clamp(loy + face.rowCount * ch, 0, texH - 1);
                     for (int y = y0; y <= y1; y++)
                     {
-                        int ty = texH - 1 - y;
-                        for (int dx = 0; dx < 2; dx++)
+                        if (rotate90)
                         {
-                            int tx = Mathf.Clamp(rawX + dx, 0, texW - 1);
-                            pixels[ty * texW + tx] = lineCol;
+                            int ty = y;
+                            for (int dx = 0; dx < 2; dx++)
+                            {
+                                int tx = Mathf.Clamp(texW - rawX - dx, 0, texW - 1);
+                                pixels[ty * texW + tx] = lineCol;
+                            }
+                        }
+                        else
+                        {
+                            int ty = texH - 1 - y;
+                            for (int dx = 0; dx < 2; dx++)
+                            {
+                                int tx = Mathf.Clamp(rawX + dx, 0, texW - 1);
+                                pixels[ty * texW + tx] = lineCol;
+                            }
                         }
                     }
                 }
@@ -242,16 +262,28 @@ public class ConsoleGameOverlay : MonoBehaviour
                 // 水平線（列邊界），畫 2px 高確保縮放後仍可見
                 for (int row = 0; row <= face.rowCount; row++)
                 {
-                    int cy = loy + row * ch;
-                    if (cy < 0 || cy > texH) continue;
+                    int rowY = loy + row * ch;
+                    if (rowY < 0 || rowY > texH) continue;
                     int x0 = Mathf.Clamp(lox,                      0, texW - 1);
                     int x1 = Mathf.Clamp(lox + face.colCount * cw, 0, texW - 1);
                     for (int x = x0; x <= x1; x++)
                     {
-                        for (int dy = 0; dy < 2; dy++)
+                        if (rotate90)
                         {
-                            int ty = Mathf.Clamp(texH - 1 - cy - dy, 0, texH - 1);
-                            pixels[ty * texW + x] = lineCol;
+                            int tx = Mathf.Clamp(texW - x, 0, texW - 1);
+                            for (int dy = 0; dy < 2; dy++)
+                            {
+                                int ty = Mathf.Clamp(rowY + dy, 0, texH - 1);
+                                pixels[ty * texW + tx] = lineCol;
+                            }
+                        }
+                        else
+                        {
+                            for (int dy = 0; dy < 2; dy++)
+                            {
+                                int ty = Mathf.Clamp(texH - 1 - rowY - dy, 0, texH - 1);
+                                pixels[ty * texW + x] = lineCol;
+                            }
                         }
                     }
                 }
