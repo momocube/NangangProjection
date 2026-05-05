@@ -129,6 +129,7 @@ public partial class SensorTestManager
                 cell.col   = c;
                 cell.row   = r;
                 cell.index = idx;
+                cell.SetFaceColor(cfg.gizmoColor);
                 fd.sensorTiles[idx] = cell;
             }
         }
@@ -169,6 +170,7 @@ public partial class SensorTestManager
                 cell.col   = c;
                 cell.row   = r;
                 cell.index = idx;
+                cell.SetFaceColor(cfg.gizmoColor);
                 fd.sensorTiles[idx] = cell;
 
                 built++;

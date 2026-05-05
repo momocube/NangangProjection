@@ -411,35 +411,46 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnUdpPacket(int rawX, int rawY)
     {
-        bool anyHit = false;
+        // 找最佳匹配面：相鄰面邊界在容差內同時命中時，只取最「在範圍內」的一面，避免多面同時觸發
+        int   bestFace  = -1;
+        float bestScore = float.MaxValue;   // 越小 = 越靠近面的中心
+
         for (int fi = 0; fi < _faces.Count; fi++)
         {
-            var fd  = _faces[fi];
-            var cfg = fd.config;
-
-            // 未校準的面（rawMin >= rawMax）跳過，避免 InverseLerp(0,0,x) 全部回傳 0 造成多面觸發
+            var fd = _faces[fi];
+            // 未校準的面（rawMin >= rawMax）跳過
             if (fd.rawMinX >= fd.rawMaxX || fd.rawMinY >= fd.rawMaxY) continue;
 
             float nx = Mathf.InverseLerp(fd.rawMinX, fd.rawMaxX, rawX);
             float ny = Mathf.InverseLerp(fd.rawMinY, fd.rawMaxY, rawY);
             if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) continue;
 
-            var (col, row) = cfg.RawToCell(rawX, rawY, fd.rawMinX, fd.rawMaxX, fd.rawMinY, fd.rawMaxY);
-            int cellIdx = row * cfg.colCount + col;
-            if (!ProcessGhostTouch(fi, cellIdx)) continue;  // 孤點尚未確認：同時跳過 ActivateCell + SmartTouch
-            ActivateCell(fi, cellIdx, skipVisual: true);  // 視覺交由 SmartTouch 解算後觸發
-            UpdateSmartTouch(fi, cellIdx);
-            anyHit = true;
-
-            // Debug：在 status bar 顯示觸發資訊，方便校準座標
-            if (_statusText != null && !_smartLockActive)
-                _statusText.text = $"raw({rawX},{rawY})  →  {cfg.faceName} 面  欄{col} 列{row}" +
-                    $"  [{_lastHitPerSec} 次/秒]" +
-                    $"  |  rawX範圍[{fd.rawMinX:0}-{fd.rawMaxX:0}]  rawY範圍[{fd.rawMinY:0}-{fd.rawMaxY:0}]";
+            // score = 超出 [0,1] 的總量（在範圍內則為 0）
+            float score = Mathf.Max(0f - nx, nx - 1f, 0f) + Mathf.Max(0f - ny, ny - 1f, 0f);
+            if (score < bestScore) { bestScore = score; bestFace = fi; }
         }
 
-        if (!anyHit && _statusText != null && !_smartLockActive)
-            _statusText.text = $"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）";
+        if (bestFace < 0)
+        {
+            if (_statusText != null && !_smartLockActive)
+                _statusText.text = $"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）";
+            return;
+        }
+
+        var fd2  = _faces[bestFace];
+        var cfg2 = fd2.config;
+        var (col, row) = cfg2.RawToCell(rawX, rawY, fd2.rawMinX, fd2.rawMaxX, fd2.rawMinY, fd2.rawMaxY);
+        int cellIdx = row * cfg2.colCount + col;
+
+        // Debug：在 status bar 顯示觸發資訊，方便校準座標
+        if (_statusText != null && !_smartLockActive)
+            _statusText.text = $"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
+                $"  [{_lastHitPerSec} 次/秒]" +
+                $"  |  rawX範圍[{fd2.rawMinX:0}-{fd2.rawMaxX:0}]  rawY範圍[{fd2.rawMinY:0}-{fd2.rawMaxY:0}]";
+
+        if (!ProcessGhostTouch(bestFace, cellIdx)) return;  // 孤點尚未確認
+        ActivateCell(bestFace, cellIdx, skipVisual: true);   // 視覺交由 SmartTouch 解算後觸發
+        UpdateSmartTouch(bestFace, cellIdx);
     }
 
     // ── 觸發 / 鎖定 ──────────────────────────────────────────────────────────

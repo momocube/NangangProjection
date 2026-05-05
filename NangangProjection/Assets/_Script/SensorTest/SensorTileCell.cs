@@ -19,6 +19,7 @@ public class SensorTileCell : MonoBehaviour
 
     Image     _fill;
     Coroutine _activeRoutine;
+    Color     _colIdleFace;   // per-face idle tint，由 SetFaceColor 設定
 
     static readonly Color ColBorder  = new Color(0.28f, 0.28f, 0.28f, 1f);
     static readonly Color ColIdle    = new Color(0.06f, 0.06f, 0.08f, 1f);
@@ -33,6 +34,8 @@ public class SensorTileCell : MonoBehaviour
 
     void Awake()
     {
+        _colIdleFace = ColIdle;
+
         // 根 Image = 邊框顏色（左側 + 上側各 1 px 會外露）
         var border = GetComponent<Image>();
         border.color          = ColBorder;
@@ -47,8 +50,15 @@ public class SensorTileCell : MonoBehaviour
         rt.offsetMin = new Vector2(1f,  0f);   // 左側 1 px
         rt.offsetMax = new Vector2(0f, -1f);   // 上側 1 px
         _fill = fillGO.AddComponent<Image>();
-        _fill.color         = ColIdle;
+        _fill.color         = _colIdleFace;
         _fill.raycastTarget = false;
+    }
+
+    /// <summary>由 SensorTestManager 在建格時呼叫，以 gizmoColor 衍生出深色底色區分各感應面。</summary>
+    public void SetFaceColor(Color faceColor)
+    {
+        _colIdleFace = new Color(faceColor.r * 0.20f, faceColor.g * 0.20f, faceColor.b * 0.20f, 1f);
+        if (_fill != null) RefreshColor();
     }
 
     /// <summary>由 SensorTestManager 呼叫，設定鎖定狀態。</summary>
@@ -125,6 +135,6 @@ public class SensorTileCell : MonoBehaviour
         if (_locked)     { _fill.color = ColLocked;  return; }
         if (_isPending)  { _fill.color = ColPending; return; }
         if (_isPressing) { _fill.color = ColPress;   return; }
-        _fill.color = ColIdle;
+        _fill.color = _colIdleFace;
     }
 }
