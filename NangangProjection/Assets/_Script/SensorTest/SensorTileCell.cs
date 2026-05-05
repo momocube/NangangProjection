@@ -57,7 +57,7 @@ public class SensorTileCell : MonoBehaviour
     /// <summary>由 SensorTestManager 在建格時呼叫，以 gizmoColor 衍生出深色底色區分各感應面。</summary>
     public void SetFaceColor(Color faceColor)
     {
-        _colIdleFace = new Color(faceColor.r * 0.20f, faceColor.g * 0.20f, faceColor.b * 0.20f, 1f);
+        _colIdleFace = Color.Lerp(ColIdle, faceColor, 0.50f);
         if (_fill != null) RefreshColor();
     }
 
