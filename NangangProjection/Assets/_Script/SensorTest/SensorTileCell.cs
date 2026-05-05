@@ -19,7 +19,8 @@ public class SensorTileCell : MonoBehaviour
 
     Image     _fill;
     Coroutine _activeRoutine;
-    Color     _colIdleFace;   // per-face idle tint，由 SetFaceColor 設定
+    Color     _colIdleFace;      // per-face idle tint，由 SetFaceColor 設定
+    bool      _faceColorSet;     // Awake 延遲執行時避免覆蓋已設定的顏色
 
     static readonly Color ColBorder  = new Color(0.28f, 0.28f, 0.28f, 1f);
     static readonly Color ColIdle    = new Color(0.06f, 0.06f, 0.08f, 1f);
@@ -34,7 +35,8 @@ public class SensorTileCell : MonoBehaviour
 
     void Awake()
     {
-        _colIdleFace = ColIdle;
+        // 若 SetFaceColor 在 Awake 之前已被呼叫（inactive hierarchy 延遲 Awake 的情況），不覆蓋
+        if (!_faceColorSet) _colIdleFace = ColIdle;
 
         // 根 Image = 邊框顏色（左側 + 上側各 1 px 會外露）
         var border = GetComponent<Image>();
@@ -54,10 +56,11 @@ public class SensorTileCell : MonoBehaviour
         _fill.raycastTarget = false;
     }
 
-    /// <summary>由 SensorTestManager 在建格時呼叫，以 gizmoColor 衍生出深色底色區分各感應面。</summary>
+    /// <summary>由 SensorTestManager 在建格時呼叫，以 gizmoColor 衍生出帶色調的 idle 底色區分各感應面。</summary>
     public void SetFaceColor(Color faceColor)
     {
-        _colIdleFace = Color.Lerp(ColIdle, faceColor, 0.50f);
+        _faceColorSet = true;
+        _colIdleFace  = Color.Lerp(ColIdle, faceColor, 0.50f);
         if (_fill != null) RefreshColor();
     }
 
