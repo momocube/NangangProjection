@@ -484,7 +484,7 @@ public partial class SensorTestManager
         _sensorGridCam.orthographicSize = h / 2f;
         _sensorGridCam.aspect           = (float)w / h;
         _sensorGridCam.nearClipPlane    = -100f;
-        _sensorGridCam.farClipPlane     = 100f;
+        _sensorGridCam.farClipPlane     = 200f;   // canvas planeDistance=100，需遠大於此值才不被裁切
         _sensorGridCam.targetTexture    = rt;
         _sensorGridCam.targetDisplay    = 0;
         _sensorGridCam.depth            = -10;
@@ -492,8 +492,14 @@ public partial class SensorTestManager
         var scaler = _canvasSecondary.GetComponent<CanvasScaler>();
         if (scaler != null) scaler.enabled = false;
 
+        // Canvas 必須在 active 狀態下設定 worldCamera，否則 Unity 不會建立正確的 Camera→Canvas 綁定
+        bool wasActive = _canvasSecondary.activeSelf;
+        if (!wasActive) _canvasSecondary.SetActive(true);
+
         sensorCanvas.renderMode  = RenderMode.ScreenSpaceCamera;
         sensorCanvas.worldCamera = _sensorGridCam;
+
+        if (!wasActive) _canvasSecondary.SetActive(false);
 
         _display2MirrorCanvas = BuildDisplay2Mirror(rt);
         if (!_gameTileVisible) _display2MirrorCanvas.SetActive(false);

@@ -188,7 +188,9 @@ public partial class SensorTestManager : MonoBehaviour
 
     IEnumerator Start()
     {
-        _canvasSecondary = sensorGridParent?.GetComponentInParent<Canvas>()?.gameObject;
+        // includeInactive:true — Awake 已將 Canvas_Secondary 設為 inactive，
+        // 預設的 GetComponentInParent 在 Unity 2021+ 不搜尋 inactive 父物件
+        _canvasSecondary = sensorGridParent?.GetComponentInParent<Canvas>(true)?.gameObject;
 
         // 先建 UI 骨架（確保按鈕列一定顯示，presets 有問題時也能看到錯誤訊息）
         BuildPrimaryUI();
@@ -389,6 +391,8 @@ public partial class SensorTestManager : MonoBehaviour
         yield return null;
 
         SetupSensorGridRT();
+        yield return null;   // 等一幀讓 Camera→Canvas 綁定生效後再同步顯示狀態
+        SetGameTileVisible(_gameTileVisible);
         NotifyOverlay();
         BuildFaceSelector();
         UpdatePresetLabel();
@@ -776,6 +780,15 @@ public partial class SensorTestManager : MonoBehaviour
         _gameTileVisible = visible;
         if (_canvasSecondary != null) _canvasSecondary.SetActive(visible);
         if (_display2MirrorCanvas != null) _display2MirrorCanvas.SetActive(visible);
+
+        // Canvas 從 inactive 恢復後，重新綁定 worldCamera 確保 RT 捕捉正常
+        if (visible && _sensorGridCam != null && _canvasSecondary != null)
+        {
+            var c = _canvasSecondary.GetComponent<Canvas>();
+            if (c != null && c.renderMode == RenderMode.ScreenSpaceCamera)
+                c.worldCamera = _sensorGridCam;
+        }
+
         if (visible)
             foreach (var f in _faces)
                 foreach (var t in f.sensorTiles)
