@@ -53,15 +53,21 @@ public static class FaceVisualizer
     // ------ 畫布邊界（白色粗框）------
     static void DrawCanvasBoundary()
     {
-        // 讀取 DisplayCanvasConfig，找不到就用預設值
+        // 依當前 Scene 名稱選對應的 DisplayCanvasConfig（資料夾名稱需包含於 Scene 名稱中）
         int cw = 2048, ch = 768;
+        string sceneName = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene().name;
         string[] guids = AssetDatabase.FindAssets("t:DisplayCanvasConfig");
-        if (guids.Length > 0)
+        DisplayCanvasConfig selected = null;
+        foreach (string guid in guids)
         {
-            var cfg = AssetDatabase.LoadAssetAtPath<DisplayCanvasConfig>(
-                          AssetDatabase.GUIDToAssetPath(guids[0]));
-            if (cfg != null) { cw = cfg.canvasWidth; ch = cfg.canvasHeight; }
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            var cfg = AssetDatabase.LoadAssetAtPath<DisplayCanvasConfig>(path);
+            if (cfg == null) continue;
+            if (selected == null) selected = cfg;
+            string folder = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(path));
+            if (sceneName.Contains(folder)) { selected = cfg; break; }
         }
+        if (selected != null) { cw = selected.canvasWidth; ch = selected.canvasHeight; }
 
         float w = cw;
         float h = ch;
