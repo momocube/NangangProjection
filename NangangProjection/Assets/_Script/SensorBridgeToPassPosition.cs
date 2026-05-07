@@ -57,6 +57,8 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     private bool[]        _fadingOut    = new bool[MAX_SLOTS];   // 此 slot 是否正在淡出
     private float[]       _fadeEndTime  = new float[MAX_SLOTS];  // 淡出結束時間
     private List<Vector2Int> _frameHits = new List<Vector2Int>(MAX_SLOTS);
+    private int _lastCanvasEventFrame = -1;
+    private bool _processingCanvasEvent;
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
 
@@ -79,6 +81,10 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         SensorBus.OnPressStart += OnSensorPressStart;
         SensorBus.OnPressEnd   += OnSensorPressEnd;
         SensorBus.OnDrag       += OnSensorDrag;
+        SensorBus.OnCanvasTouch      += OnSensorCanvasTouch;
+        SensorBus.OnCanvasPressStart += OnSensorCanvasPressStart;
+        SensorBus.OnCanvasPressEnd   += OnSensorCanvasPressEnd;
+        SensorBus.OnCanvasDrag       += OnSensorCanvasDrag;
     }
 
     private void OnDestroy()
@@ -87,13 +93,24 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         SensorBus.OnPressStart -= OnSensorPressStart;
         SensorBus.OnPressEnd   -= OnSensorPressEnd;
         SensorBus.OnDrag       -= OnSensorDrag;
+        SensorBus.OnCanvasTouch      -= OnSensorCanvasTouch;
+        SensorBus.OnCanvasPressStart -= OnSensorCanvasPressStart;
+        SensorBus.OnCanvasPressEnd   -= OnSensorCanvasPressEnd;
+        SensorBus.OnCanvasDrag       -= OnSensorCanvasDrag;
     }
 
     // ── 事件接收 ────────────────────────────────────────────────────────────
 
     private void OnSensorTouch(int col, int row)
     {
+        if (!_processingCanvasEvent && Time.frameCount == _lastCanvasEventFrame) return;
         _frameHits.Add(new Vector2Int(col, row));
+    }
+
+    private void OnSensorCanvasTouch(float x, float y, float canvasW, float canvasH)
+    {
+        _lastCanvasEventFrame = Time.frameCount;
+        _frameHits.Add(CanvasToGridHit(x, y, canvasW, canvasH));
     }
 
     // ── 每幀更新 ────────────────────────────────────────────────────────────
@@ -191,6 +208,7 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     /// <summary>按壓開始：找到對應 slot 並標記為 pressActive，防止逾時失效。</summary>
     private void OnSensorPressStart(int col, int row)
     {
+        if (!_processingCanvasEvent && Time.frameCount == _lastCanvasEventFrame) return;
         // 優先找已存在的 slot
         for (int i = 0; i < MAX_SLOTS; i++)
         {
@@ -211,9 +229,19 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         _pressActive[free]     = true;
     }
 
+    private void OnSensorCanvasPressStart(float x, float y, float canvasW, float canvasH)
+    {
+        var hit = CanvasToGridHit(x, y, canvasW, canvasH);
+        _processingCanvasEvent = true;
+        OnSensorPressStart(hit.x, hit.y);
+        _processingCanvasEvent = false;
+        _lastCanvasEventFrame = Time.frameCount;
+    }
+
     /// <summary>按壓結束：進入淡出狀態，slot 在 pressReleaseHoldSeconds 後停用。</summary>
     private void OnSensorPressEnd(int col, int row)
     {
+        if (!_processingCanvasEvent && Time.frameCount == _lastCanvasEventFrame) return;
         float endTime = Time.time + pressReleaseHoldSeconds;
         for (int i = 0; i < MAX_SLOTS; i++)
         {
@@ -224,9 +252,19 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         }
     }
 
+    private void OnSensorCanvasPressEnd(float x, float y, float canvasW, float canvasH)
+    {
+        var hit = CanvasToGridHit(x, y, canvasW, canvasH);
+        _processingCanvasEvent = true;
+        OnSensorPressEnd(hit.x, hit.y);
+        _processingCanvasEvent = false;
+        _lastCanvasEventFrame = Time.frameCount;
+    }
+
     /// <summary>拖曳：將按壓 slot 的位置更新到新格子（暴度已開時效果跟著手移動）。</summary>
     private void OnSensorDrag(int col, int row)
     {
+        if (!_processingCanvasEvent && Time.frameCount == _lastCanvasEventFrame) return;
         for (int i = 0; i < MAX_SLOTS; i++)
         {
             if (!_pressActive[i] || !_slots[i].active) continue;
@@ -236,6 +274,15 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             _slots[i].lastSeen  = Time.time;
             return;  // 只更新第一個按壓 slot（單點觸碰）
         }
+    }
+
+    private void OnSensorCanvasDrag(float x, float y, float canvasW, float canvasH)
+    {
+        var hit = CanvasToGridHit(x, y, canvasW, canvasH);
+        _processingCanvasEvent = true;
+        OnSensorDrag(hit.x, hit.y);
+        _processingCanvasEvent = false;
+        _lastCanvasEventFrame = Time.frameCount;
     }
 
     // ── 工具 ────────────────────────────────────────────────────────────────
@@ -253,13 +300,25 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     /// </remarks>
     private Vector2 ColRowToScreen(int col, int row)
     {
-        float sx = (col + 0.5f) / gridCols * displayWidth;
+        float screenW = Screen.width  > 0 ? Screen.width  : displayWidth;
+        float screenH = Screen.height > 0 ? Screen.height : displayHeight;
+        float sx = (col + 0.5f) / gridCols * screenW;
 
         float rowRatio = (row + 0.5f) / gridRows;
-        float targetUnityY = (1f - rowRatio) * displayHeight;   // row=0 → displayHeight（頂部）
-        float sy = Screen.height - targetUnityY;                 // 補償 PPTM 的 Screen.height flip
+        float targetUnityY = (1f - rowRatio) * screenH;  // row=0 -> top
+        float sy = screenH - targetUnityY;               // compensate PPTM's Screen.height flip
 
         return new Vector2(sx, sy);
+    }
+
+    private Vector2Int CanvasToGridHit(float x, float y, float canvasW, float canvasH)
+    {
+        if (canvasW <= 0f) canvasW = displayWidth;
+        if (canvasH <= 0f) canvasH = displayHeight;
+
+        int col = Mathf.Clamp(Mathf.FloorToInt((x / canvasW) * gridCols), 0, gridCols - 1);
+        int row = Mathf.Clamp(Mathf.FloorToInt((y / canvasH) * gridRows), 0, gridRows - 1);
+        return new Vector2Int(col, row);
     }
 
     private int FindFreeSlot()

@@ -181,7 +181,8 @@ public class ConsoleGameOverlay : MonoBehaviour
         bool rotate90, int canvasW, int canvasH, float scale,
         float faceViewOriginX, float faceViewOriginY,
         int texW, int texH,
-        SensorFaceConfig[] faces)
+        SensorFaceConfig[] faces,
+        int vcellSizePx = 0)
     {
         EnsureGridLineImage();
 
@@ -285,6 +286,51 @@ public class ConsoleGameOverlay : MonoBehaviour
                                 pixels[ty * texW + x] = lineCol;
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // VCell borders (bright light blue, 3 px, drawn over chip borders)
+        if (vcellSizePx > 0 && faces != null)
+        {
+            var vcCol = new Color32(120, 200, 255, 195);
+            int ox2 = Mathf.RoundToInt(faceViewOriginX);
+            int oy2 = Mathf.RoundToInt(faceViewOriginY);
+            foreach (var face in faces)
+            {
+                if (face == null) continue;
+                int cw  = face.GizmoCellW;
+                int ch  = face.GizmoCellH;
+                if (vcellSizePx % cw != 0 || vcellSizePx % ch != 0) continue;
+                int lox = face.originX - ox2;
+                int loy = face.originY - oy2;
+                int vcsX = face.colCount / (vcellSizePx / cw);
+                int vcsY = face.rowCount / (vcellSizePx / ch);
+                // vertical VCell borders
+                for (int vc = 0; vc <= vcsX; vc++)
+                {
+                    int rawX = lox + vc * vcellSizePx;
+                    if (rawX < 0 || rawX > texW) continue;
+                    int y0 = Mathf.Clamp(loy, 0, texH - 1);
+                    int y1 = Mathf.Clamp(loy + face.rowCount * ch, 0, texH - 1);
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        if (rotate90) { int ty = y; for (int dx = 0; dx < 3; dx++) { int tx = Mathf.Clamp(texW - rawX - dx, 0, texW - 1); pixels[ty * texW + tx] = vcCol; } }
+                        else          { int ty = texH - 1 - y; for (int dx = 0; dx < 3; dx++) { int tx = Mathf.Clamp(rawX + dx, 0, texW - 1); pixels[ty * texW + tx] = vcCol; } }
+                    }
+                }
+                // horizontal VCell borders
+                for (int vr = 0; vr <= vcsY; vr++)
+                {
+                    int rowY = loy + vr * vcellSizePx;
+                    if (rowY < 0 || rowY > texH) continue;
+                    int x0 = Mathf.Clamp(lox, 0, texW - 1);
+                    int x1 = Mathf.Clamp(lox + face.colCount * cw, 0, texW - 1);
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        if (rotate90) { int tx = Mathf.Clamp(texW - x, 0, texW - 1); for (int dy = 0; dy < 3; dy++) { int ty = Mathf.Clamp(rowY + dy, 0, texH - 1); pixels[ty * texW + tx] = vcCol; } }
+                        else          { for (int dy = 0; dy < 3; dy++) { int ty = Mathf.Clamp(texH - 1 - rowY - dy, 0, texH - 1); pixels[ty * texW + x] = vcCol; } }
                     }
                 }
             }

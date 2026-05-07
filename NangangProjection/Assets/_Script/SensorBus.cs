@@ -27,10 +27,26 @@ public static class SensorBus
     /// <summary>拖曳：手滑動時，鄰近格子被觸發（|欄差|≤2 且 |列差|≤1）時廣播。</summary>
     public static event System.Action<int, int> OnDrag;
 
+    /// <summary>
+    /// 全畫布座標事件。x/y 為 DisplayCanvasConfig 內的像素座標,原點在左上。
+    /// 704 這類多面牆配置不能只傳單一面的 local col/row,否則所有互動都會被投到同一塊牆。
+    /// </summary>
+    public static event System.Action<float, float, float, float> OnCanvasTouch;
+    public static event System.Action<float, float, float, float> OnCanvasTap;
+    public static event System.Action<float, float, float, float> OnCanvasPressStart;
+    public static event System.Action<float, float, float, float> OnCanvasPressEnd;
+    public static event System.Action<float, float, float, float> OnCanvasDrag;
+
     /// <summary>由 SensorTestManager 呼叫，不要在其他地方呼叫。</summary>
     public static void Touch(int col, int row)      => OnTouch?.Invoke(col, row);
     public static void Tap(int col, int row)        => OnTap?.Invoke(col, row);
     public static void PressStart(int col, int row) => OnPressStart?.Invoke(col, row);
     public static void PressEnd(int col, int row)   => OnPressEnd?.Invoke(col, row);
     public static void Drag(int col, int row)       => OnDrag?.Invoke(col, row);
+
+    public static void CanvasTouch(float x, float y, float canvasW, float canvasH)      => OnCanvasTouch?.Invoke(x, y, canvasW, canvasH);
+    public static void CanvasTap(float x, float y, float canvasW, float canvasH)        => OnCanvasTap?.Invoke(x, y, canvasW, canvasH);
+    public static void CanvasPressStart(float x, float y, float canvasW, float canvasH) => OnCanvasPressStart?.Invoke(x, y, canvasW, canvasH);
+    public static void CanvasPressEnd(float x, float y, float canvasW, float canvasH)   => OnCanvasPressEnd?.Invoke(x, y, canvasW, canvasH);
+    public static void CanvasDrag(float x, float y, float canvasW, float canvasH)       => OnCanvasDrag?.Invoke(x, y, canvasW, canvasH);
 }

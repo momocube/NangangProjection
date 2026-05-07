@@ -1,5 +1,8 @@
 using UnityEngine;
 
+/// <summary>虛擬格模式：None = 維持原始晶片粒度，Size32 = 32×32 px，Size64 = 64×64 px。</summary>
+public enum VirtualCellMode { None, Size32, Size64 }
+
 /// <summary>
 /// 場域預設：畫布設定 + 一或多個感應面。
 /// 建立方式：Project 視窗右鍵 → Create → NangangProjection → VenuePresetConfig
@@ -30,4 +33,8 @@ public class VenuePresetConfig : ScriptableObject
     [Tooltip("感應實際涵蓋的像素範圍（四角測試踩得到的區域）。若小於畫布尺寸（例如 3328 < 3840），填入此值讓比例計算正確。留 0 表示與畫布同尺寸。")]
     public int sensorAreaWidth;
     public int sensorAreaHeight;
+
+    [Header("虛擬格模式")]
+    [Tooltip("None = 晶片模式（原始行為）；Size32 = 32×32 px 虛擬格（橫式 2 顆，直式 2 顆）；Size64 = 64×64 px 虛擬格（橫式 8 顆，直式 8 顆）。")]
+    public VirtualCellMode virtualCellMode = VirtualCellMode.None;
 }

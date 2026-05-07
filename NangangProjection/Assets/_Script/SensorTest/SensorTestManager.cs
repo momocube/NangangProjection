@@ -84,6 +84,7 @@ public partial class SensorTestManager : MonoBehaviour
     Image _gameTileBtnImage;
 
     SensorClickSimulator _clickSim;
+    VirtualCellManager   _vcellManager;
     TextMeshProUGUI      _clickModeBtnText;
     Image                _clickModeBtnImage;
 
@@ -144,6 +145,7 @@ public partial class SensorTestManager : MonoBehaviour
     int  _dragInitFace    = -1;
     int  _dragInitIdx     = -1;
     bool _dragIsLock;
+    bool _dragCtrl;        // Ctrl 鍵在右鍵按下那幀的狀態（決定整次拖曳為晶片鎖還是 VCell 鎖）
     bool _dragInitPending;
 
     // ── Display 2 視窗控制 ────────────────────────────────────────────────────
@@ -212,10 +214,18 @@ public partial class SensorTestManager : MonoBehaviour
         yield return null;   // 等一幀讓佈局完成
 
         SetupSensorGridRT();
-        _clickSim   = FindObjectOfType<SensorClickSimulator>();
+        _clickSim    = FindObjectOfType<SensorClickSimulator>();
+        _vcellManager = GetComponent<VirtualCellManager>();
+        if (_vcellManager != null)
+        {
+            _vcellManager.Initialize(presets[_presetIdx], _canvasConfig);
+            _vcellManager.SetChipLockedQuery((fi, ci) =>
+                fi < _faces.Count && ci < _faces[fi].locked.Length && _faces[fi].locked[ci]);
+        }
         _overlay    = GetComponent<ConsoleGameOverlay>();
         _dimOverlay = GetComponent<Display2DimOverlay>();
         NotifyOverlay();
+        RebuildSensorVCellOverlay();
         UpdateClickModeButton();
         UpdateCooldownToggleButton();
         UpdateCooldownText();
@@ -380,6 +390,7 @@ public partial class SensorTestManager : MonoBehaviour
         }
 
         InitPresetData(idx);
+        _vcellManager?.Initialize(presets[idx], _canvasConfig);
         BuildSensorBackground();
         SetLoadingProgress(0.1f);
         yield return null;
@@ -394,6 +405,7 @@ public partial class SensorTestManager : MonoBehaviour
         yield return null;   // 等一幀讓 Camera→Canvas 綁定生效後再同步顯示狀態
         SetGameTileVisible(_gameTileVisible);
         NotifyOverlay();
+        RebuildSensorVCellOverlay();
         BuildFaceSelector();
         UpdatePresetLabel();
         SetStatusIdle();
@@ -477,6 +489,7 @@ public partial class SensorTestManager : MonoBehaviour
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
         SensorBus.Touch(col, row);
 
         // 滑動窗口：計算此格最近 1 秒的觸發次數
@@ -509,6 +522,7 @@ public partial class SensorTestManager : MonoBehaviour
         fd.lockedCount  += fd.locked[idx] ? 1 : -1;
         fd.sensorTiles[idx]?.SetLocked(fd.locked[idx]);
         fd.controlTiles[idx]?.SetLocked(fd.locked[idx]);
+        _vcellManager?.RefreshLockOverlaysForChip(faceIdx, idx);
         Debug.Log($"[SensorTest] face={faceIdx} #{idx + 1} ({col},{row}) " +
                   $"{(fd.locked[idx] ? "鎖定" : "解鎖")} | 共鎖定 {TotalLocked} 格");
         SetStatusIdle();
@@ -525,6 +539,7 @@ public partial class SensorTestManager : MonoBehaviour
         if (_gameTileVisible) fd.sensorTiles[cellIdx]?.SetPressState(true);
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
         SensorBus.PressStart(col, row);
     }
 
@@ -535,7 +550,32 @@ public partial class SensorTestManager : MonoBehaviour
         if (_gameTileVisible) fd.sensorTiles[cellIdx]?.SetPressState(false);
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
         SensorBus.PressEnd(col, row);
+    }
+
+    enum TouchKind { Touch, Tap, PressStart, PressEnd, Drag }
+
+    void BroadcastCanvasCell(FaceData fd, int col, int row, TouchKind kind)
+    {
+        if (fd == null || fd.config == null || _canvasConfig == null) return;
+
+        int cellW = fd.config.GizmoCellW;
+        int cellH = fd.config.GizmoCellH;
+        Vector2Int topLeft = fd.config.CellToPixel(col, row);
+        float x = topLeft.x + cellW * 0.5f;
+        float y = topLeft.y + cellH * 0.5f;
+        float w = _canvasConfig.canvasWidth;
+        float h = _canvasConfig.canvasHeight;
+
+        switch (kind)
+        {
+            case TouchKind.Touch:      SensorBus.CanvasTouch(x, y, w, h); break;
+            case TouchKind.Tap:        SensorBus.CanvasTap(x, y, w, h); break;
+            case TouchKind.PressStart: SensorBus.CanvasPressStart(x, y, w, h); break;
+            case TouchKind.PressEnd:   SensorBus.CanvasPressEnd(x, y, w, h); break;
+            case TouchKind.Drag:       SensorBus.CanvasDrag(x, y, w, h); break;
+        }
     }
 
     /// <summary>CoordTestPanel 呼叫：以原始感應座標觸發（與真實 UDP 封包路徑相同）。</summary>
@@ -607,12 +647,19 @@ public partial class SensorTestManager : MonoBehaviour
             _dragInitFace    = fi;
             _dragInitIdx     = idx;
             _dragInitPending = rightHeld;
+            // 右鍵按下當幀捕捉 Ctrl 狀態，決定整次拖曳使用晶片鎖還是 VCell 鎖
+            _dragCtrl = rightHeld &&
+                        (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
             return;
         }
 
         if (_dragInitPending)
         {
-            _dragIsLock      = _faces[_dragInitFace].locked[_dragInitIdx];
+            // Ctrl 或無 VCell 功能 → 晶片鎖；否則 → VCell 鎖
+            if (_dragCtrl || _vcellManager == null || !_vcellManager.Enabled)
+                _dragIsLock = _faces[_dragInitFace].locked[_dragInitIdx];
+            else
+                _dragIsLock = _vcellManager.IsVCellLocked(_dragInitFace, _dragInitIdx);
             _dragInitPending = false;
         }
 
@@ -626,8 +673,16 @@ public partial class SensorTestManager : MonoBehaviour
         }
         else if (rightHeld && fi == _dragInitFace)
         {
-            if (_faces[fi].locked[idx] != _dragIsLock)
-                ToggleLock(fi, col, row);
+            if (_dragCtrl || _vcellManager == null || !_vcellManager.Enabled)
+            {
+                if (_faces[fi].locked[idx] != _dragIsLock)
+                    ToggleLock(fi, col, row);
+            }
+            else
+            {
+                if (_vcellManager.IsVCellLocked(fi, idx) != _dragIsLock)
+                    _vcellManager.ToggleVCellLock(fi, idx);
+            }
         }
     }
 
@@ -760,6 +815,7 @@ public partial class SensorTestManager : MonoBehaviour
             }
             fd.lockedCount = 0;
         }
+        _vcellManager?.UnlockAllVCells();
         SetStatusIdle();
         Debug.Log("[SensorTest] 解除全部鎖定");
     }

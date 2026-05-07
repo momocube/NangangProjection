@@ -10,4 +10,7 @@ public static class SensorHardwareConst
 
     /// <summary>每個晶片格的像素高度（縱向，px）</summary>
     public const int CellPixelHeight = 32;
+
+    /// <summary>UDP 感應器每輪偵測間隔（ms）。超過 2 倍此值無觸碰視為離手。</summary>
+    public const int PollingIntervalMs = 100;
 }

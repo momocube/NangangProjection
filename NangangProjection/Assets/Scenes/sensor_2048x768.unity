@@ -264,6 +264,7 @@ GameObject:
   - component: {fileID: 400402}
   - component: {fileID: 400403}
   - component: {fileID: 400404}
+  - component: {fileID: 400405}
   m_Layer: 0
   m_Name: SensorTestManager
   m_TagString: Untagged
@@ -310,7 +311,7 @@ MonoBehaviour:
   m_FallbackScreenDPI: 96
   m_DefaultSpriteDPI: 96
   m_DynamicPixelsPerUnit: 1
-  m_PresetInfoIsWorld: 1
+  m_PresetInfoIsWorld: 0
 --- !u!114 &114101
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -846,9 +847,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ee55ff66778800112233cc44dd55ee66, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  enableLog: 1
-  collapseWindow: 0.1
-  showPerSecondStat: 0
+  listenRawUdp: 1
+  listenSensorBus: 0
+  showWindow: 0
+  toggleKey: 290
 --- !u!114 &400403
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -889,6 +891,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   dimAlpha: 0
+--- !u!114 &400405
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100400}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fcc683e2617bcc649a7740b5a5b40860, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  pollingIntervalMs: 100
 --- !u!4 &400500
 Transform:
   m_ObjectHideFlags: 0

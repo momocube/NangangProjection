@@ -11,7 +11,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc2ddbd61cc4488459899e3cef2b16f9, type: 3}
   m_Name: Preset_2048x768
-  m_EditorClassIdentifier:
+  m_EditorClassIdentifier: 
   presetName: "\u821E\u53F0 2048\xD7768"
   canvasConfig: {fileID: 11400000, guid: 1276ddaeded4be147905fe485e391b3a, type: 2}
   faces:
@@ -21,3 +21,6 @@ MonoBehaviour:
   canvasRawMaxX: 3960
   canvasRawMinY: 16
   canvasRawMaxY: 752
+  sensorAreaWidth: 0
+  sensorAreaHeight: 0
+  virtualCellMode: 2

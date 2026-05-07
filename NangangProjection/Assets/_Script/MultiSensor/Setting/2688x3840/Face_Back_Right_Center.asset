@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   faceName: "\u53F3\u4E2D"
   gizmoColor: {r: 0, g: 1, b: 0.9832821, a: 1}
-  showInVisualizer: 0
+  showInVisualizer: 1
   originX: 2048
   originY: 1920
   orientation: 1

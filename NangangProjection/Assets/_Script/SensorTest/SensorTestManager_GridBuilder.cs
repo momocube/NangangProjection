@@ -73,13 +73,46 @@ public partial class SensorTestManager
             visibleFaces = new SensorFaceConfig[_faces.Count];
             for (int i = 0; i < _faces.Count; i++) visibleFaces[i] = _faces[i].config;
         }
+
+        int vcellSizePx = 0;
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            var vm = presets[_presetIdx].virtualCellMode;
+            vcellSizePx = vm == VirtualCellMode.Size32 ? 32 : vm == VirtualCellMode.Size64 ? 64 : 0;
+        }
+
         _overlay.UpdateGridLines(
             _controlGridOffsetX, _controlGridOffsetY,
             displayW, displayH,
             _rotateDisplay90, cW, cH, _controlGridScale,
             _faceViewOriginX, _faceViewOriginY,
             (int)_faceViewWidth, (int)_faceViewHeight,
-            visibleFaces);
+            visibleFaces, vcellSizePx);
+
+        // VCell lock overlays（控制格）
+        if (_vcellManager != null)
+        {
+            _vcellManager.BuildControlLockOverlays(
+                controlGridParent, _viewFaceIdx,
+                _controlGridScale, _controlGridOffsetX, _controlGridOffsetY,
+                _rotateDisplay90, _faceViewWidth,
+                _faceViewOriginX, _faceViewOriginY);
+        }
+    }
+
+    /// <summary>
+    /// 重建感應格（Display 2）的 VCell 格線 + 鎖定覆蓋。
+    /// 在 BuildSensorGrid / SwitchPreset 後呼叫（BuildSensorGrid 已清除舊子物件）。
+    /// </summary>
+    void RebuildSensorVCellOverlay()
+    {
+        if (_vcellManager == null || sensorGridParent == null || _canvasConfig == null) return;
+        var allFaces = new SensorFaceConfig[_faces.Count];
+        for (int i = 0; i < _faces.Count; i++) allFaces[i] = _faces[i].config;
+        _vcellManager.BuildSensorVCellOverlay(
+            sensorGridParent,
+            _canvasConfig.canvasWidth, _canvasConfig.canvasHeight,
+            allFaces);
     }
 
     // ── 感應格（Display 2）建立 ───────────────────────────────────────────────
@@ -259,7 +292,14 @@ public partial class SensorTestManager
                 cell.Init(c, r, cfg.colCount);
 
                 int capturedIdx = idx;
-                cell.onRightClick  = (col2, row2) => ToggleLock(capturedFi, col2, row2);
+                cell.onRightClick  = (col2, row2) =>
+                {
+                    bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+                    if (ctrl || _vcellManager == null || !_vcellManager.Enabled)
+                        ToggleLock(capturedFi, col2, row2);
+                    else
+                        _vcellManager.ToggleVCellLock(capturedFi, row2 * cfg.colCount + col2);
+                };
                 cell.onLeftClick   = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
                 cell.onHoldTick    = (col2, row2) => OnHoldTick(capturedFi, row2 * cfg.colCount + col2);
                 cell.onPressStart  = (col2, row2) => OnMousePressStart(capturedFi, row2 * cfg.colCount + col2);
@@ -331,7 +371,14 @@ public partial class SensorTestManager
                 var cell = go.AddComponent<ControlTileCell>();
                 cell.Init(c, r, cfg.colCount);
 
-                cell.onRightClick  = (col2, row2) => ToggleLock(capturedFi, col2, row2);
+                cell.onRightClick  = (col2, row2) =>
+                {
+                    bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+                    if (ctrl || _vcellManager == null || !_vcellManager.Enabled)
+                        ToggleLock(capturedFi, col2, row2);
+                    else
+                        _vcellManager.ToggleVCellLock(capturedFi, row2 * cfg.colCount + col2);
+                };
                 cell.onLeftClick   = (col2, row2) => OnLeftClick(capturedFi, row2 * cfg.colCount + col2);
                 cell.onHoldTick    = (col2, row2) => OnHoldTick(capturedFi, row2 * cfg.colCount + col2);
                 cell.onPressStart  = (col2, row2) => OnMousePressStart(capturedFi, row2 * cfg.colCount + col2);

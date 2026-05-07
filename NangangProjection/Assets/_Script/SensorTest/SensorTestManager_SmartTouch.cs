@@ -160,6 +160,7 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.Tap);
         SensorBus.Tap(col, row);
     }
 
@@ -175,6 +176,7 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
         SensorBus.PressStart(col, row);
     }
 
@@ -189,6 +191,7 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
         SensorBus.PressEnd(col, row);
 
         // 清除同面所有殘留的拖曳格，防止按壓結束後橘燈永不熄滅
@@ -226,6 +229,7 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
+        BroadcastCanvasCell(fd, col, row, TouchKind.Drag);
         SensorBus.Drag(col, row);
     }
 
