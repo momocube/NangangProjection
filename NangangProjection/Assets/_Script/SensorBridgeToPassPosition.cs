@@ -291,8 +291,9 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     /// <remarks>
     /// PassPositionToMaterial.ConvertScreenToWorldPos() 內部做：
     ///     unity_y = Screen.height - our_sy
-    /// 但 Screen.height 回傳 Display 0 高度（例如 1080），不是 Display 1 的 768。
-    /// 若直接傳 sy=0..768，換算後只有上半部有效果。
+    /// 但 Screen.height 回傳 Display 0 高度（例如 1080），不是 Display 2 的 768。
+    /// Camera.ScreenToWorldPoint 用 Camera.pixelHeight（768）定義座標範圍，
+    /// 若用 Screen.height（1080）計算 targetUnityY，Y 值會超出螢幕上方。
     ///
     /// 反推正確的 our_sy：
     ///     目標 unity_y = (1 - rowRatio) * displayHeight   （row=0 → 頂部）
@@ -300,13 +301,11 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     /// </remarks>
     private Vector2 ColRowToScreen(int col, int row)
     {
-        float screenW = Screen.width  > 0 ? Screen.width  : displayWidth;
-        float screenH = Screen.height > 0 ? Screen.height : displayHeight;
-        float sx = (col + 0.5f) / gridCols * screenW;
+        float sx = (col + 0.5f) / gridCols * displayWidth;
 
         float rowRatio = (row + 0.5f) / gridRows;
-        float targetUnityY = (1f - rowRatio) * screenH;  // row=0 -> top
-        float sy = screenH - targetUnityY;               // compensate PPTM's Screen.height flip
+        float targetUnityY = (1f - rowRatio) * displayHeight;   // row=0 → displayHeight（頂部）
+        float sy = Screen.height - targetUnityY;                 // 補償 PPTM 的 Screen.height flip
 
         return new Vector2(sx, sy);
     }
