@@ -180,6 +180,7 @@ public class VirtualCellManager : MonoBehaviour
             {
                 fv.vcellActive[vcellIdx] = true;
                 BroadcastTouch(fv, vcol, vrow);
+                RefreshLockOverlaysForVCell(fi, vcellIdx);
             }
             return;
         }
@@ -193,8 +194,9 @@ public class VirtualCellManager : MonoBehaviour
 
         float now = Time.realtimeSinceStartup;
 
-        foreach (var fv in _faceData)
+        for (int fi = 0; fi < _faceData.Count; fi++)
         {
+            var fv  = _faceData[fi];
             var cfg = fv.config;
             for (int vrow = 0; vrow < fv.vcellsY; vrow++)
             for (int vcol = 0; vcol < fv.vcellsX; vcol++)
@@ -219,6 +221,7 @@ public class VirtualCellManager : MonoBehaviour
                     fv.vcellActive[vcellIdx] = false;
                     if (!fv.vcellLocked[vcellIdx])
                         BroadcastRelease(fv, vcol, vrow);
+                    RefreshLockOverlaysForVCell(fi, vcellIdx);
                 }
             }
         }
@@ -465,6 +468,8 @@ public class VirtualCellManager : MonoBehaviour
             return new Color(0.30f, 0.60f, 1.0f, 0.38f);   // VCell 鎖：實心淺藍
         if (AllChipsLocked(fi, fv, vi))
             return new Color(0.30f, 0.60f, 1.0f, 0.22f);   // 全晶片鎖：較淡淺藍
+        if (fv.vcellActive[vi])
+            return new Color(1.00f, 0.80f, 0.25f, 0.25f);  // 觸碰中：暖琥珀金
         return Color.clear;
     }
 
