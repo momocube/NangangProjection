@@ -75,6 +75,7 @@ public partial class SensorTestManager : MonoBehaviour
     // ── 執行期 UI 狀態 ─────────────────────────────────────────────────────────
 
     TextMeshProUGUI  _statusText;
+    string           _lastStatusText;   // dirty flag：避免 TMP 每幀重算 layout
     bool  _smartLockActive;
     TextMeshProUGUI  _smartLockBtnText;
     Image _smartLockBtnImage;
@@ -111,6 +112,10 @@ public partial class SensorTestManager : MonoBehaviour
     TMP_FontAsset _uiFont;
     RectTransform _faceSelectorParent;
     Image[]       _faceSelectorBtnImages;
+
+    // ── 遊戲場景狀態 ──────────────────────────────────────────────────────────
+
+    bool _gameSceneLoaded = false;   // true 後不再用 ShowWindow 控制 Display 2 視窗
 
     // ── 載入面板 ──────────────────────────────────────────────────────────────
 
@@ -254,7 +259,10 @@ public partial class SensorTestManager : MonoBehaviour
                 if (SceneUtility.GetScenePathByBuildIndex(i).Contains(gameSceneName)) { found = true; break; }
             }
             if (found)
+            {
                 yield return SceneManager.LoadSceneAsync(gameSceneName, LoadSceneMode.Additive);
+                _gameSceneLoaded = true;
+            }
             else
                 Debug.LogWarning($"[SensorTest] 場景 '{gameSceneName}' 未加入 Build Settings，略過載入。");
         }
@@ -444,8 +452,8 @@ public partial class SensorTestManager : MonoBehaviour
 
         if (bestFace < 0)
         {
-            if (_statusText != null && !_smartLockActive)
-                _statusText.text = $"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）";
+            if (!_smartLockActive)
+                SetStatusText($"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）");
             return;
         }
 
@@ -455,10 +463,10 @@ public partial class SensorTestManager : MonoBehaviour
         int cellIdx = row * cfg2.colCount + col;
 
         // Debug：在 status bar 顯示觸發資訊，方便校準座標
-        if (_statusText != null && !_smartLockActive)
-            _statusText.text = $"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
+        if (!_smartLockActive)
+            SetStatusText($"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
                 $"  [{_lastHitPerSec} 次/秒]" +
-                $"  |  rawX範圍[{fd2.rawMinX:0}-{fd2.rawMaxX:0}]  rawY範圍[{fd2.rawMinY:0}-{fd2.rawMaxY:0}]";
+                $"  |  rawX範圍[{fd2.rawMinX:0}-{fd2.rawMaxX:0}]  rawY範圍[{fd2.rawMinY:0}-{fd2.rawMaxY:0}]");
 
         if (!ProcessGhostTouch(bestFace, cellIdx)) return;  // 孤點尚未確認
         ActivateCell(bestFace, cellIdx, skipVisual: true);   // 視覺交由 SmartTouch 解算後觸發
@@ -605,8 +613,15 @@ public partial class SensorTestManager : MonoBehaviour
 
     void Update()
     {
-        if (_smartLockActive && _statusText != null)
-            _statusText.text = $"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格";
+        if (_smartLockActive)
+            SetStatusText($"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格");
+
+        // 幀時間監控：記錄期間若 deltaTime > 33ms 視為掉幀
+        if (_logRecording && Time.deltaTime > 0.033f)
+        {
+            _logFrameDropCount++;
+            LogDiagEvent($"掉幀  {Time.deltaTime * 1000f:F0}ms  ≈{1f / Time.deltaTime:F0}fps  frame#{Time.frameCount}");
+        }
 
         HandleDragInteract();
         UpdateClickLogPanel();
@@ -785,10 +800,7 @@ public partial class SensorTestManager : MonoBehaviour
         _smartLockActive = !_smartLockActive;
         UpdateSmartLockButton();
         if (_smartLockActive)
-        {
-            if (_statusText != null)
-                _statusText.text = $"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格";
-        }
+            SetStatusText($"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格");
         else
             SetStatusIdle();
     }
@@ -822,20 +834,26 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnTileHover(int faceIdx, int col, int row, int idx, bool locked)
     {
-        if (_statusText == null) return;
         string ls = locked ? " 🔒 已鎖定" : "";
-        _statusText.text =
+        SetStatusText(
             $"格子 #{idx + 1}   欄 {col}   列 {row}{ls}   |  " +
-            $"已鎖定：{TotalLocked} 格  |  右鍵鎖定 / 解鎖";
+            $"已鎖定：{TotalLocked} 格  |  右鍵鎖定 / 解鎖");
+    }
+
+    void SetStatusText(string s)
+    {
+        if (_statusText == null || s == _lastStatusText) return;
+        _lastStatusText  = s;
+        _statusText.text = s;
     }
 
     void SetStatusIdle()
     {
         if (_statusText == null || _smartLockActive) return;
         int total = TotalCells;
-        _statusText.text =
+        SetStatusText(
             $"感應測試  |  {total} 個晶片  |  " +
-            $"已鎖定：{TotalLocked} 格  |  右鍵鎖定 / 解鎖  左鍵模擬觸碰";
+            $"已鎖定：{TotalLocked} 格  |  右鍵鎖定 / 解鎖  左鍵模擬觸碰");
     }
 
     // ── 晶片示意（Display 2）開關 ─────────────────────────────────────────────
@@ -847,6 +865,9 @@ public partial class SensorTestManager : MonoBehaviour
         _gameTileVisible = visible;
         if (_canvasSecondary != null) _canvasSecondary.SetActive(visible);
         if (_display2MirrorCanvas != null) _display2MirrorCanvas.SetActive(visible);
+
+        // 晶片示意 OFF 時停用 SensorGridCam，避免不必要的 RT render pass
+        if (_sensorGridCam != null) _sensorGridCam.enabled = visible;
 
         // Canvas 從 inactive 恢復後，重新綁定 worldCamera 確保 RT 捕捉正常
         if (visible && _sensorGridCam != null && _canvasSecondary != null)
@@ -867,7 +888,7 @@ public partial class SensorTestManager : MonoBehaviour
             _display2Activated = true;
             StartCoroutine(FindDisplay2WindowCoroutine());
         }
-        else if (_display2Hwnd != System.IntPtr.Zero)
+        else if (_display2Hwnd != System.IntPtr.Zero && !_gameSceneLoaded)
             ShowWindow(_display2Hwnd, visible ? SW_SHOW : SW_HIDE);
 #endif
         UpdateGameTileButton();

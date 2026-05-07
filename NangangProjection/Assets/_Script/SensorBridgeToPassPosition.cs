@@ -165,6 +165,8 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             else if (!_pressActive[s] && now - _slots[s].lastSeen > touchTimeout)
             {
                 // 按壓中的 slot 不逾時，等 PressEnd 才清除
+                Debug.Log($"[PPTM] slot{s} 逾時停用  col={_slots[s].col}  row={_slots[s].row}" +
+                          $"  無封包={(now - _slots[s].lastSeen) * 1000f:F0}ms");
                 _slots[s].active = false;
             }
         }

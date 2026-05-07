@@ -420,7 +420,7 @@ MonoBehaviour:
   showLogButton: 1
   logRecordDuration: 5
   tapBoundaryMs: 160
-  touchEndTimeoutMs: 160
+  touchEndTimeoutMs: 220
 --- !u!114 &114401
 MonoBehaviour:
   m_ObjectHideFlags: 0

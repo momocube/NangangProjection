@@ -34,8 +34,9 @@ public class UdpSensorReceiver : MonoBehaviour
     private volatile bool _running;
 
     // 執行緒安全佇列（儲存像素座標，由主執行緒每幀消化）
-    private readonly Queue<Vector2Int> _pending = new Queue<Vector2Int>();
-    private readonly object            _lock    = new object();
+    private readonly Queue<Vector2Int> _pending     = new Queue<Vector2Int>();
+    private readonly object            _lock        = new object();
+    private readonly List<Vector2Int>  _batchBuffer = new List<Vector2Int>(64);
 
     private const byte HEADER      = 0x55;
     private const int  MIN_PKT_LEN = 7;
@@ -52,18 +53,14 @@ public class UdpSensorReceiver : MonoBehaviour
 
     void Update()
     {
-        List<Vector2Int> batch = null;
         lock (_lock)
         {
-            if (_pending.Count > 0)
-            {
-                batch = new List<Vector2Int>(_pending);
-                _pending.Clear();
-            }
+            if (_pending.Count == 0) return;
+            _batchBuffer.AddRange(_pending);
+            _pending.Clear();
         }
-        if (batch == null) return;
 
-        foreach (var pt in batch)
+        foreach (var pt in _batchBuffer)
         {
             if (debugLog)
                 Debug.Log($"[UDP] pixel ({pt.x}, {pt.y})");
@@ -71,6 +68,7 @@ public class UdpSensorReceiver : MonoBehaviour
             TileManager.Instance?.OnSensorPoint(pt.x, pt.y);
             OnPacketReceived?.Invoke(pt.x, pt.y);
         }
+        _batchBuffer.Clear();
     }
 
     public void StartListening()

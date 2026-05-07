@@ -16,8 +16,8 @@ public partial class SensorTestManager
     [Tooltip("持續觸碰超過此值（ms）視為按壓，否則視為輕觸。")]
     public float tapBoundaryMs = 200f;
 
-    [Tooltip("超過此值（ms）未收到新封包視為手指離開（硬體 100ms 輪詢，建議 140~160ms）。")]
-    public float touchEndTimeoutMs = 150f;
+    [Tooltip("超過此值（ms）未收到新封包視為手指離開（硬體 100ms 輪詢，需留 jitter 緩衝，建議 180~250ms）。")]
+    public float touchEndTimeoutMs = 200f;
 
     // ── UI 狀態 ───────────────────────────────────────────────────────────────
 
@@ -52,6 +52,11 @@ public partial class SensorTestManager
 
         if (!_smartTouches.ContainsKey(key))
         {
+            // 按壓中移動：若鄰近（±1格）有按壓中的格子，把按壓狀態轉移到新格子，
+            // 讓手指在同一晶片範圍內滑動時不中斷按壓（水流跟著移動）。
+            if (TryTransferPressToCell(faceIdx, cellIdx))
+                return;
+
             if (IsAdjacentToAnyTouch(faceIdx, cellIdx))
             {
                 _smartTouches[key] = new SmartTouchState
@@ -89,6 +94,54 @@ public partial class SensorTestManager
         }
 
         _smartTouches[key] = state;
+    }
+
+    /// <summary>
+    /// 若 cellIdx 的鄰近（±1格）存在「按壓中」的格子，把按壓狀態轉移到 cellIdx。
+    /// 效果：手指在晶片邊界滑動時，按壓不中斷，水流跟著移動。
+    /// 回傳 true 代表已轉移（呼叫端直接 return）。
+    /// </summary>
+    bool TryTransferPressToCell(int faceIdx, int cellIdx)
+    {
+        int colCount = _faces[faceIdx].config.colCount;
+        int col = cellIdx % colCount;
+        int row = cellIdx / colCount;
+
+        int             fromKey   = -1;
+        SmartTouchState fromState = default;
+
+        foreach (var kv in _smartTouches)
+        {
+            var st = kv.Value;
+            if (st.faceIdx != faceIdx || !st.pressStarted) continue;
+            int pCol = st.cellIdx % colCount;
+            int pRow = st.cellIdx / colCount;
+            if (Mathf.Abs(col - pCol) > 1 || Mathf.Abs(row - pRow) > 1) continue;
+            fromKey   = kv.Key;
+            fromState = st;
+            break;
+        }
+
+        if (fromKey < 0)
+        {
+            // 記錄：有新格子但找不到鄰近按壓格，說明 TryTransfer 沒生效
+            if (_logRecording && _smartTouches.Count > 0)
+                LogDiagEvent($"TransferPress 找不到鄰近按壓格  新格=({col},{row})  目前SmartTouches={_smartTouches.Count}個");
+            return false;
+        }
+
+        LogDiagEvent($"TransferPress 成功  ({fromState.cellIdx % colCount},{fromState.cellIdx / colCount})→({col},{row})  按壓已持續={Time.time - fromState.startTime:F2}s");
+
+        // 從舊 key 遷移到新 key，保留 pressStarted / startTime，更新 cellIdx 與 lastTouchTime
+        _smartTouches.Remove(fromKey);
+        fromState.cellIdx       = cellIdx;
+        fromState.lastTouchTime = Time.time;
+        _smartTouches[faceIdx * 100000 + cellIdx] = fromState;
+
+        // 廣播拖曳，讓 SensorBridgeToPassPosition 把水流位置更新到新格子
+        BroadcastCanvasCell(_faces[faceIdx], col, row, TouchKind.Drag);
+        SensorBus.Drag(col, row);
+        return true;
     }
 
     bool IsAdjacentToAnyTouch(int faceIdx, int cellIdx)
@@ -131,18 +184,29 @@ public partial class SensorTestManager
 
             if (st.faceIdx >= _faces.Count) continue;
 
+            int expCol = st.cellIdx % _faces[st.faceIdx].config.colCount;
+            int expRow = st.cellIdx / _faces[st.faceIdx].config.colCount;
+            float silentMs = (now - st.lastTouchTime) * 1000f;
+            float durationMs = (now - st.startTime) * 1000f;
+
             if (st.isDrag)
             {
-                // 拖曳格逾時：熄滅橘燈
+                LogDiagEvent($"Drag 逾時結束  ({expCol},{expRow})  無封包={silentMs:F0}ms");
                 var fd2 = _faces[st.faceIdx];
                 fd2.controlTiles[st.cellIdx]?.SetPressState(false);
                 if (_gameTileVisible)
                     fd2.sensorTiles[st.cellIdx]?.SetPressState(false);
             }
             else if (st.pressStarted)
+            {
+                LogDiagEvent($"★Press 超時結束  ({expCol},{expRow})  無封包={silentMs:F0}ms  按壓持續={durationMs:F0}ms");
                 FirePressEnd(st.faceIdx, st.cellIdx);
+            }
             else
+            {
+                LogDiagEvent($"Tap 解算  ({expCol},{expRow})  持續={durationMs:F0}ms");
                 FireTap(st.faceIdx, st.cellIdx);
+            }
         }
     }
 

@@ -32,7 +32,12 @@ public partial class SensorTestManager
     int             _logUdpCount;
     int             _logTouchCount;
     int             _logSimCount;
+    int             _logFrameDropCount;
     Coroutine       _logCoroutine;
+
+    // UDP 封包間隔追蹤（key = rawX*100000+rawY 概括同格）
+    readonly Dictionary<int, float> _logLastUdpTime = new Dictionary<int, float>();
+    float _logLastAnyUdpTime = -1f;
 
     // ── 按鈕回呼 ──────────────────────────────────────────────────────────────
 
@@ -57,10 +62,21 @@ public partial class SensorTestManager
         _logEntries.Add($"時間：{DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         _logEntries.Add($"記錄時長：{logRecordDuration:F1} 秒");
         _logEntries.Add($"點擊模式：{(_clickSim != null ? _clickSim.ModeLabel : "無")}");
+        _logEntries.Add($"touchEndTimeoutMs={touchEndTimeoutMs:F0}  tapBoundaryMs={tapBoundaryMs:F0}");
         _logEntries.Add("================================");
+        _logEntries.Add("[t]  層級     內容");
+        _logEntries.Add("--------------------------------");
+
+        _logLastUdpTime.Clear();
+        _logLastAnyUdpTime = -1f;
+        _logFrameDropCount = 0;
 
         UdpSensorReceiver.OnPacketReceived  += OnLogUdp;
         SensorBus.OnTouch                   += OnLogTouch;
+        SensorBus.OnPressStart              += OnLogPressStart;
+        SensorBus.OnPressEnd                += OnLogPressEnd;
+        SensorBus.OnTap                     += OnLogTap;
+        SensorBus.OnDrag                    += OnLogDrag;
         SensorClickSimulator.OnSimEvent     += OnLogSimEvent;
 
         _logCoroutine = StartCoroutine(LogCountdownCoroutine());
@@ -78,6 +94,10 @@ public partial class SensorTestManager
 
         UdpSensorReceiver.OnPacketReceived  -= OnLogUdp;
         SensorBus.OnTouch                   -= OnLogTouch;
+        SensorBus.OnPressStart              -= OnLogPressStart;
+        SensorBus.OnPressEnd                -= OnLogPressEnd;
+        SensorBus.OnTap                     -= OnLogTap;
+        SensorBus.OnDrag                    -= OnLogDrag;
         SensorClickSimulator.OnSimEvent     -= OnLogSimEvent;
 
         WriteLogFile();
@@ -101,13 +121,37 @@ public partial class SensorTestManager
         StopLog();
     }
 
+    // ── 診斷工具（供其他 partial 呼叫）──────────────────────────────────────────
+
+    /// <summary>在記錄中的任何 partial class 均可呼叫，直接附加一行到 log。</summary>
+    void LogDiagEvent(string msg)
+    {
+        if (!_logRecording) return;
+        float t = Time.realtimeSinceStartup - _logStartTime;
+        _logEntries.Add($"[{t:F3}]  DIAG   {msg}");
+    }
+
     // ── 事件收集 ──────────────────────────────────────────────────────────────
 
     void OnLogUdp(int rawX, int rawY)
     {
         if (!_logRecording) return;
-        float t = Time.realtimeSinceStartup - _logStartTime;
-        _logEntries.Add($"[{t:F3}]  UDP    rawX={rawX,-6}  rawY={rawY}");
+        float now = Time.realtimeSinceStartup;
+        float t   = now - _logStartTime;
+
+        // 計算本封包與上一包的間隔（用於排查封包間距是否超過 touchEndTimeout）
+        float gapAny = _logLastAnyUdpTime >= 0f ? (now - _logLastAnyUdpTime) * 1000f : 0f;
+        _logLastAnyUdpTime = now;
+
+        // 同格子間隔（rawX/rawY 相同代表同一觸碰源）
+        int cellKey = rawX * 100000 + rawY;
+        float gapCell = 0f;
+        if (_logLastUdpTime.TryGetValue(cellKey, out float prev))
+            gapCell = (now - prev) * 1000f;
+        _logLastUdpTime[cellKey] = now;
+
+        string gapStr = gapCell > 0f ? $"  同格間距={gapCell:F0}ms" : "";
+        _logEntries.Add($"[{t:F3}]  UDP    raw=({rawX},{rawY})  全局間距={gapAny:F0}ms{gapStr}");
         _logUdpCount++;
     }
 
@@ -115,8 +159,36 @@ public partial class SensorTestManager
     {
         if (!_logRecording) return;
         float t = Time.realtimeSinceStartup - _logStartTime;
-        _logEntries.Add($"[{t:F3}]  觸發   col={col,-4}  row={row}");
+        _logEntries.Add($"[{t:F3}]  Touch  col={col,-4} row={row}");
         _logTouchCount++;
+    }
+
+    void OnLogPressStart(int col, int row)
+    {
+        if (!_logRecording) return;
+        float t = Time.realtimeSinceStartup - _logStartTime;
+        _logEntries.Add($"[{t:F3}]  ★PRESS_START  col={col,-4} row={row}");
+    }
+
+    void OnLogPressEnd(int col, int row)
+    {
+        if (!_logRecording) return;
+        float t = Time.realtimeSinceStartup - _logStartTime;
+        _logEntries.Add($"[{t:F3}]  ★PRESS_END    col={col,-4} row={row}");
+    }
+
+    void OnLogTap(int col, int row)
+    {
+        if (!_logRecording) return;
+        float t = Time.realtimeSinceStartup - _logStartTime;
+        _logEntries.Add($"[{t:F3}]  Tap    col={col,-4} row={row}");
+    }
+
+    void OnLogDrag(int col, int row)
+    {
+        if (!_logRecording) return;
+        float t = Time.realtimeSinceStartup - _logStartTime;
+        _logEntries.Add($"[{t:F3}]  Drag   col={col,-4} row={row}");
     }
 
     void OnLogSimEvent(string desc)
@@ -134,7 +206,7 @@ public partial class SensorTestManager
         float elapsed = Time.realtimeSinceStartup - _logStartTime;
         _logEntries.Add("================================");
         _logEntries.Add(
-            $"統計：UDP 封包 {_logUdpCount} 筆  |  觸發格子 {_logTouchCount} 次  |  模擬事件 {_logSimCount} 次  |  實際記錄 {elapsed:F2} 秒");
+            $"統計：UDP={_logUdpCount}筆  Touch={_logTouchCount}次  模擬={_logSimCount}次  掉幀={_logFrameDropCount}次  實際={elapsed:F2}s");
 
         // 輸出資料夾旁的 Log/ 子資料夾；Editor 模式回退至 persistentDataPath
 #if UNITY_EDITOR
