@@ -164,24 +164,38 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             }
             else if (!_pressActive[s] && now - _slots[s].lastSeen > touchTimeout)
             {
-                // 按壓中的 slot 不逾時，等 PressEnd 才清除
+                // 逾時：進入淡出狀態，在 pressReleaseHoldSeconds 後才真正停用，避免水波瞬間消失
                 Debug.Log($"[PPTM] slot{s} 逾時停用  col={_slots[s].col}  row={_slots[s].row}" +
                           $"  無封包={(now - _slots[s].lastSeen) * 1000f:F0}ms");
-                _slots[s].active = false;
+                _fadingOut[s]   = true;
+                _fadeEndTime[s] = now + pressReleaseHoldSeconds;
             }
         }
 
-        // Step 2：剩餘未配對的 hit → 開新 slot
+        // Step 2：剩餘未配對的 hit → 開新 slot（已被現有 slot 涵蓋的 hit 不重複建立）
         for (int h = 0; h < hitCount; h++)
         {
             if (hitUsed[h]) continue;
+
+            // 若此 hit 在任何 active slot（含本輪新建）的配對半徑內，視為同一觸點，不開新 slot
+            bool covered = false;
+            for (int s = 0; s < MAX_SLOTS && !covered; s++)
+            {
+                if (!_slots[s].active) continue;
+                float dc = _frameHits[h].x - _slots[s].col;
+                float dr = _frameHits[h].y - _slots[s].row;
+                if (dc * dc + dr * dr < matchRadiusCells * matchRadiusCells)
+                    covered = true;
+            }
+            if (covered) continue;
+
             int free = FindFreeSlot();
             if (free < 0) break;
 
-            _slots[free].active   = true;
-            _slots[free].lastSeen = now;
-            _slots[free].col      = _frameHits[h].x;
-            _slots[free].row      = _frameHits[h].y;
+            _slots[free].active    = true;
+            _slots[free].lastSeen  = now;
+            _slots[free].col       = _frameHits[h].x;
+            _slots[free].row       = _frameHits[h].y;
             _slots[free].screenPos = ColRowToScreen(_frameHits[h].x, _frameHits[h].y);
         }
     }
