@@ -58,7 +58,6 @@ public partial class SensorTestManager : MonoBehaviour
         public bool[]            locked;
         public int               lockedCount;
         // 由畫布校準值計算得出的有效感應範圍（取代 config.rawMin/Max）
-        public float rawMinX, rawMaxX, rawMinY, rawMaxY;
     }
 
     int                  _presetIdx;
@@ -298,51 +297,7 @@ public partial class SensorTestManager : MonoBehaviour
                 locked       = new bool[fc.colCount * fc.rowCount],
                 lockedCount  = 0
             };
-            ComputeFaceRawBounds(fd, presets[idx]);
             _faces.Add(fd);
-        }
-    }
-
-    /// <summary>
-    /// 依畫布四角校準值與面的幾何位置，計算各面有效的原始感應範圍。
-    /// 若 VenuePresetConfig 未設定校準值（canvasRawMaxX == 0），回退至 SensorFaceConfig 欄位。
-    /// </summary>
-    void ComputeFaceRawBounds(FaceData fd, VenuePresetConfig preset)
-    {
-        var cfg = fd.config;
-        if (preset.canvasRawMaxX == 0f)
-        {
-            // 未校準：沿用 SensorFaceConfig 內的值（向後相容）
-            fd.rawMinX = cfg.rawMinX;
-            fd.rawMaxX = cfg.rawMaxX;
-            fd.rawMinY = cfg.rawMinY;
-            fd.rawMaxY = cfg.rawMaxY;
-            return;
-        }
-
-        float cw = preset.sensorAreaWidth  > 0 ? preset.sensorAreaWidth
-                 : (_canvasConfig != null ? _canvasConfig.canvasWidth  : 2048f);
-        float ch = preset.sensorAreaHeight > 0 ? preset.sensorAreaHeight
-                 : (_canvasConfig != null ? _canvasConfig.canvasHeight : 768f);
-
-        float facePixelW = cfg.TotalPixelWidth;
-        float facePixelH = cfg.TotalPixelHeight;
-
-        if (cfg.orientation == SensorFaceConfig.ChipOrientation.橫)
-        {
-            // rawX ↔ 畫面 X，rawY ↔ 畫面 Y
-            fd.rawMinX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, cfg.originX / cw);
-            fd.rawMaxX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, (cfg.originX + facePixelW) / cw);
-            fd.rawMinY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, cfg.originY / ch);
-            fd.rawMaxY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, (cfg.originY + facePixelH) / ch);
-        }
-        else
-        {
-            // rawX ↔ 畫面 Y，rawY ↔ 畫面 X
-            fd.rawMinX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, cfg.originY / ch);
-            fd.rawMaxX = Mathf.Lerp(preset.canvasRawMinX, preset.canvasRawMaxX, (cfg.originY + facePixelH) / ch);
-            fd.rawMinY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, cfg.originX / cw);
-            fd.rawMaxY = Mathf.Lerp(preset.canvasRawMinY, preset.canvasRawMaxY, (cfg.originX + facePixelW) / cw);
         }
     }
 
@@ -431,23 +386,11 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnUdpPacket(int rawX, int rawY)
     {
-        // 找最佳匹配面：相鄰面邊界在容差內同時命中時，只取最「在範圍內」的一面，避免多面同時觸發
-        int   bestFace  = -1;
-        float bestScore = float.MaxValue;   // 越小 = 越靠近面的中心
-
+        // rawX/rawY 直接是第二螢幕畫布像素座標，用 ContainsPixel 找對應面
+        int bestFace = -1;
         for (int fi = 0; fi < _faces.Count; fi++)
         {
-            var fd = _faces[fi];
-            // 未校準的面（rawMin >= rawMax）跳過
-            if (fd.rawMinX >= fd.rawMaxX || fd.rawMinY >= fd.rawMaxY) continue;
-
-            float nx = Mathf.InverseLerp(fd.rawMinX, fd.rawMaxX, rawX);
-            float ny = Mathf.InverseLerp(fd.rawMinY, fd.rawMaxY, rawY);
-            if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) continue;
-
-            // score = 超出 [0,1] 的總量（在範圍內則為 0）
-            float score = Mathf.Max(0f - nx, nx - 1f, 0f) + Mathf.Max(0f - ny, ny - 1f, 0f);
-            if (score < bestScore) { bestScore = score; bestFace = fi; }
+            if (_faces[fi].config.ContainsPixel(rawX, rawY)) { bestFace = fi; break; }
         }
 
         if (bestFace < 0)
@@ -457,19 +400,16 @@ public partial class SensorTestManager : MonoBehaviour
             return;
         }
 
-        var fd2  = _faces[bestFace];
-        var cfg2 = fd2.config;
-        var (col, row) = cfg2.RawToCell(rawX, rawY, fd2.rawMinX, fd2.rawMaxX, fd2.rawMinY, fd2.rawMaxY);
+        var cfg2 = _faces[bestFace].config;
+        var (col, row) = cfg2.PixelToCell(rawX, rawY);
         int cellIdx = row * cfg2.colCount + col;
 
-        // Debug：在 status bar 顯示觸發資訊，方便校準座標
         if (!_smartLockActive)
             SetStatusText($"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
-                $"  [{_lastHitPerSec} 次/秒]" +
-                $"  |  rawX範圍[{fd2.rawMinX:0}-{fd2.rawMaxX:0}]  rawY範圍[{fd2.rawMinY:0}-{fd2.rawMaxY:0}]");
+                $"  [{_lastHitPerSec} 次/秒]");
 
-        if (!ProcessGhostTouch(bestFace, cellIdx)) return;  // 孤點尚未確認
-        ActivateCell(bestFace, cellIdx, skipVisual: true);   // 視覺交由 SmartTouch 解算後觸發
+        if (!ProcessGhostTouch(bestFace, cellIdx)) return;
+        ActivateCell(bestFace, cellIdx, skipVisual: true);
         UpdateSmartTouch(bestFace, cellIdx);
     }
 
@@ -598,10 +538,8 @@ public partial class SensorTestManager : MonoBehaviour
         for (int fi = 0; fi < _faces.Count; fi++)
         {
             var cfg = _faces[fi].config;
-            float nx = Mathf.InverseLerp(cfg.rawMinX, cfg.rawMaxX, rawX);
-            float ny = Mathf.InverseLerp(cfg.rawMinY, cfg.rawMaxY, rawY);
-            if (nx < -0.1f || nx > 1.1f || ny < -0.1f || ny > 1.1f) continue;
-            (col, row) = cfg.RawToCell(rawX, rawY);
+            if (!cfg.ContainsPixel(rawX, rawY)) continue;
+            (col, row) = cfg.PixelToCell(rawX, rawY);
             faceIdx = fi;
             return true;
         }
