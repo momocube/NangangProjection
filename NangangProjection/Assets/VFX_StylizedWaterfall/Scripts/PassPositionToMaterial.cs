@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -7,6 +6,11 @@ public class PassPositionToMaterial : MonoBehaviour {
 
     [SerializeField] private Material material;
     [SerializeField] private float maxRadiusOffset = 0.2f;
+
+    [Header("Radius Speed")]
+    [SerializeField] private float expandSpeed = 1.5f;
+    [SerializeField] private float shrinkSpeed = 10.0f;
+    [SerializeField] private float fadeOutSpeed = 0.8f;
 
     [Header("Enable this to process detected input positions.")]
     public bool inputPosDetect;
@@ -56,60 +60,47 @@ public class PassPositionToMaterial : MonoBehaviour {
     private void OnEnable()
     {
         Init();
-        StartCoroutine(PassPositionToShader(0.1f));
+        // 不再啟動 coroutine，改為 Update() 每幀呼叫 SyncShaderData()
     }
 
-    IEnumerator PassPositionToShader(float timeInterval)
+    /// <summary>
+    /// 每幀將 inputPosition 轉換為世界座標、更新 SplashFX、複製 radiusOffsetTemp → radiusOffset。
+    /// 原本是 coroutine 每 0.1s 執行一次，現改為每幀，讓 Shader 收到流暢的 radius 動畫。
+    /// </summary>
+    private void SyncShaderData()
     {
-        while (true)
+        currentPositionNum = inputPosition.Count;
+        material.SetInt("currentPositionNum", Mathf.Min(currentPositionNum, maxPositionNum));
+
+        if (lastPositionNum > currentPositionNum)
         {
-            currentPositionNum = inputPosition.Count;
-            material.SetInt("currentPositionNum", Mathf.Min(currentPositionNum, maxPositionNum));
-
-            //�������W�@����ثe��h�������I�A�h�X�Ӫ����S��
-            if (lastPositionNum > currentPositionNum)
-            {
-                for (int i = currentPositionNum; i < lastPositionNum; i++)
-                {
-                    splashFXPool[i].SetActive(false);
-                }
-            }
-
-            //�ثe�����I�ƶq�p��̤j(20��)�����I�ƶq
-            if (currentPositionNum < maxPositionNum)
-            {
-                for (int i = 0; i < currentPositionNum; i++)
-                {
-                    maxPosition[i] = ConvertScreenToWorldPos(inputPosition[i]);
-                    splashFXPool[i].transform.position = maxPosition[i] + new Vector4(0,0,-0.7f,0);
-                    splashFXPool[i].SetActive(true);
-
-                    radiusOffset[i] = radiusOffsetTemp[i];
-                }
-            }
-            else
-            {
-                for (int i = 0; i < maxPositionNum; i++)
-                {
-                    maxPosition[i] = ConvertScreenToWorldPos(inputPosition[i]);
-                    splashFXPool[i].transform.position = maxPosition[i] + new Vector4(0, 0, -0.7f, 0);
-                    splashFXPool[i].SetActive(true);
-
-                    radiusOffset[i] = radiusOffsetTemp[i];
-                }
-
-                for (int i = maxPositionNum; i < currentPositionNum; i++)
-                {
-                    var fxIndex = (i - maxPositionNum) % (currentPositionNum - maxPositionNum);
-                    splashFXPool[fxIndex + maxPositionNum].transform.position = inputPosition[i] + new Vector4(0, 0, -0.7f, 0);
-                    splashFXPool[fxIndex + maxPositionNum].SetActive(true);
-                }
-            }
-
-            lastPositionNum = currentPositionNum;
-
-            yield return new WaitForSeconds(timeInterval);
+            for (int i = currentPositionNum; i < lastPositionNum; i++)
+                splashFXPool[i].SetActive(false);
         }
+
+        int syncCount = Mathf.Min(currentPositionNum, maxPositionNum);
+        for (int i = 0; i < syncCount; i++)
+        {
+            bool isParked = inputPosition[i].x < -1000f;
+            maxPosition[i] = ConvertScreenToWorldPos(inputPosition[i]);
+            if (!isParked)
+                splashFXPool[i].transform.position = maxPosition[i] + new Vector4(0, 0, -0.7f, 0);
+            splashFXPool[i].SetActive(!isParked);
+            radiusOffset[i] = radiusOffsetTemp[i];
+        }
+
+        // 超過 maxPositionNum 的 overflow 處理（原始邏輯保留）
+        if (currentPositionNum > maxPositionNum)
+        {
+            for (int i = maxPositionNum; i < currentPositionNum; i++)
+            {
+                var fxIndex = (i - maxPositionNum) % (currentPositionNum - maxPositionNum);
+                splashFXPool[fxIndex + maxPositionNum].transform.position = inputPosition[i] + new Vector4(0, 0, -0.7f, 0);
+                splashFXPool[fxIndex + maxPositionNum].SetActive(true);
+            }
+        }
+
+        lastPositionNum = currentPositionNum;
     }
 
     private void Init()
@@ -157,15 +148,12 @@ public class PassPositionToMaterial : MonoBehaviour {
 
     void Update(){
 
-        material.SetVectorArray(positionProperty, maxPosition);
-
         if (inputPosDetect)
         {
             for (int i = 0; i < Mathf.Min(20, inputPosition.Count); i++)
             {
                 if (inputPosition[i].w == 0)
                 {
-                    //�ثe�����I�ƶq�p��̤j(20��)�����I�ƶq
                     if (currentPositionNum < maxPositionNum)
                     {
                         if (i > currentPositionNum - 1) break;
@@ -181,7 +169,7 @@ public class PassPositionToMaterial : MonoBehaviour {
                     else if (i < slotFadingOut.Length && slotFadingOut[i])
                     {
                         if (radiusOffsetTemp[i] > -0.2f)
-                            radiusOffsetTemp[i] -= Time.deltaTime * 0.8f;
+                            radiusOffsetTemp[i] -= Time.deltaTime * fadeOutSpeed;
                         else
                             radiusOffsetTemp[i] = -0.2f;
                         maxPositionLast[i] = inputPosition[i];
@@ -194,14 +182,14 @@ public class PassPositionToMaterial : MonoBehaviour {
                         if (posStable || holdOpen)
                         {
                             if (radiusOffsetTemp[i] <= maxRadiusOffset)
-                                radiusOffsetTemp[i] += Time.deltaTime * 1.5f;
+                                radiusOffsetTemp[i] += Time.deltaTime * expandSpeed;
                             else
                                 radiusOffsetTemp[i] = maxRadiusOffset;
                         }
                         else
                         {
                             if (radiusOffsetTemp[i] >= -0.2f)
-                                radiusOffsetTemp[i] -= Time.deltaTime * 10.0f;
+                                radiusOffsetTemp[i] -= Time.deltaTime * shrinkSpeed;
                             else
                                 radiusOffsetTemp[i] = -0.2f;
                         }
@@ -211,14 +199,13 @@ public class PassPositionToMaterial : MonoBehaviour {
                 }
                 else if (inputPosition[i].w == -1)
                 {
-                    //�ثe�����I�ƶq�p��̤j(20��)�����I�ƶq
                     if (currentPositionNum < maxPositionNum)
                     {
                         if (i > currentPositionNum - 1) break;
                     }
 
                     if (radiusOffsetTemp[i] >= -0.2f)
-                        radiusOffsetTemp[i] -= Time.deltaTime * 0.8f;
+                        radiusOffsetTemp[i] -= Time.deltaTime * fadeOutSpeed;
                     else
                     {
                         radiusOffsetTemp[i] = -0.2f;
@@ -239,12 +226,12 @@ public class PassPositionToMaterial : MonoBehaviour {
             }
         }
 
-        if(testByMouse) //�ηƹ�����
+        if(testByMouse)
         {
             if (inputPosDetect)
             {
                 inputPosDetect = false;
-            } 
+            }
 
             if (Input.GetMouseButton(0))
             {
@@ -266,14 +253,14 @@ public class PassPositionToMaterial : MonoBehaviour {
                     if (Mathf.Abs(ConvertScreenToWorldPos(inputPosition[i]).x - maxPositionLast[i].x) < 0.01f)
                     {
                         if (radiusOffsetTemp[i] <= maxRadiusOffset)
-                            radiusOffsetTemp[i] += Time.deltaTime * 1.5f;
+                            radiusOffsetTemp[i] += Time.deltaTime * expandSpeed;
                         else
                             radiusOffsetTemp[i] = maxRadiusOffset;
                     }
                     else
                     {
                         if (radiusOffsetTemp[i] >= -0.2f)
-                            radiusOffsetTemp[i] -= Time.deltaTime * 10.0f;
+                            radiusOffsetTemp[i] -= Time.deltaTime * shrinkSpeed;
                         else
                             radiusOffsetTemp[i] = -0.2f;
                     }
@@ -287,14 +274,13 @@ public class PassPositionToMaterial : MonoBehaviour {
                 {
                     for (int i = mouseIndex; i < mouseIndex + 1; i++)
                     {
-                        //�ثe�����I�ƶq�p��̤j(20��)�����I�ƶq
                         if (currentPositionNum < maxPositionNum)
                         {
                             if (i > currentPositionNum - 1) break;
                         }
 
                         if (radiusOffsetTemp[i] >= -0.2f)
-                            radiusOffsetTemp[i] -= Time.deltaTime * 0.8f;
+                            radiusOffsetTemp[i] -= Time.deltaTime * fadeOutSpeed;
                         else
                         {
                             if (b_GetMouseButton)
@@ -310,6 +296,10 @@ public class PassPositionToMaterial : MonoBehaviour {
                 }
             }
         }
+
+        // 每幀同步位置、SplashFX、radius 到 Shader（原本 coroutine 每 0.1s 才執行）
+        SyncShaderData();
+        material.SetVectorArray(positionProperty, maxPosition);
         material.SetFloatArray(radiusProperty, radiusOffset);
     }
 }

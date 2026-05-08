@@ -37,6 +37,12 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     public float matchRadiusCells = 3f;
     [Tooltip("按壓結束後淡出持續秒數（須 ≥ radius / 0.8 ≈ 0.5s）")]
     public float pressReleaseHoldSeconds = 0.7f;
+    [Tooltip("拖曳時舊位置的水波殘影持續秒數（製造物理尾跡效果；越大尾跡越長）")]
+    public float wakeHoldSeconds = 0.3f;
+
+    [Header("位置平滑")]
+    [Tooltip("水波位置插值速度（per second）；越高越跟手，越低越飄柔。0 = 關閉平滑")]
+    public float positionSmoothSpeed = 12f;
 
     // ── 內部狀態 ────────────────────────────────────────────────────────────
     private const int   MAX_SLOTS = 20;
@@ -56,6 +62,8 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     private bool[]        _pressActive  = new bool[MAX_SLOTS];   // 此 slot 是否處於按壓狀態
     private bool[]        _fadingOut    = new bool[MAX_SLOTS];   // 此 slot 是否正在淡出
     private float[]       _fadeEndTime  = new float[MAX_SLOTS];  // 淡出結束時間
+    private bool[]        _isWake       = new bool[MAX_SLOTS];   // 因拖曳產生的尾跡，命中時不還原按壓狀態
+    private Vector2[]     _smoothedPos  = new Vector2[MAX_SLOTS]; // 平滑插值位置（解決離散跳格移動感）
     private List<Vector2Int> _frameHits = new List<Vector2Int>(MAX_SLOTS);
     private int _lastCanvasEventFrame = -1;
     private bool _processingCanvasEvent;
@@ -118,8 +126,20 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     private void Update()
     {
         MatchAndUpdate();
+        SmoothPositions();
         FlushToPPTM();
         _frameHits.Clear();
+    }
+
+    private void SmoothPositions()
+    {
+        if (positionSmoothSpeed <= 0f) return;
+        float t = Time.deltaTime * positionSmoothSpeed;
+        for (int i = 0; i < MAX_SLOTS; i++)
+        {
+            if (_slots[i].active)
+                _smoothedPos[i] = Vector2.Lerp(_smoothedPos[i], _slots[i].screenPos, t);
+        }
     }
 
     private void MatchAndUpdate()
@@ -152,6 +172,12 @@ public class SensorBridgeToPassPosition : MonoBehaviour
                 _slots[s].row      = _frameHits[best].y;
                 _slots[s].screenPos = ColRowToScreen(_slots[s].col, _slots[s].row);
                 _slots[s].lastSeen  = now;
+                // 短暫中斷後恢復觸碰：只還原「非尾跡」的淡出 slot（尾跡殘影應繼續消散）
+                if (_fadingOut[s] && !_isWake[s])
+                {
+                    _fadingOut[s]   = false;
+                    _pressActive[s] = true;
+                }
             }
             else if (_fadingOut[s])
             {
@@ -197,6 +223,25 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             _slots[free].col       = _frameHits[h].x;
             _slots[free].row       = _frameHits[h].y;
             _slots[free].screenPos = ColRowToScreen(_frameHits[h].x, _frameHits[h].y);
+            _smoothedPos[free]     = _slots[free].screenPos;  // 新 slot 直接跳到起始位置，不從舊位置漸進
+            _isWake[free]          = false;
+
+            // 快速滑動跳格補救：若整場只有一個按壓 slot，無論距離多遠都轉移按壓狀態，
+            // 確保同一時間只有一個主水波源，避免放手時出現多道水岔開
+            int pressCount = 0, pressSlot = -1;
+            for (int s2 = 0; s2 < MAX_SLOTS; s2++)
+            {
+                if (s2 != free && _pressActive[s2] && _slots[s2].active)
+                { pressCount++; pressSlot = s2; }
+            }
+            if (pressCount == 1)
+            {
+                _pressActive[pressSlot] = false;
+                _fadingOut[pressSlot]   = true;
+                _fadeEndTime[pressSlot] = now + wakeHoldSeconds;
+                _isWake[pressSlot]      = true;
+                _pressActive[free]      = true;
+            }
         }
     }
 
@@ -204,8 +249,10 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     {
         for (int i = 0; i < MAX_SLOTS; i++)
         {
+            // positionSmoothSpeed > 0 時使用平滑位置，否則直接使用原始格子座標
+            Vector2 pos = (positionSmoothSpeed > 0f) ? _smoothedPos[i] : _slots[i].screenPos;
             _pptm.inputPosition[i] = _slots[i].active
-                ? new Vector4(_slots[i].screenPos.x, _slots[i].screenPos.y, 0f, 0f)
+                ? new Vector4(pos.x, pos.y, 0f, 0f)
                 : new Vector4(PARK_X, PARK_Y, 0f, 0f);
         }
 
@@ -231,6 +278,7 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             if (_slots[i].active && _slots[i].col == col && _slots[i].row == row)
             {
                 _pressActive[i] = true;
+                _isWake[i]      = false;  // 此 slot 現在是正式按壓，清除尾跡旗標
                 return;
             }
         }
@@ -242,7 +290,9 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         _slots[free].col       = col;
         _slots[free].row       = row;
         _slots[free].screenPos = ColRowToScreen(col, row);
+        _smoothedPos[free]     = _slots[free].screenPos;
         _pressActive[free]     = true;
+        _isWake[free]          = false;
     }
 
     private void OnSensorCanvasPressStart(float x, float y, float canvasW, float canvasH)
@@ -265,6 +315,7 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             _pressActive[i]  = false;
             _fadingOut[i]    = true;
             _fadeEndTime[i]  = endTime;
+            _isWake[i]       = false;  // PressEnd 淡出可因觸碰恢復而取消（與尾跡行為相反）
         }
     }
 
@@ -277,18 +328,37 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         _lastCanvasEventFrame = Time.frameCount;
     }
 
-    /// <summary>拖曳：將按壓 slot 的位置更新到新格子（暴度已開時效果跟著手移動）。</summary>
+    /// <summary>
+    /// 拖曳：舊位置化為短暫尾跡殘影，新位置建立主按壓點。
+    /// 效果：手滑過時形成物理感尾跡曲線，放手只消散最後一點，不岔開。
+    /// </summary>
     private void OnSensorDrag(int col, int row)
     {
         if (!_processingCanvasEvent && Time.frameCount == _lastCanvasEventFrame) return;
         for (int i = 0; i < MAX_SLOTS; i++)
         {
             if (!_pressActive[i] || !_slots[i].active) continue;
-            _slots[i].col       = col;
-            _slots[i].row       = row;
-            _slots[i].screenPos = ColRowToScreen(col, row);
-            _slots[i].lastSeen  = Time.time;
-            return;  // 只更新第一個按壓 slot（單點觸碰）
+
+            // 舊位置 → 短暫尾跡（殘影），製造物理尾跡效果
+            _pressActive[i] = false;
+            _fadingOut[i]   = true;
+            _fadeEndTime[i] = Time.time + wakeHoldSeconds;
+            _isWake[i]      = true;
+
+            // 新位置 → 建立主按壓點
+            int next = FindFreeSlot();
+            if (next >= 0)
+            {
+                _slots[next].active    = true;
+                _slots[next].lastSeen  = Time.time;
+                _slots[next].col       = col;
+                _slots[next].row       = row;
+                _slots[next].screenPos = ColRowToScreen(col, row);
+                _smoothedPos[next]     = _slots[next].screenPos;  // 拖曳新位置直接跳到，不從舊位置飄入
+                _pressActive[next]     = true;
+                _isWake[next]          = false;
+            }
+            return;
         }
     }
 
