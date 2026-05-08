@@ -40,6 +40,8 @@ public partial class SensorTestManager
     }
 
     readonly Dictionary<int, SmartTouchState> _smartTouches = new Dictionary<int, SmartTouchState>();
+    readonly List<int> _expiredBuffer = new List<int>();
+    readonly List<int> _dragKeyBuffer = new List<int>();
 
     // ── 核心邏輯（由 OnUdpPacket 呼叫）───────────────────────────────────────
 
@@ -130,7 +132,17 @@ public partial class SensorTestManager
             return false;
         }
 
-        LogDiagEvent($"TransferPress 成功  ({fromState.cellIdx % colCount},{fromState.cellIdx / colCount})→({col},{row})  按壓已持續={Time.time - fromState.startTime:F2}s");
+        if (_logRecording)
+            LogDiagEvent($"TransferPress 成功  ({fromState.cellIdx % colCount},{fromState.cellIdx / colCount})→({col},{row})  按壓已持續={Time.time - fromState.startTime:F2}s");
+
+        // 清除舊格子的橘燈，防止移動後殘影
+        {
+            var fdT = _faces[faceIdx];
+            int oldCell = fromState.cellIdx;
+            fdT.controlTiles[oldCell]?.SetPressState(false);
+            if (_gameTileVisible)
+                fdT.sensorTiles[oldCell]?.SetPressState(false);
+        }
 
         // 從舊 key 遷移到新 key，保留 pressStarted / startTime，更新 cellIdx 與 lastTouchTime
         _smartTouches.Remove(fromKey);
@@ -172,12 +184,12 @@ public partial class SensorTestManager
         float now      = Time.time;
         float timeoutS = touchEndTimeoutMs / 1000f;
 
-        var expired = new List<int>();
+        _expiredBuffer.Clear();
         foreach (var kv in _smartTouches)
             if (now - kv.Value.lastTouchTime > timeoutS)
-                expired.Add(kv.Key);
+                _expiredBuffer.Add(kv.Key);
 
-        foreach (int key in expired)
+        foreach (int key in _expiredBuffer)
         {
             var st = _smartTouches[key];
             _smartTouches.Remove(key);
@@ -264,12 +276,12 @@ public partial class SensorTestManager
 
     void ClearDragCells(int faceIdx)
     {
-        var dragKeys = new System.Collections.Generic.List<int>();
+        _dragKeyBuffer.Clear();
         foreach (var kv in _smartTouches)
             if (kv.Value.isDrag && kv.Value.faceIdx == faceIdx)
-                dragKeys.Add(kv.Key);
+                _dragKeyBuffer.Add(kv.Key);
 
-        foreach (int k in dragKeys)
+        foreach (int k in _dragKeyBuffer)
         {
             var st = _smartTouches[k];
             _smartTouches.Remove(k);

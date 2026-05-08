@@ -23,6 +23,7 @@ public partial class SensorTestManager
     }
 
     readonly Dictionary<int, PendingCellState> _pendingCells = new Dictionary<int, PendingCellState>();
+    readonly List<int> _ghostRemoveBuffer = new List<int>();
 
     TextMeshProUGUI _ghostModeBtnText;
     Image           _ghostModeBtnImage;
@@ -126,10 +127,10 @@ public partial class SensorTestManager
         if (ghostTouchMode == GhostTouchMode.None || _pendingCells.Count == 0) return;
         float now    = Time.realtimeSinceStartup;
         float expiry = ghostTouchWindowMs * ghostConfirmCount / 1000f;
-        var   remove = new List<int>();
+        _ghostRemoveBuffer.Clear();
         foreach (var kv in _pendingCells)
-            if (now - kv.Value.firstSeenTime > expiry) remove.Add(kv.Key);
-        foreach (var k in remove)
+            if (now - kv.Value.firstSeenTime > expiry) _ghostRemoveBuffer.Add(kv.Key);
+        foreach (var k in _ghostRemoveBuffer)
         {
             var s = _pendingCells[k];
             SetCellPendingVisual(s.faceIdx, s.cellIdx, false);

@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Face_ALL
   m_EditorClassIdentifier: 
   faceName: Face
-  gizmoColor: {r: 0, g: 1, b: 0, a: 1}
+  gizmoColor: {r: 1, g: 1, b: 1, a: 1}
   showInVisualizer: 0
   originX: 0
   originY: 0

@@ -60,7 +60,7 @@ public class SensorTileCell : MonoBehaviour
     public void SetFaceColor(Color faceColor)
     {
         _faceColorSet = true;
-        _colIdleFace  = Color.Lerp(ColIdle, faceColor, 0.50f);
+        _colIdleFace  = Color.Lerp(ColIdle, faceColor, 0.12f);
         if (_fill != null) RefreshColor();
     }
 

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -41,6 +40,11 @@ public partial class SensorTestManager
 
     // 全局 1 秒滑動窗口，用來算 HPS
     readonly Queue<float> _logHitQueue = new Queue<float>();
+
+    // 效能：預分配，避免 UpdateClickLogPanel 每幀 new
+    readonly List<(int,int)>  _expiredLogKeys = new List<(int,int)>();
+    readonly System.Text.StringBuilder _clickLogSB = new System.Text.StringBuilder(512);
+    int _lastLogHps = -1;
 
     TextMeshProUGUI _clickLogBodyText;
     TextMeshProUGUI _clickLogHpsText;
@@ -134,29 +138,36 @@ public partial class SensorTestManager
         if (_clickLogBodyText == null && _clickLogHpsText == null) return;
 
         float now = Time.time;
+        bool bodyChanged = false;
 
-        // 將超過 collapseWindow 的 active 條目 flush
-        var expired = new List<(int, int)>();
+        // 將超過 collapseWindow 的 active 條目 flush（使用預分配 buffer）
+        _expiredLogKeys.Clear();
         foreach (var kv in _logActiveWindow)
             if (now - kv.Value.lastTime > clickLogCollapseWindow)
-                expired.Add(kv.Key);
-        foreach (var k in expired)
+                _expiredLogKeys.Add(kv.Key);
+        foreach (var k in _expiredLogKeys)
         {
             FlushLogEntry(_logActiveWindow[k]);
             _logActiveWindow.Remove(k);
+            bodyChanged = true;
         }
 
-        // HPS：清除 1 秒前的時間戳
+        // HPS：清除 1 秒前的時間戳；只在數值改變時更新 TMP
         while (_logHitQueue.Count > 0 && now - _logHitQueue.Peek() > 1f)
             _logHitQueue.Dequeue();
 
-        if (_clickLogHpsText != null)
-            _clickLogHpsText.text = $"{_logHitQueue.Count} /s";
-
-        // 組合顯示文字
-        if (_clickLogBodyText != null)
+        int hps = _logHitQueue.Count;
+        if (_clickLogHpsText != null && hps != _lastLogHps)
         {
-            var sb = new StringBuilder();
+            _lastLogHps = hps;
+            _clickLogHpsText.text = $"{hps} /s";
+        }
+
+        // 組合顯示文字：有 active 格子時每幀重建（msEach 即時變化）；否則只在 flush 後重建一次
+        bool hasActive = _logActiveWindow.Count > 0;
+        if (_clickLogBodyText != null && (hasActive || bodyChanged))
+        {
+            _clickLogSB.Clear();
             int shown = 0;
 
             // Active（正在 collapse）→ 顯示即時頻率
@@ -168,11 +179,11 @@ public partial class SensorTestManager
                 {
                     float dur    = now - e.firstTime;
                     float msEach = dur > 0.001f ? dur * 1000f / e.count : 0f;
-                    sb.Append($"▶ 欄{e.col,3} 列{e.row,2}  {msEach:F0}ms/次···\n");
+                    _clickLogSB.Append($"▶ 欄{e.col,3} 列{e.row,2}  {msEach:F0}ms/次···\n");
                 }
                 else
                 {
-                    sb.Append($"▶ 欄{e.col,3} 列{e.row,2}  ···\n");
+                    _clickLogSB.Append($"▶ 欄{e.col,3} 列{e.row,2}  ···\n");
                 }
                 shown++;
             }
@@ -181,11 +192,11 @@ public partial class SensorTestManager
             foreach (var line in _logFlushedLines)
             {
                 if (shown >= clickLogMaxLines) break;
-                sb.AppendLine(line);
+                _clickLogSB.AppendLine(line);
                 shown++;
             }
 
-            _clickLogBodyText.text = sb.ToString();
+            _clickLogBodyText.text = _clickLogSB.ToString();
         }
     }
 

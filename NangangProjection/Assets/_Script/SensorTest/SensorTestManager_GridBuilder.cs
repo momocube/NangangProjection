@@ -248,6 +248,13 @@ public partial class SensorTestManager
         var oldGlg = controlGridParent.GetComponent<GridLayoutGroup>();
         if (oldGlg != null) Destroy(oldGlg);
 
+        // 加 nested Canvas + GraphicRaycaster，讓格子 dirty 只重建自己這層，不波及整個 Canvas_Primary
+        if (controlGridParent.GetComponent<Canvas>() == null)
+        {
+            controlGridParent.gameObject.AddComponent<Canvas>();
+            controlGridParent.gameObject.AddComponent<GraphicRaycaster>();
+        }
+
         float w = controlGridParent.rect.width;
         float h = controlGridParent.rect.height;
         if (w <= 0 || h <= 0)
@@ -323,6 +330,12 @@ public partial class SensorTestManager
 
         var oldGlg = controlGridParent.GetComponent<GridLayoutGroup>();
         if (oldGlg != null) Destroy(oldGlg);
+
+        if (controlGridParent.GetComponent<Canvas>() == null)
+        {
+            controlGridParent.gameObject.AddComponent<Canvas>();
+            controlGridParent.gameObject.AddComponent<GraphicRaycaster>();
+        }
 
         float w = controlGridParent.rect.width;
         float h = controlGridParent.rect.height;

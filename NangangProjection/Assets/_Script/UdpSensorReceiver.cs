@@ -24,6 +24,10 @@ public class UdpSensorReceiver : MonoBehaviour
     [Tooltip("在 Console 顯示收到的封包與換算結果")]
     public bool debugLog = false;
 
+    [Header("效能")]
+    [Tooltip("每幀最多消化的觸碰點數，超出部分延至下幀（防止單幀爆量卡頓）")]
+    public int maxPointsPerFrame = 32;
+
     /// <summary>每次解析到一個有效座標點時觸發（主執行緒）</summary>
     public static event Action<int, int> OnPacketReceived;
 
@@ -56,8 +60,9 @@ public class UdpSensorReceiver : MonoBehaviour
         lock (_lock)
         {
             if (_pending.Count == 0) return;
-            _batchBuffer.AddRange(_pending);
-            _pending.Clear();
+            int take = Mathf.Min(_pending.Count, maxPointsPerFrame);
+            for (int i = 0; i < take; i++)
+                _batchBuffer.Add(_pending.Dequeue());
         }
 
         foreach (var pt in _batchBuffer)

@@ -191,8 +191,6 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             else if (!_pressActive[s] && now - _slots[s].lastSeen > touchTimeout)
             {
                 // 逾時：進入淡出狀態，在 pressReleaseHoldSeconds 後才真正停用，避免水波瞬間消失
-                Debug.Log($"[PPTM] slot{s} 逾時停用  col={_slots[s].col}  row={_slots[s].row}" +
-                          $"  無封包={(now - _slots[s].lastSeen) * 1000f:F0}ms");
                 _fadingOut[s]   = true;
                 _fadeEndTime[s] = now + pressReleaseHoldSeconds;
             }

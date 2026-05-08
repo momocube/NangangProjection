@@ -75,6 +75,8 @@ public partial class SensorTestManager : MonoBehaviour
 
     TextMeshProUGUI  _statusText;
     string           _lastStatusText;   // dirty flag：避免 TMP 每幀重算 layout
+    float            _lastStatusUpdateTime;  // 狀態列更新限流（10Hz）
+    float            _cellHitCleanTimer;     // _cellHitTimes 定期清理計時器
     bool  _smartLockActive;
     TextMeshProUGUI  _smartLockBtnText;
     Image _smartLockBtnImage;
@@ -386,11 +388,16 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnUdpPacket(int rawX, int rawY)
     {
-        // rawX/rawY 直接是第二螢幕畫布像素座標，用 ContainsPixel 找對應面
+        // 硬體輸出 raw sensor 值，用 ContainsRaw 找面後 RawToPixel 轉畫布像素
         int bestFace = -1;
+        int pixelX = rawX, pixelY = rawY;
         for (int fi = 0; fi < _faces.Count; fi++)
         {
-            if (_faces[fi].config.ContainsPixel(rawX, rawY)) { bestFace = fi; break; }
+            var cfg = _faces[fi].config;
+            if (!cfg.ContainsRaw(rawX, rawY)) continue;
+            (pixelX, pixelY) = cfg.RawToPixel(rawX, rawY);
+            bestFace = fi;
+            break;
         }
 
         if (bestFace < 0)
@@ -401,12 +408,19 @@ public partial class SensorTestManager : MonoBehaviour
         }
 
         var cfg2 = _faces[bestFace].config;
-        var (col, row) = cfg2.PixelToCell(rawX, rawY);
+        var (col, row) = cfg2.PixelToCell(pixelX, pixelY);
         int cellIdx = row * cfg2.colCount + col;
 
         if (!_smartLockActive)
-            SetStatusText($"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
-                $"  [{_lastHitPerSec} 次/秒]");
+        {
+            float nowT = Time.realtimeSinceStartup;
+            if (nowT - _lastStatusUpdateTime >= 0.1f)
+            {
+                _lastStatusUpdateTime = nowT;
+                SetStatusText($"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
+                    $"  [{_lastHitPerSec} 次/秒]");
+            }
+        }
 
         if (!ProcessGhostTouch(bestFace, cellIdx)) return;
         ActivateCell(bestFace, cellIdx, skipVisual: true);
@@ -461,6 +475,19 @@ public partial class SensorTestManager : MonoBehaviour
     int    _lastHitPerSec;
     int    _lastHitCol, _lastHitRow;
     string _lastHitFace;
+
+    void CleanCellHitTimes()
+    {
+        float now = Time.realtimeSinceStartup;
+        var stale = new System.Collections.Generic.List<int>();
+        foreach (var kv in _cellHitTimes)
+        {
+            var q = kv.Value;
+            while (q.Count > 0 && now - q.Peek() > 1f) q.Dequeue();
+            if (q.Count == 0) stale.Add(kv.Key);
+        }
+        foreach (var k in stale) _cellHitTimes.Remove(k);
+    }
 
     void ToggleLock(int faceIdx, int col, int row)
     {
@@ -529,6 +556,9 @@ public partial class SensorTestManager : MonoBehaviour
     /// <summary>CoordTestPanel 呼叫：以原始感應座標觸發（與真實 UDP 封包路徑相同）。</summary>
     public void TriggerRawCoord(int rawX, int rawY) => OnUdpPacket(rawX, rawY);
 
+    public int    FaceCount              => _faces.Count;
+    public string GetFaceName(int fi)    => (fi >= 0 && fi < _faces.Count) ? _faces[fi].config.faceName : "?";
+
     /// <summary>
     /// CoordTestPanel 呼叫：計算原始座標對應的面 / 欄 / 列，不觸發動畫。
     /// 回傳 false 代表超出所有面的感應範圍（會被過濾掉）。
@@ -538,8 +568,9 @@ public partial class SensorTestManager : MonoBehaviour
         for (int fi = 0; fi < _faces.Count; fi++)
         {
             var cfg = _faces[fi].config;
-            if (!cfg.ContainsPixel(rawX, rawY)) continue;
-            (col, row) = cfg.PixelToCell(rawX, rawY);
+            if (!cfg.ContainsRaw(rawX, rawY)) continue;
+            var (px, py) = cfg.RawToPixel(rawX, rawY);
+            (col, row) = cfg.PixelToCell(px, py);
             faceIdx = fi;
             return true;
         }
@@ -552,7 +583,14 @@ public partial class SensorTestManager : MonoBehaviour
     void Update()
     {
         if (_smartLockActive)
-            SetStatusText($"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格");
+        {
+            float nowT = Time.realtimeSinceStartup;
+            if (nowT - _lastStatusUpdateTime >= 0.1f)
+            {
+                _lastStatusUpdateTime = nowT;
+                SetStatusText($"智慧鎖格 開啟中  |  被觸碰的格子將自動鎖定  |  已鎖定：{TotalLocked} 格");
+            }
+        }
 
         // 幀時間監控：記錄期間若 deltaTime > 33ms 視為掉幀
         if (_logRecording && Time.deltaTime > 0.033f)
@@ -565,6 +603,14 @@ public partial class SensorTestManager : MonoBehaviour
         UpdateClickLogPanel();
         FlushExpiredSmartTouches();
         CleanExpiredPendingCells();
+
+        // 每 30 秒清一次長期不再觸碰的 _cellHitTimes entry
+        _cellHitCleanTimer += Time.deltaTime;
+        if (_cellHitCleanTimer >= 30f)
+        {
+            _cellHitCleanTimer = 0f;
+            CleanCellHitTimes();
+        }
     }
 
     void HandleDragInteract()
