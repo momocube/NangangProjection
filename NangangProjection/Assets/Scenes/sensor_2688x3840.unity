@@ -257,12 +257,10 @@ GameObject:
   - component: {fileID: 400400}
   - component: {fileID: 114400}
   - component: {fileID: 114401}
-  - component: {fileID: 114402}
-  - component: {fileID: 114403}
   - component: {fileID: 114404}
-  - component: {fileID: 400401}
-  - component: {fileID: 400402}
   - component: {fileID: 400403}
+  - component: {fileID: 114410}
+  - component: {fileID: 2106411719}
   m_Layer: 0
   m_Name: SensorTestManager
   m_TagString: Untagged
@@ -402,10 +400,10 @@ MonoBehaviour:
   showPresetSelector: 1
   controlGridParent: {fileID: 224110}
   sensorGridParent: {fileID: 224210}
-  gameSceneName: Map_CybercubeLogo_J
+  gameSceneName: 
   uiFontOverride: {fileID: 11400000, guid: 81dece84d7b6e884da6c2dcadd303782, type: 2}
   display2WindowOffsetX: 1920
-  activeDuration: 1.5
+  activeDuration: 0.5
   _gameTileVisible: 0
   showClickLogPanel: 0
   clickLogMaxLines: 6
@@ -432,34 +430,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   listenPort: 20001
-  debugLog: 1
---- !u!114 &114402
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100400}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 752a45bb25947f9478b2b18aec974e18, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  windowTitle: UDP Debug Console
---- !u!114 &114403
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100400}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cc33dd44ee55ff667788990011223344, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  controlGridParent: {fileID: 224110}
-  overlayAlpha: 0.45
+  debugLog: 0
+  maxPointsPerFrame: 32
 --- !u!114 &114404
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -473,6 +445,20 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   dimAlpha: 0
+--- !u!114 &114410
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100400}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8feef6e1677c3bb4e8f1fa83a79f7721, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  display2WindowOffsetX: 1920
+  uiFontOverride: {fileID: 0}
 --- !u!114 &114500
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -820,36 +806,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &400401
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100400}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dfc2be38690b0644792dffeba3da3e32, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  sensorTestManager: {fileID: 114400}
---- !u!114 &400402
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100400}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ee55ff66778800112233cc44dd55ee66, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  listenRawUdp: 1
-  listenSensorBus: 0
-  showWindow: 1
-  toggleKey: 290
-  maxEntries: 40
 --- !u!114 &400403
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -867,7 +823,7 @@ MonoBehaviour:
   externalEnabled: 0
   externalIP: 127.0.0.1
   externalPort: 20002
-  cooldownEnabled: 1
+  cooldownEnabled: 0
   clickCooldown: 0.1
   tapClickEnabled: 1
   pressClickEnabled: 1
@@ -944,6 +900,96 @@ MonoBehaviour:
     m_MipBias: 0
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
+--- !u!1 &2106411716
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2106411721}
+  - component: {fileID: 2106411720}
+  - component: {fileID: 2106411718}
+  - component: {fileID: 2106411717}
+  m_Layer: 0
+  m_Name: Log
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2106411717
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2106411716}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ee55ff66778800112233cc44dd55ee66, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  listenRawUdp: 0
+  listenSensorBus: 1
+  showWindow: 0
+  toggleKey: 290
+--- !u!114 &2106411718
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2106411716}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dfc2be38690b0644792dffeba3da3e32, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  sensorTestManager: {fileID: 114400}
+--- !u!114 &2106411719
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100400}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc33dd44ee55ff667788990011223344, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  controlGridParent: {fileID: 224110}
+  overlayAlpha: 0.528
+--- !u!114 &2106411720
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2106411716}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 752a45bb25947f9478b2b18aec974e18, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  windowTitle: UDP Debug Console
+--- !u!4 &2106411721
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2106411716}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 15.803294, y: -1.1935892, z: 12.898565}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -954,4 +1000,5 @@ SceneRoots:
   - {fileID: 224200}
   - {fileID: 400300}
   - {fileID: 400400}
+  - {fileID: 2106411721}
   - {fileID: 400500}

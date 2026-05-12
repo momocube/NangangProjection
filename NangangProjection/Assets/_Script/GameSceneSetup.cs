@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
 /// 遊戲場景相機設定。
@@ -74,6 +75,16 @@ public class GameSceneSetup : MonoBehaviour
 
         // 比主相機晚渲染（深度較高），確保主相機先初始化
         _mirrorCamera.depth = _mainCamera.depth + 1;
+
+        // URP：Camera 元件不會自動建立 UniversalAdditionalCameraData，
+        // 缺少此元件 URP 會完全跳過這個相機導致 RT 永遠黑色。
+        // GetUniversalAdditionalCameraData() 在缺少時會自動 AddComponent。
+        var srcUrp = _mainCamera.GetUniversalAdditionalCameraData();
+        var dstUrp = _mirrorCamera.GetUniversalAdditionalCameraData();
+        dstUrp.renderType       = CameraRenderType.Base;
+        dstUrp.renderShadows    = srcUrp.renderShadows;
+        dstUrp.requiresColorTexture = false;
+        dstUrp.requiresDepthTexture = false;
 
         Debug.Log($"[GameSceneSetup] Mirror Camera 建立完成，RT = {rt.width}×{rt.height}");
     }

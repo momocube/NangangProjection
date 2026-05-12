@@ -60,6 +60,8 @@ public partial class SensorTestManager : MonoBehaviour
         // 由畫布校準值計算得出的有效感應範圍（取代 config.rawMin/Max）
     }
 
+    public static SensorTestManager Instance { get; private set; }
+
     int                  _presetIdx;
     DisplayCanvasConfig  _canvasConfig;
     bool                 _rotateDisplay90;
@@ -177,6 +179,8 @@ public partial class SensorTestManager : MonoBehaviour
 
     void Awake()
     {
+        Instance = this;
+
         // 只在晶片示意預設開啟時才啟動 Display 2；預設關閉則等使用者手動開啟
         if (_gameTileVisible && Display.displays.Length > 1)
         {
@@ -230,6 +234,8 @@ public partial class SensorTestManager : MonoBehaviour
         }
         _overlay    = GetComponent<ConsoleGameOverlay>();
         _dimOverlay = GetComponent<Display2DimOverlay>();
+        if (_overlay == null)
+            Debug.LogError("[SensorTestManager] ConsoleGameOverlay 元件不在此 GameObject 上，格點疊加層不會顯示。請將元件移到 SensorTestManager 同一個 GO。");
         NotifyOverlay();
         RebuildSensorVCellOverlay();
         UpdateClickModeButton();
@@ -273,6 +279,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnDestroy()
     {
+        if (Instance == this) Instance = null;
         UdpSensorReceiver.OnPacketReceived -= OnUdpPacket;
         SensorGridRT.Release();
         DestroyClickLog();
@@ -555,6 +562,29 @@ public partial class SensorTestManager : MonoBehaviour
 
     /// <summary>CoordTestPanel 呼叫：以原始感應座標觸發（與真實 UDP 封包路徑相同）。</summary>
     public void TriggerRawCoord(int rawX, int rawY) => OnUdpPacket(rawX, rawY);
+
+    /// <summary>
+    /// 遊戲程式碼呼叫：以 raw sensor 座標亮起對應格子並廣播 CanvasTouch。
+    /// 跳過 ghost touch 過濾與智慧鎖格，直接點亮視覺並送出事件。
+    /// 回傳 false 代表座標超出所有面的感應範圍。
+    /// </summary>
+    public bool LightUpRaw(int rawX, int rawY)
+    {
+        for (int fi = 0; fi < _faces.Count; fi++)
+        {
+            var cfg = _faces[fi].config;
+            if (!cfg.ContainsRaw(rawX, rawY)) continue;
+            var (px, py) = cfg.RawToPixel(rawX, rawY);
+            var (col, row) = cfg.PixelToCell(px, py);
+            int cellIdx = row * cfg.colCount + col;
+            var fd = _faces[fi];
+            fd.controlTiles[cellIdx]?.Activate();
+            if (_gameTileVisible) fd.sensorTiles[cellIdx]?.Activate();
+            BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
+            return true;
+        }
+        return false;
+    }
 
     public int    FaceCount              => _faces.Count;
     public string GetFaceName(int fi)    => (fi >= 0 && fi < _faces.Count) ? _faces[fi].config.faceName : "?";
