@@ -96,6 +96,13 @@ public partial class SensorTestManager
 
         BuildLoadingPanel(root, font);
         BuildClickLogPanel(root, font);
+
+        // 讓格子容器填滿可用區域，四邊留 20px 空隙與 UI 區分
+        // 底部：bars 166px + 20px pad；頂部：header 58px + 20px pad
+        controlGridParent.anchorMin = Vector2.zero;
+        controlGridParent.anchorMax = Vector2.one;
+        controlGridParent.offsetMin = new Vector2(0f, 186f);
+        controlGridParent.offsetMax = new Vector2(0f, -78f);
     }
 
     void BuildPresetSelector(RectTransform parent, TMP_FontAsset font)
