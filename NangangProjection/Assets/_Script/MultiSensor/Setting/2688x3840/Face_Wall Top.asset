@@ -10,19 +10,19 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0034c6d3aa7bd3c45a0cd2b8f3f545ce, type: 3}
-  m_Name: Face_Forward
+  m_Name: Face_Wall Top
   m_EditorClassIdentifier: 
-  faceName: "\u524D\u65B9"
-  gizmoColor: {r: 1, g: 0, b: 0.041728973, a: 1}
+  faceName: Wall Top
+  gizmoColor: {r: 0.8591547, g: 0, b: 1, a: 1}
   showInVisualizer: 1
-  originX: 0
-  originY: 640
+  originX: 640
+  originY: 0
   orientation: 1
-  colCount: 20
-  rowCount: 128
-  rawMinX: 1936
-  rawMaxX: 2544
-  rawMinY: 648
-  rawMaxY: 2680
+  colCount: 44
+  rowCount: 40
+  rawMinX: 2576
+  rawMaxX: 3952
+  rawMinY: 8
+  rawMaxY: 632
   flipX: 0
-  flipY: 1
+  flipY: 0

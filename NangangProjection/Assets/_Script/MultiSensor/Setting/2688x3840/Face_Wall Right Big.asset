@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0034c6d3aa7bd3c45a0cd2b8f3f545ce, type: 3}
-  m_Name: Face_Back_Right_Big
+  m_Name: Face_Wall Right Big
   m_EditorClassIdentifier: 
-  faceName: "\u53F3\u5927"
+  faceName: Wall Right Big
   gizmoColor: {r: 0, g: 0.14286971, b: 1, a: 1}
   showInVisualizer: 1
   originX: 2048
@@ -24,5 +24,5 @@ MonoBehaviour:
   rawMaxX: 4592
   rawMinY: 648
   rawMaxY: 1912
-  flipX: 1
+  flipX: 0
   flipY: 0

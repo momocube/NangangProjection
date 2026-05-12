@@ -10,18 +10,18 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0034c6d3aa7bd3c45a0cd2b8f3f545ce, type: 3}
-  m_Name: Face_Center
+  m_Name: Face_Wall Left
   m_EditorClassIdentifier: 
-  faceName: "\u4E2D\u592E"
-  gizmoColor: {r: 1, g: 0.9408408, b: 0, a: 1}
+  faceName: Wall Left
+  gizmoColor: {r: 1, g: 0, b: 0.041728973, a: 1}
   showInVisualizer: 1
-  originX: 640
+  originX: 0
   originY: 640
   orientation: 1
-  colCount: 44
+  colCount: 20
   rowCount: 128
-  rawMinX: 2576
-  rawMaxX: 3952
+  rawMinX: 1936
+  rawMaxX: 2544
   rawMinY: 648
   rawMaxY: 2680
   flipX: 0
