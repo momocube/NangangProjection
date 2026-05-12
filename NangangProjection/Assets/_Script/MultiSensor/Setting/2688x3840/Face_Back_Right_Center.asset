@@ -21,8 +21,8 @@ MonoBehaviour:
   colCount: 20
   rowCount: 32
   rawMinX: 0
-  rawMaxX: 4097
+  rawMaxX: 0
   rawMinY: 0
-  rawMaxY: 4095
+  rawMaxY: 0
   flipX: 0
   flipY: 0

@@ -3435,6 +3435,7 @@ GameObject:
   - component: {fileID: 1694169112}
   - component: {fileID: 1694169111}
   - component: {fileID: 1694169110}
+  - component: {fileID: 1694169115}
   m_Layer: 0
   m_Name: Touch (1)
   m_TagString: Untagged
@@ -3463,6 +3464,25 @@ MonoBehaviour:
   splashFXPoolNum: 40
   splashFXPool: []
   lastPositionNum: 0
+--- !u!114 &1694169115
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1694169109}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 60c2591193d184a46bbed038a1d5bac0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gridCols: 168
+  gridRows: 120
+  displayWidth: 2688
+  displayHeight: 3840
+  touchTimeout: 0.15
+  matchRadiusCells: 3
+  pressReleaseHoldSeconds: 0.7
 --- !u!65 &1694169111
 BoxCollider:
   m_ObjectHideFlags: 0

@@ -62,22 +62,23 @@ public partial class SensorTestManager
             Vector2.zero, new Vector2(1f, 0f),
             new Vector2(0f, 38f), new Vector2(0f, 90f));
 
-        CreateButton(btnBar, "BtnQuit",    "離開遊戲",   OnQuit,               0f,    1f/7f, font);
+        CreateButton(btnBar, "BtnQuit",    "離開遊戲",   OnQuit,               0f,    1f/8f, font);
+        CreateButton(btnBar, "BtnMini",    "縮小",       () => MiniWindowController.Instance?.Minimize(), 1f/8f, 2f/8f, font);
         _smartLockBtnText =
-        CreateButton(btnBar, "BtnSmart",   "智慧鎖格",   OnSmartLock,          1f/7f, 2f/7f, font);
+        CreateButton(btnBar, "BtnSmart",   "智慧鎖格",   OnSmartLock,          2f/8f, 3f/8f, font);
         _smartLockBtnImage = _smartLockBtnText.transform.parent.GetComponent<Image>();
-        CreateButton(btnBar, "BtnUnlock",  "解除鎖格",   OnUnlockAll,          2f/7f, 3f/7f, font);
+        CreateButton(btnBar, "BtnUnlock",  "解除鎖格",   OnUnlockAll,          3f/8f, 4f/8f, font);
         _gameTileBtnText =
-        CreateButton(btnBar, "BtnGameTile","晶片示意 ON", OnToggleGameTile,     3f/7f, 4f/7f, font);
+        CreateButton(btnBar, "BtnGameTile","晶片示意 ON", OnToggleGameTile,     4f/8f, 5f/8f, font);
         _gameTileBtnImage = _gameTileBtnText.transform.parent.GetComponent<Image>();
         _clickModeBtnText =
-        CreateButton(btnBar, "BtnClickMode","滑鼠點擊 ON",OnToggleClickMode,    4f/7f, 5f/7f, font);
+        CreateButton(btnBar, "BtnClickMode","滑鼠點擊 ON",OnToggleClickMode,    5f/8f, 6f/8f, font);
         _clickModeBtnImage = _clickModeBtnText.transform.parent.GetComponent<Image>();
         _gridLineBtnText =
-        CreateButton(btnBar, "BtnGridLine","格線 ON",     OnToggleGridLine,     5f/7f, 6f/7f, font);
+        CreateButton(btnBar, "BtnGridLine","格線 ON",     OnToggleGridLine,     6f/8f, 7f/8f, font);
         _gridLineBtnImage = _gridLineBtnText.transform.parent.GetComponent<Image>();
         _screenOverlayBtnText =
-        CreateButton(btnBar, "BtnScreenOverlay","疊加 ON",OnToggleScreenOverlay,6f/7f, 1f,    font);
+        CreateButton(btnBar, "BtnScreenOverlay","疊加 ON",OnToggleScreenOverlay,7f/8f, 1f,    font);
         _screenOverlayBtnImage = _screenOverlayBtnText.transform.parent.GetComponent<Image>();
 
         // 靈敏度列 (38 px)

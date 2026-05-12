@@ -20,9 +20,9 @@ MonoBehaviour:
   orientation: 1
   colCount: 44
   rowCount: 40
-  rawMinX: 0
-  rawMaxX: 4097
-  rawMinY: 0
-  rawMaxY: 4095
+  rawMinX: 2576
+  rawMaxX: 3952
+  rawMinY: 8
+  rawMaxY: 647
   flipX: 0
   flipY: 0

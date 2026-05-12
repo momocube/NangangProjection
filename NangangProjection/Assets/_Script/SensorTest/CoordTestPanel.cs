@@ -57,7 +57,9 @@ public class CoordTestPanel : MonoBehaviour
     // ---------------------------------------------------------------
     void BuildPanel(RectTransform canvasRT)
     {
-        var font    = TMP_Settings.defaultFontAsset;
+        var font    = sensorTestManager.uiFontOverride != null
+                        ? sensorTestManager.uiFontOverride
+                        : TMP_Settings.defaultFontAsset;
         var legFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (legFont == null) legFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
 
@@ -77,18 +79,18 @@ public class CoordTestPanel : MonoBehaviour
             13, TextAlignmentOptions.MidlineLeft, new Color(0.80f, 0.85f, 1.00f), font, padLeft: 6f);
 
         // ── 原始 X（28 px）──────────────────────────────────────────
-        MakeLabel(panel.transform, "LabelX", "原始 X",
+        MakeLabel(panel.transform, "LabelX", "畫布 X",
             0f, 0.22f, -24f, -52f,
             12, TextAlignmentOptions.Midline, new Color(0.60f, 0.65f, 0.75f), font);
         _inputX = MakeInputField(panel.transform, "InputX",
-            0.22f, 1f, -24f, -52f, "rawX", legFont);
+            0.22f, 1f, -24f, -52f, "pixX", legFont);
 
-        // ── 原始 Y（28 px）──────────────────────────────────────────
-        MakeLabel(panel.transform, "LabelY", "原始 Y",
+        // ── 畫布 Y（28 px）──────────────────────────────────────────
+        MakeLabel(panel.transform, "LabelY", "畫布 Y",
             0f, 0.22f, -52f, -80f,
             12, TextAlignmentOptions.Midline, new Color(0.60f, 0.65f, 0.75f), font);
         _inputY = MakeInputField(panel.transform, "InputY",
-            0.22f, 1f, -52f, -80f, "rawY", legFont);
+            0.22f, 1f, -52f, -80f, "pixY", legFont);
 
         // ── 觸發按鈕 + 結果標籤（28 px）────────────────────────────
         var btn = MakeButton(panel.transform, "BtnTrigger", "觸 發",
@@ -116,7 +118,8 @@ public class CoordTestPanel : MonoBehaviour
             return;
         }
 
-        string faceInfo = fi > 0 ? $" 面{fi}" : "";
+        string faceInfo = sensorTestManager.FaceCount > 1
+            ? $" [{sensorTestManager.GetFaceName(fi)}]" : "";
         ShowResult($"→{faceInfo} 欄{col} 列{row}", error: false);
         sensorTestManager.TriggerRawCoord(rawX, rawY);
     }

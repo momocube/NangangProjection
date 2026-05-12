@@ -23,9 +23,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: efc2dbf0957c6d74097f09ea1b285302, type: 2}
   - {fileID: 11400000, guid: 08a26bb0027fcea44a7dcb9218442d21, type: 2}
   rotateDisplay90: 1
-  canvasRawMinX: 1928
-  canvasRawMaxX: 4600
-  canvasRawMinY: 16
-  canvasRawMaxY: 3312
-  sensorAreaWidth: 2688
-  sensorAreaHeight: 3328
+  canvasRawMinX: 0
+  canvasRawMaxX: 0
+  canvasRawMinY: 0
+  canvasRawMaxY: 0
+  sensorAreaWidth: 0
+  sensorAreaHeight: 0

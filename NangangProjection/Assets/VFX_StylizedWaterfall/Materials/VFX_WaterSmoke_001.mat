@@ -8,7 +8,8 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: VFX_WaterSmoke_001
-  m_Shader: {fileID: -6465566751694194690, guid: 3aa2ed5d7508b744093e518717c75459, type: 3}
+  m_Shader: {fileID: -6465566751694194690, guid: 3aa2ed5d7508b744093e518717c75459,
+    type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
@@ -114,7 +115,6 @@ Material:
     - _MaskTilingOffset: {r: 0.5, g: 0.5, b: 0.1, a: 0.1}
     - _RimColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
-  m_AllowLocking: 1
 --- !u!114 &9186517123917503559
 MonoBehaviour:
   m_ObjectHideFlags: 11
