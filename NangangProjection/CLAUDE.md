@@ -30,7 +30,8 @@ rawMinY = 16    rawMaxY = 752
 ## 場景說明
 | 場景 | 說明 |
 |---|---|
-| `sensor_base` | ⭐ 主要開發場景（雙螢幕，SensorTestManager 架構） |
+| `sensor_2048x768` | ⭐ 舞台場景（雙螢幕，SensorTestManager 架構） |
+| `sensor_2688x3840` | 光域 704 場景 |
 
 ## 主要腳本
 | 腳本 | 位置 | 說明 |
@@ -124,16 +125,17 @@ rawMinY = 16    rawMaxY = 752
 
 參考圖：`C:\CyberCube\二代設備\光域 704 作圖-標線-實際像素大小.pdf`
 
-六個感應面，總外框 2688 × 3840 px：
+七個感應面，總外框 2688 × 3840 px：
 
-| 面 | 約略尺寸 |
-|---|---|
-| 上（紫） | 1408 × 640 |
-| 左（紅） | 640 × 2048 |
-| 中（黃綠，主） | 1408 × 2048 |
-| 右（藍） | 640 × 1280 |
-| 下（綠） | 1408 × 640 |
-| 不確定面（藍框） | ~512，方向待確認 |
+| 面（CLAUDE.md 顏色） | asset 檔名 | faceName | origin | 格數（欄×列） | 像素尺寸 |
+|---|---|---|---|---|---|
+| 上（紫） | Face_Right.asset | 右側 | (640, 0) | 44×40 | 1408×640 |
+| 左（紅） | Face_Forward.asset | 前方 | (0, 640) | 20×128 | 640×2048 |
+| 中（黃綠，主） | Face_Center.asset | 中央 | (640, 640) | 44×128 | 1408×2048 |
+| 右（藍大） | Face_Back_Right_Big.asset | 右大 | (2048, 640) | 20×80 | 640×1280 |
+| 右（藍中） | Face_Back_Right_Center.asset | 右中 | (2048, 1920) | 20×32 | 640×512 |
+| 右（藍小） | Face_Back_Right_Small.asset | 右小 | (2048, 2432) | 20×16 | 640×256 |
+| 下（綠） | Face_Left.asset | 左側 | (640, 2688) | 44×40 | 1408×640 |
 
 ### Phase 1：Editor 工具（已完成）
 
@@ -194,7 +196,6 @@ rawMinX=1928, rawMaxX=3960, rawMinY=16, rawMaxY=752
 
 #### 待完成
 - 光域 704 各面的 rawMin/Max 校準（需現場四角測試）
-- `SensorBus.OnTouch` 加 `faceId` 參數（破壞性改動，需同步改 ControlTileCell / SensorTileCell / SensorClickSimulator / TouchDebugLogger）
 
 ## Git 遠端
 `https://github.com/bottledsnow/NangangProjection.git`（branch: main）
@@ -205,4 +206,3 @@ rawMinX=1928, rawMaxX=3960, rawMinY=16, rawMaxY=752
 - **場景 YAML 修改** → 說明要改哪個 fileID 或哪個物件
 - **推 Git** → 每個功能完成後立即 commit + push，避免跨對話追蹤未提交的內容
 - **光域 704 各面校準** → 現場四角測試後更新各 `Face_*.asset` 的 rawMin/Max
-- **SensorBus faceId** → 新對話說「加 SensorBus faceId 參數，請先讀 CLAUDE.md」
