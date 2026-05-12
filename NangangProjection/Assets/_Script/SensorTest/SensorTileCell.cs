@@ -17,10 +17,14 @@ public class SensorTileCell : MonoBehaviour
     [HideInInspector] public int row;
     [HideInInspector] public int index; // row * 128 + col
 
+    Image     _border;
     Image     _fill;
     Coroutine _activeRoutine;
     Color     _colIdleFace;      // per-face idle tint，由 SetFaceColor 設定
     bool      _faceColorSet;     // Awake 延遲執行時避免覆蓋已設定的顏色
+
+    /// <summary>遊戲運行時設為 0（idle 透明，讓遊戲畫面透出）；純感應測試時設為 1。</summary>
+    public static float TileIdleAlpha = 1f;
 
     static readonly Color ColBorder  = new Color(0.28f, 0.28f, 0.28f, 1f);
     static readonly Color ColIdle    = new Color(0.06f, 0.06f, 0.08f, 1f);
@@ -39,9 +43,9 @@ public class SensorTileCell : MonoBehaviour
         if (!_faceColorSet) _colIdleFace = ColIdle;
 
         // 根 Image = 邊框顏色（左側 + 上側各 1 px 會外露）
-        var border = GetComponent<Image>();
-        border.color          = ColBorder;
-        border.raycastTarget  = false;
+        _border               = GetComponent<Image>();
+        _border.color         = ColBorder;
+        _border.raycastTarget = false;
 
         // 內層填色，往左 1 px、往上 1 px 縮排 → 僅左側與上側顯示邊線
         var fillGO = new GameObject("Fill");
@@ -132,12 +136,13 @@ public class SensorTileCell : MonoBehaviour
         RefreshColor();
     }
 
-    void RefreshColor()
+    public void RefreshColor()
     {
         if (_fill == null) return;
-        if (_locked)     { _fill.color = ColLocked;  return; }
-        if (_isPending)  { _fill.color = ColPending; return; }
-        if (_isPressing) { _fill.color = ColPress;   return; }
-        _fill.color = _colIdleFace;
+        if (_locked)     { _border.color = ColBorder; _fill.color = ColLocked;  return; }
+        if (_isPending)  { _border.color = ColBorder; _fill.color = ColPending; return; }
+        if (_isPressing) { _border.color = ColBorder; _fill.color = ColPress;   return; }
+        var bc = ColBorder;  bc.a = TileIdleAlpha;  _border.color = bc;
+        var fc = _colIdleFace; fc.a = TileIdleAlpha; _fill.color = fc;
     }
 }

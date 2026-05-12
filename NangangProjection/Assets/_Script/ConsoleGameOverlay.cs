@@ -55,12 +55,13 @@ public class ConsoleGameOverlay : MonoBehaviour
         RenderTexture rt = GameDisplayRT.Current ?? (tilesVisible ? SensorGridRT.Current : null);
         Texture tex = rt;
 
-        // 只追蹤 GameDisplayRT 的載入/卸載，同步 Canvas_Secondary 顯示
+        // 追蹤遊戲 RT 載入/卸載：遊戲存在時讓感應格 idle 透明度跟隨 overlayAlpha
         var gameRT = GameDisplayRT.Current;
         if (gameRT != _lastGameRT)
         {
             _lastGameRT = gameRT;
-            _stm?.SetGameTileVisible(gameRT == null);
+            SensorTileCell.TileIdleAlpha = gameRT != null ? (1f - overlayAlpha) : 1f;
+            _stm?.RefreshSensorTileIdleColors();
         }
 
         if (tex == null && Display2ScreenCapture.Instance != null)

@@ -133,6 +133,7 @@ public partial class SensorTestManager : MonoBehaviour
     GameObject _canvasSecondary;
     Camera     _sensorGridCam;
     GameObject _display2MirrorCanvas;
+    GameObject _sensorBG;
 
     // ── 控制格縮放（等比，置中）────────────────────────────────────────────────
 
@@ -283,6 +284,26 @@ public partial class SensorTestManager : MonoBehaviour
         UdpSensorReceiver.OnPacketReceived -= OnUdpPacket;
         SensorGridRT.Release();
         DestroyClickLog();
+        SensorTileCell.TileIdleAlpha = 1f;
+    }
+
+    /// <summary>遊戲 RT 狀態改變時由 ConsoleGameOverlay 呼叫，強制重刷所有感應格 idle 顏色並同步 SensorBG 顯示。</summary>
+    public void RefreshSensorTileIdleColors()
+    {
+        bool gameActive = GameDisplayRT.Current != null;
+        if (_sensorBG != null) _sensorBG.SetActive(!gameActive);
+        foreach (var fd in _faces)
+            if (fd.sensorTiles != null)
+                foreach (var t in fd.sensorTiles)
+                    t?.RefreshColor();
+    }
+
+    /// <summary>overlayAlpha 改變時同步 D2 感應格透明度（1-alpha → 格子 idle alpha）。</summary>
+    void SyncD2TileAlpha()
+    {
+        if (_overlay == null || GameDisplayRT.Current == null) return;
+        SensorTileCell.TileIdleAlpha = 1f - _overlay.overlayAlpha;
+        RefreshSensorTileIdleColors();
     }
 
     // ── 場域預設切換 ──────────────────────────────────────────────────────────
@@ -1021,6 +1042,7 @@ public partial class SensorTestManager : MonoBehaviour
         if (_overlay == null) return;
         _overlay.overlayAlpha = Mathf.Clamp(Mathf.Round((_overlay.overlayAlpha - 0.1f) * 10f) / 10f, 0f, 1f);
         UpdateOverlayAlphaText();
+        SyncD2TileAlpha();
     }
 
     void OnIncreaseOverlayAlpha()
@@ -1028,6 +1050,7 @@ public partial class SensorTestManager : MonoBehaviour
         if (_overlay == null) return;
         _overlay.overlayAlpha = Mathf.Clamp(Mathf.Round((_overlay.overlayAlpha + 0.1f) * 10f) / 10f, 0f, 1f);
         UpdateOverlayAlphaText();
+        SyncD2TileAlpha();
     }
 
     void UpdateOverlayAlphaText()

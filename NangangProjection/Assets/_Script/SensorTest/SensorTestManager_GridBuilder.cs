@@ -131,6 +131,7 @@ public partial class SensorTestManager
         var img = go.AddComponent<Image>();
         img.color         = new Color(0.04f, 0.04f, 0.05f);
         img.raycastTarget = false;
+        _sensorBG = go;
     }
 
     void BuildSensorGrid()
@@ -528,10 +529,10 @@ public partial class SensorTestManager
 
         var rt = SensorGridRT.GetOrCreate(w, h);
 
-        // 清除舊畫面，避免 SensorGridCam 第一幀前 overlay 顯示殘影
+        // 清除舊畫面為透明，讓遊戲畫面可以透過格子縫隙顯示
         var prev = RenderTexture.active;
         RenderTexture.active = rt;
-        GL.Clear(true, true, new Color(0.04f, 0.04f, 0.05f));
+        GL.Clear(true, true, Color.clear);
         RenderTexture.active = prev;
 
         // 建立 SensorCam
@@ -540,7 +541,7 @@ public partial class SensorTestManager
         camGO.transform.SetParent(transform, false);
         _sensorGridCam = camGO.AddComponent<Camera>();
         _sensorGridCam.clearFlags       = CameraClearFlags.SolidColor;
-        _sensorGridCam.backgroundColor  = new Color(0.04f, 0.04f, 0.05f);
+        _sensorGridCam.backgroundColor  = Color.clear;   // 透明底，讓遊戲畫面透出
         _sensorGridCam.cullingMask      = 1 << 5;
         _sensorGridCam.orthographic     = true;
         _sensorGridCam.orthographicSize = h / 2f;
