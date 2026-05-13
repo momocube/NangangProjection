@@ -133,9 +133,11 @@ public class TileGridTexture : MonoBehaviour
         if (!Valid(fi, ci)) return;
         var fr = _faces[fi];
         if (fr.states[ci] == CellState.Locked) return;
+        bool wasActive = fr.states[ci] == CellState.Active;
         fr.states[ci]       = CellState.Active;
         fr.activeExpiry[ci] = Time.time + _activeDuration;
-        PaintCellBoth(fi, ci, CellState.Active);
+        // 格子已是 Active 時只更新計時器，不重繪（避免 100Hz 感應每幀觸發全圖 Apply）
+        if (!wasActive) PaintCellBoth(fi, ci, CellState.Active);
     }
 
     /// <summary>設定鎖定狀態。</summary>
