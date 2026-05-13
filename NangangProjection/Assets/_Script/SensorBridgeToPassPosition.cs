@@ -149,6 +149,7 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         bool[] hitUsed  = new bool[hitCount];
 
         // Step 1：現有 active slot 找最近的未使用 hit
+        // wake slot（尾跡殘影）不參與配對，避免消耗新 pressActive slot 應得到的 hit
         for (int s = 0; s < MAX_SLOTS; s++)
         {
             if (!_slots[s].active) continue;
@@ -156,13 +157,16 @@ public class SensorBridgeToPassPosition : MonoBehaviour
             int   best     = -1;
             float bestDist = matchRadiusCells * matchRadiusCells;
 
-            for (int h = 0; h < hitCount; h++)
+            if (!_isWake[s])
             {
-                if (hitUsed[h]) continue;
-                float dc = _frameHits[h].x - _slots[s].col;
-                float dr = _frameHits[h].y - _slots[s].row;
-                float d  = dc * dc + dr * dr;
-                if (d < bestDist) { bestDist = d; best = h; }
+                for (int h = 0; h < hitCount; h++)
+                {
+                    if (hitUsed[h]) continue;
+                    float dc = _frameHits[h].x - _slots[s].col;
+                    float dr = _frameHits[h].y - _slots[s].row;
+                    float d  = dc * dc + dr * dr;
+                    if (d < bestDist) { bestDist = d; best = h; }
+                }
             }
 
             if (best >= 0)
@@ -201,11 +205,12 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         {
             if (hitUsed[h]) continue;
 
-            // 若此 hit 在任何 active slot（含本輪新建）的配對半徑內，視為同一觸點，不開新 slot
+            // 若此 hit 在任何 active 非尾跡 slot（含本輪新建）的配對半徑內，視為同一觸點，不開新 slot
+            // wake slot 不計入 covered，否則拖曳回近原位時無法建立新 pressActive slot
             bool covered = false;
             for (int s = 0; s < MAX_SLOTS && !covered; s++)
             {
-                if (!_slots[s].active) continue;
+                if (!_slots[s].active || _isWake[s]) continue;
                 float dc = _frameHits[h].x - _slots[s].col;
                 float dr = _frameHits[h].y - _slots[s].row;
                 if (dc * dc + dr * dr < matchRadiusCells * matchRadiusCells)

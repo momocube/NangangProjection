@@ -445,7 +445,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b1d3223bb19e99a4a9f6d30447861a1b, type: 3}
   m_Name: 
-  m_EditorClassIdentifier:
+  m_EditorClassIdentifier: 
   dimAlpha: 0
 --- !u!114 &114410
 MonoBehaviour:
@@ -457,8 +457,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 8feef6e1677c3bb4e8f1fa83a79f7721, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   display2WindowOffsetX: 1920
   uiFontOverride: {fileID: 0}
 --- !u!114 &114500
@@ -635,7 +635,7 @@ RectTransform:
   m_GameObject: {fileID: 100100}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 0, y: 0, z: 0}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 224110}
@@ -674,7 +674,7 @@ RectTransform:
   m_GameObject: {fileID: 100200}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 0, y: 0, z: 0}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 224210}
@@ -883,7 +883,7 @@ AudioListener:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 100001}
-  m_Enabled: 1
+  m_Enabled: 0
 --- !u!114 &810002
 MonoBehaviour:
   m_ObjectHideFlags: 0
