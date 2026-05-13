@@ -117,9 +117,7 @@ public partial class SensorTestManager
 
     void SetCellPendingVisual(int faceIdx, int cellIdx, bool pending)
     {
-        var fd = _faces[faceIdx];
-        fd.sensorTiles[cellIdx]?.SetPendingState(pending);
-        fd.controlTiles[cellIdx]?.SetPendingState(pending);
+        _tileGrid?.SetPending(faceIdx, cellIdx, pending);
     }
 
     void CleanExpiredPendingCells()

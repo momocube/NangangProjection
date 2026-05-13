@@ -66,12 +66,10 @@ public class SensorClickSimulator : MonoBehaviour
     // 按壓 / 拖曳狀態
     Coroutine _pressCoroutine;
     bool      _isDragging;
-    POINT     _savedDragCursor;
     Coroutine _dragReleaseCoroutine;
 
     // 智慧按壓狀態（由 SmartTouch PressStart / PressEnd 驅動）
-    bool  _smartPressStarted;
-    POINT _smartPressSavedCursor;
+    bool _smartPressStarted;
 
     // Display 2 HWND 白名單（由 SensorTestManager 注入，防止 PostMessage 打到 Display 1）
     System.IntPtr _knownDisplay2Hwnd = System.IntPtr.Zero;
@@ -252,6 +250,7 @@ public class SensorClickSimulator : MonoBehaviour
         int ly = absY - rect.top;
         var lp = MakeLParam(lx, ly);
 
+
         PostMessage(hwnd, WM_LBUTTONDOWN, (System.IntPtr)MK_LBUTTON, lp);
         PostMessage(hwnd, WM_LBUTTONUP,   System.IntPtr.Zero,        lp);
 
@@ -364,6 +363,7 @@ public class SensorClickSimulator : MonoBehaviour
         inputs[1].type = INPUT_MOUSE;
         inputs[1].u.mi.dx = normX; inputs[1].u.mi.dy = normY;
         inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | flags;
+
 
         uint sent = SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
         LastSendInputTime = Time.realtimeSinceStartup;
@@ -511,6 +511,7 @@ public class SensorClickSimulator : MonoBehaviour
                 if (!IsValidDisplay2Hwnd(hwnd)) break;
                 GetWindowRect(hwnd, out RECT rect);
                 var lp = MakeLParam(absX - rect.left, absY - rect.top);
+        
                 PostMessage(hwnd, WM_LBUTTONDOWN, (System.IntPtr)MK_LBUTTON, lp);
                 _smartPressStarted = true;
                 if (debugLog) Debug.Log($"[SensorClick] 智慧·按壓開始 PostMessage 格({col},{row})");

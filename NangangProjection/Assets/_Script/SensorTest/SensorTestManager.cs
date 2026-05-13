@@ -45,7 +45,7 @@ public partial class SensorTestManager : MonoBehaviour
     public int display2WindowOffsetX = 1920;
 
     [Header("格子亮燈")]
-    [Tooltip("觸發後亮紅持續秒數（同步套用至 SensorTileCell / ControlTileCell）。")]
+    [Tooltip("觸發後亮紅持續秒數。")]
     public float activeDuration = 1.5f;
 
     // ── 場域資料 ──────────────────────────────────────────────────────────────
@@ -53,11 +53,8 @@ public partial class SensorTestManager : MonoBehaviour
     class FaceData
     {
         public SensorFaceConfig config;
-        public SensorTileCell[]  sensorTiles;
-        public ControlTileCell[] controlTiles;
-        public bool[]            locked;
-        public int               lockedCount;
-        // 由畫布校準值計算得出的有效感應範圍（取代 config.rawMin/Max）
+        public bool[]           locked;
+        public int              lockedCount;
     }
 
     public static SensorTestManager Instance { get; private set; }
@@ -131,9 +128,15 @@ public partial class SensorTestManager : MonoBehaviour
     // ── 晶片示意 ──────────────────────────────────────────────────────────────
 
     GameObject _canvasSecondary;
-    Camera     _sensorGridCam;
-    GameObject _display2MirrorCanvas;
-    GameObject _sensorBG;
+
+    // ── Texture2D 格子系統 ────────────────────────────────────────────────────
+
+    TileGridTexture _tileGrid;
+    GameObject      _d2SensorRawImage;
+    GameObject      _controlTexRawImage;
+    int             _hoverFace = -1, _hoverCell = -1;
+
+    public TileGridTexture TileGrid => _tileGrid;
 
     // ── 控制格縮放（等比，置中）────────────────────────────────────────────────
 
@@ -197,6 +200,25 @@ public partial class SensorTestManager : MonoBehaviour
             var canvas = sensorGridParent?.GetComponentInParent<Canvas>()?.gameObject;
             if (canvas != null) canvas.SetActive(false);
         }
+
+        // Canvas_Primary 的 GraphicRaycaster 換成 Display1GraphicRaycaster，
+        // 防止感應器 OS 點擊事件透過 Unity Raw Input 誤觸 Display 1 按鈕。
+        SwapCanvasPrimaryRaycaster();
+    }
+
+    void SwapCanvasPrimaryRaycaster()
+    {
+        var primaryCanvas = controlGridParent != null
+            ? controlGridParent.GetComponentInParent<Canvas>()
+            : null;
+        if (primaryCanvas == null) return;
+
+        var gr = primaryCanvas.GetComponent<GraphicRaycaster>();
+        if (gr != null && gr is not Display1GraphicRaycaster)
+        {
+            DestroyImmediate(gr);
+            primaryCanvas.gameObject.AddComponent<Display1GraphicRaycaster>();
+        }
     }
 
     IEnumerator Start()
@@ -218,13 +240,9 @@ public partial class SensorTestManager : MonoBehaviour
 
         // 載入第一個場域
         InitPresetData(0);
-        BuildSensorBackground();
-        BuildSensorGrid();
-        BuildControlGrid();
+        BuildGridTextures();
 
         yield return null;   // 等一幀讓佈局完成
-
-        SetupSensorGridRT();
         _clickSim    = FindObjectOfType<SensorClickSimulator>();
         _vcellManager = GetComponent<VirtualCellManager>();
         if (_vcellManager != null)
@@ -254,8 +272,6 @@ public partial class SensorTestManager : MonoBehaviour
             StartCoroutine(FindDisplay2WindowCoroutine());
 #endif
 
-        SensorTileCell.ActiveDuration = activeDuration;
-
         UdpSensorReceiver.OnPacketReceived += OnUdpPacket;
         SetStatusIdle();
 
@@ -282,28 +298,22 @@ public partial class SensorTestManager : MonoBehaviour
     {
         if (Instance == this) Instance = null;
         UdpSensorReceiver.OnPacketReceived -= OnUdpPacket;
-        SensorGridRT.Release();
         DestroyClickLog();
-        SensorTileCell.TileIdleAlpha = 1f;
     }
 
-    /// <summary>遊戲 RT 狀態改變時由 ConsoleGameOverlay 呼叫，強制重刷所有感應格 idle 顏色並同步 SensorBG 顯示。</summary>
+    /// <summary>遊戲 RT 狀態改變時由 ConsoleGameOverlay 呼叫，同步 D2 感應格 idle 透明度。</summary>
     public void RefreshSensorTileIdleColors()
     {
         bool gameActive = GameDisplayRT.Current != null;
-        if (_sensorBG != null) _sensorBG.SetActive(!gameActive);
-        foreach (var fd in _faces)
-            if (fd.sensorTiles != null)
-                foreach (var t in fd.sensorTiles)
-                    t?.RefreshColor();
+        float alpha = gameActive ? (1f - (_overlay != null ? _overlay.overlayAlpha : 0f)) : 1f;
+        _tileGrid?.SetSensorIdleAlpha(alpha);
     }
 
     /// <summary>overlayAlpha 改變時同步 D2 感應格透明度（1-alpha → 格子 idle alpha）。</summary>
     void SyncD2TileAlpha()
     {
         if (_overlay == null || GameDisplayRT.Current == null) return;
-        SensorTileCell.TileIdleAlpha = 1f - _overlay.overlayAlpha;
-        RefreshSensorTileIdleColors();
+        _tileGrid?.SetSensorIdleAlpha(1f - _overlay.overlayAlpha);
     }
 
     // ── 場域預設切換 ──────────────────────────────────────────────────────────
@@ -321,11 +331,9 @@ public partial class SensorTestManager : MonoBehaviour
             if (fc == null) continue;
             var fd = new FaceData
             {
-                config       = fc,
-                sensorTiles  = new SensorTileCell[fc.colCount * fc.rowCount],
-                controlTiles = new ControlTileCell[fc.colCount * fc.rowCount],
-                locked       = new bool[fc.colCount * fc.rowCount],
-                lockedCount  = 0
+                config      = fc,
+                locked      = new bool[fc.colCount * fc.rowCount],
+                lockedCount = 0
             };
             _faces.Add(fd);
         }
@@ -333,31 +341,12 @@ public partial class SensorTestManager : MonoBehaviour
 
     void DestroyGridTiles()
     {
-        _smartTouches.Clear();    // 切換場域時清除殘留觸碰狀態
+        _smartTouches.Clear();
         _cellHitTimes.Clear();
-        _pendingCells.Clear();    // tile GameObject 即將被 Destroy，無需清視覺
-        foreach (var fd in _faces)
-        {
-            if (fd.sensorTiles  != null) foreach (var t in fd.sensorTiles)  if (t) Destroy(t.gameObject);
-            if (fd.controlTiles != null) foreach (var t in fd.controlTiles) if (t) Destroy(t.gameObject);
-        }
+        _pendingCells.Clear();
         _faces.Clear();
     }
 
-    void TeardownSensorGridRT()
-    {
-        if (_sensorGridCam != null) { Destroy(_sensorGridCam.gameObject); _sensorGridCam = null; }
-        if (_display2MirrorCanvas != null) { Destroy(_display2MirrorCanvas); _display2MirrorCanvas = null; }
-        SensorGridRT.Release();
-        // 還原 Canvas_Secondary 至 ScreenSpaceOverlay（重建時再切換）
-        if (_canvasSecondary != null)
-        {
-            var c = _canvasSecondary.GetComponent<Canvas>();
-            if (c != null) c.renderMode = RenderMode.ScreenSpaceOverlay;
-            var scaler = _canvasSecondary.GetComponent<CanvasScaler>();
-            if (scaler != null) scaler.enabled = true;
-        }
-    }
 
     void SwitchPreset(int idx)
     {
@@ -373,29 +362,18 @@ public partial class SensorTestManager : MonoBehaviour
         ShowLoading(true, $"載入場域：{presets[idx]?.presetName ?? "?"}");
         yield return null;   // 讓 Loading Panel 先渲染出來
 
-        TeardownSensorGridRT();
+        TeardownGridDisplay();
         DestroyGridTiles();
-
-        if (sensorGridParent != null)
-        {
-            var bg = sensorGridParent.parent?.Find("SensorBG");
-            if (bg != null) Destroy(bg.gameObject);
-        }
 
         InitPresetData(idx);
         _vcellManager?.Initialize(presets[idx], _canvasConfig);
-        BuildSensorBackground();
         SetLoadingProgress(0.1f);
         yield return null;
 
-        yield return StartCoroutine(BuildSensorGridAsync(0.1f, 0.55f));
-        yield return StartCoroutine(BuildControlGridAsync(0.55f, 0.95f));
-
-        SetLoadingProgress(0.97f);
+        BuildGridTextures();
+        SetLoadingProgress(0.95f);
         yield return null;
 
-        SetupSensorGridRT();
-        yield return null;   // 等一幀讓 Camera→Canvas 綁定生效後再同步顯示狀態
         SetGameTileVisible(_gameTileVisible);
         NotifyOverlay();
         RebuildSensorVCellOverlay();
@@ -464,18 +442,13 @@ public partial class SensorTestManager : MonoBehaviour
         {
             fd.locked[cellIdx] = true;
             fd.lockedCount++;
-            fd.sensorTiles[cellIdx]?.SetLocked(true);
-            fd.controlTiles[cellIdx]?.SetLocked(true);
+            _tileGrid?.SetLocked(faceIdx, cellIdx, true);
             return;
         }
         if (fd.locked[cellIdx]) return;
 
         if (!skipVisual)
-        {
-            fd.controlTiles[cellIdx]?.Activate();
-            if (_gameTileVisible)
-                fd.sensorTiles[cellIdx]?.Activate();
-        }
+            _tileGrid?.SetActive(faceIdx, cellIdx);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
@@ -523,8 +496,7 @@ public partial class SensorTestManager : MonoBehaviour
         int idx = row * fd.config.colCount + col;
         fd.locked[idx]   = !fd.locked[idx];
         fd.lockedCount  += fd.locked[idx] ? 1 : -1;
-        fd.sensorTiles[idx]?.SetLocked(fd.locked[idx]);
-        fd.controlTiles[idx]?.SetLocked(fd.locked[idx]);
+        _tileGrid?.SetLocked(faceIdx, idx, fd.locked[idx]);
         _vcellManager?.RefreshLockOverlaysForChip(faceIdx, idx);
         Debug.Log($"[SensorTest] face={faceIdx} #{idx + 1} ({col},{row}) " +
                   $"{(fd.locked[idx] ? "鎖定" : "解鎖")} | 共鎖定 {TotalLocked} 格");
@@ -539,7 +511,7 @@ public partial class SensorTestManager : MonoBehaviour
     {
         var fd = _faces[faceIdx];
         if (fd.locked[cellIdx]) return;
-        if (_gameTileVisible) fd.sensorTiles[cellIdx]?.SetPressState(true);
+        _tileGrid?.SetPressing(faceIdx, cellIdx, true);
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
@@ -549,8 +521,7 @@ public partial class SensorTestManager : MonoBehaviour
     void OnMousePressEnd(int faceIdx, int cellIdx)
     {
         var fd = _faces[faceIdx];
-        fd.controlTiles[cellIdx]?.SetPressState(false);
-        if (_gameTileVisible) fd.sensorTiles[cellIdx]?.SetPressState(false);
+        _tileGrid?.SetPressing(faceIdx, cellIdx, false);
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
@@ -599,8 +570,7 @@ public partial class SensorTestManager : MonoBehaviour
             var (col, row) = cfg.PixelToCell(px, py);
             int cellIdx = row * cfg.colCount + col;
             var fd = _faces[fi];
-            fd.controlTiles[cellIdx]?.Activate();
-            if (_gameTileVisible) fd.sensorTiles[cellIdx]?.Activate();
+            _tileGrid?.SetActive(fi, cellIdx);
             BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
             return true;
         }
@@ -802,7 +772,7 @@ public partial class SensorTestManager : MonoBehaviour
     {
         if (_viewFaceIdx == fi) return;
         _viewFaceIdx = fi;
-        BuildControlGrid();
+        BuildControlDisplay();
         NotifyOverlay();
         UpdateFaceSelectorButtons();
     }
@@ -851,14 +821,14 @@ public partial class SensorTestManager : MonoBehaviour
 
     void OnUnlockAll()
     {
-        foreach (var fd in _faces)
+        for (int fi = 0; fi < _faces.Count; fi++)
         {
+            var fd = _faces[fi];
             for (int i = 0; i < fd.locked.Length; i++)
             {
                 if (!fd.locked[i]) continue;
                 fd.locked[i] = false;
-                fd.sensorTiles[i]?.SetLocked(false);
-                fd.controlTiles[i]?.SetLocked(false);
+                _tileGrid?.SetLocked(fi, i, false);
             }
             fd.lockedCount = 0;
         }
@@ -899,23 +869,6 @@ public partial class SensorTestManager : MonoBehaviour
     {
         _gameTileVisible = visible;
         if (_canvasSecondary != null) _canvasSecondary.SetActive(visible);
-        if (_display2MirrorCanvas != null) _display2MirrorCanvas.SetActive(visible);
-
-        // 晶片示意 OFF 時停用 SensorGridCam，避免不必要的 RT render pass
-        if (_sensorGridCam != null) _sensorGridCam.enabled = visible;
-
-        // Canvas 從 inactive 恢復後，重新綁定 worldCamera 確保 RT 捕捉正常
-        if (visible && _sensorGridCam != null && _canvasSecondary != null)
-        {
-            var c = _canvasSecondary.GetComponent<Canvas>();
-            if (c != null && c.renderMode == RenderMode.ScreenSpaceCamera)
-                c.worldCamera = _sensorGridCam;
-        }
-
-        if (visible)
-            foreach (var f in _faces)
-                foreach (var t in f.sensorTiles)
-                    if (t != null && !f.locked[t.index % f.locked.Length]) t.ResetToIdle();
 #if !UNITY_EDITOR
         if (visible && !_display2Activated && Display.displays.Length > 1)
         {

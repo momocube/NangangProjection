@@ -5,13 +5,13 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/sensor_2048x768.unity
     guid: d0e1f203142536475869d1e2f3041526
   - enabled: 1
     path: Assets/Scenes/sensor_2688x3840.unity
     guid: e1f20314253647586970e2f304152637
-  - enabled: 1
+  - enabled: 0
     path: Assets/Logo/Scene/Map_CybercubeLogo_J_2048x768.unity
     guid: 226654a250c5fa24f89e24f61ca8f21a
   - enabled: 0

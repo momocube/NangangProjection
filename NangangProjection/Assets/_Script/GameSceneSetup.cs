@@ -21,11 +21,19 @@ public class GameSceneSetup : MonoBehaviour
     public int gameDisplayIndex = 1;
 
     [Header("RenderTexture 解析度")]
-    public int rtWidth  = 2048;
-    public int rtHeight = 768;
+    [Tooltip("Mirror Camera RT 寬度（D1 預覽用，無需全解析度；建議 512～1024）")]
+    public int rtWidth  = 512;
+    [Tooltip("Mirror Camera RT 高度（配合 rtWidth 等比縮放，2048:768 ≈ 8:3）")]
+    public int rtHeight = 192;
+
+    [Header("Mirror Camera 效能")]
+    [Range(1, 8)]
+    [Tooltip("Mirror Camera 每幾幀才更新一次 RT（1=每幀；2=30fps；建議 2）")]
+    public int mirrorFrameSkip = 2;
 
     private Camera _mainCamera;
     private Camera _mirrorCamera;
+    private int    _frameCounter;
 
     private void Awake()
     {
@@ -34,14 +42,21 @@ public class GameSceneSetup : MonoBehaviour
         // 確保遊戲畫面輸出到投影地板（Display 2）
         _mainCamera.targetDisplay = gameDisplayIndex;
 
-        // 確保 Display 2 已啟用
+        // 確保 Display 2 已啟用（不指定解析度，由 Windows/系統決定）
         if (Display.displays.Length > gameDisplayIndex)
-            Display.displays[gameDisplayIndex].Activate(rtWidth, rtHeight, 60);
+            Display.displays[gameDisplayIndex].Activate();
     }
 
     private void Start()
     {
         SetupMirrorCamera();
+    }
+
+    private void LateUpdate()
+    {
+        if (_mirrorCamera == null) return;
+        _frameCounter++;
+        _mirrorCamera.enabled = (_frameCounter % mirrorFrameSkip == 0);
     }
 
     private void OnDestroy()
