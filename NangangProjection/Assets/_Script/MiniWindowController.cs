@@ -66,6 +66,11 @@ public class MiniWindowController : MonoBehaviour
     {
         yield return null;   // 等一幀讓視窗完成初始化
 #if !UNITY_EDITOR
+        // 強制全螢幕：防止上次以迷你模式退出後，Unity 從 Registry 讀到 280×80 並用小視窗啟動
+        var res = Screen.currentResolution;  // 桌面解析度，不受 Unity 視窗大小影響
+        Screen.SetResolution(res.width, res.height, FullScreenMode.FullScreenWindow);
+        yield return null;   // 等 Unity 套用解析度變更
+
         int threshold = display2WindowOffsetX;
         EnumWindows((hwnd, _) =>
         {
