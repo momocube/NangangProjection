@@ -247,7 +247,8 @@ public partial class SensorTestManager
         float displayW = (_rotateDisplay90 ? cH : cW) * _controlGridScale;
         float displayH = (_rotateDisplay90 ? cW : cH) * _controlGridScale;
 
-        var rt = _controlTexRawImage.GetComponent<RectTransform>();
+        var rt  = _controlTexRawImage.GetComponent<RectTransform>();
+        var img = _controlTexRawImage.GetComponent<RawImage>();
         if (rt == null) return;
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
         rt.pivot     = new Vector2(0.5f, 0.5f);
@@ -256,13 +257,13 @@ public partial class SensorTestManager
         {
             rt.localEulerAngles = Vector3.zero;
             rt.sizeDelta        = new Vector2(displayW, displayH);
-            rt.uvRect           = new Rect(0f, 0f, 1f, 1f);
+            if (img != null) img.uvRect = new Rect(0f, 0f, 1f, 1f);
         }
         else
         {
             rt.localEulerAngles = new Vector3(0f, 0f, -90f);
             rt.sizeDelta        = new Vector2(cW * _controlGridScale, cH * _controlGridScale);
-            rt.uvRect           = new Rect(1f, 1f, -1f, -1f);
+            if (img != null) img.uvRect = new Rect(1f, 1f, -1f, -1f);
         }
         rt.anchoredPosition = new Vector2(
              _controlGridOffsetX + displayW * 0.5f,
