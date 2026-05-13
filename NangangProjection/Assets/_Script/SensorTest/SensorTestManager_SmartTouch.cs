@@ -136,13 +136,7 @@ public partial class SensorTestManager
             LogDiagEvent($"TransferPress 成功  ({fromState.cellIdx % colCount},{fromState.cellIdx / colCount})→({col},{row})  按壓已持續={Time.time - fromState.startTime:F2}s");
 
         // 清除舊格子的橘燈，防止移動後殘影
-        {
-            var fdT = _faces[faceIdx];
-            int oldCell = fromState.cellIdx;
-            fdT.controlTiles[oldCell]?.SetPressState(false);
-            if (_gameTileVisible)
-                fdT.sensorTiles[oldCell]?.SetPressState(false);
-        }
+        _tileGrid?.SetPressing(faceIdx, fromState.cellIdx, false);
 
         // 從舊 key 遷移到新 key，保留 pressStarted / startTime，更新 cellIdx 與 lastTouchTime
         _smartTouches.Remove(fromKey);
@@ -204,10 +198,7 @@ public partial class SensorTestManager
             if (st.isDrag)
             {
                 LogDiagEvent($"Drag 逾時結束  ({expCol},{expRow})  無封包={silentMs:F0}ms");
-                var fd2 = _faces[st.faceIdx];
-                fd2.controlTiles[st.cellIdx]?.SetPressState(false);
-                if (_gameTileVisible)
-                    fd2.sensorTiles[st.cellIdx]?.SetPressState(false);
+                _tileGrid?.SetPressing(st.faceIdx, st.cellIdx, false);
             }
             else if (st.pressStarted)
             {
@@ -230,9 +221,7 @@ public partial class SensorTestManager
         if (fd.locked[cellIdx]) return;
 
         // 輕觸：解算時閃一次紅燈
-        fd.controlTiles[cellIdx]?.Activate();
-        if (_gameTileVisible)
-            fd.sensorTiles[cellIdx]?.Activate();
+        _tileGrid?.SetActive(faceIdx, cellIdx);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
@@ -246,9 +235,7 @@ public partial class SensorTestManager
         if (fd.locked[cellIdx]) return;
 
         // 按壓開始：橘燈亮（常亮）
-        fd.controlTiles[cellIdx]?.SetPressState(true);
-        if (_gameTileVisible)
-            fd.sensorTiles[cellIdx]?.SetPressState(true);
+        _tileGrid?.SetPressing(faceIdx, cellIdx, true);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
@@ -261,9 +248,7 @@ public partial class SensorTestManager
         var fd = _faces[faceIdx];
 
         // 按壓結束：熄滅橘燈
-        fd.controlTiles[cellIdx]?.SetPressState(false);
-        if (_gameTileVisible)
-            fd.sensorTiles[cellIdx]?.SetPressState(false);
+        _tileGrid?.SetPressing(faceIdx, cellIdx, false);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
@@ -286,10 +271,7 @@ public partial class SensorTestManager
             var st = _smartTouches[k];
             _smartTouches.Remove(k);
             if (st.faceIdx >= _faces.Count) continue;
-            var fd2 = _faces[st.faceIdx];
-            fd2.controlTiles[st.cellIdx]?.SetPressState(false);
-            if (_gameTileVisible)
-                fd2.sensorTiles[st.cellIdx]?.SetPressState(false);
+            _tileGrid?.SetPressing(st.faceIdx, st.cellIdx, false);
         }
     }
 
@@ -299,9 +281,7 @@ public partial class SensorTestManager
         if (fd.locked[cellIdx]) return;
 
         // 拖曳格：橘燈亮起（與按壓視覺相同，表示手滑過）
-        fd.controlTiles[cellIdx]?.SetPressState(true);
-        if (_gameTileVisible)
-            fd.sensorTiles[cellIdx]?.SetPressState(true);
+        _tileGrid?.SetPressing(faceIdx, cellIdx, true);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;

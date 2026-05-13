@@ -9,11 +9,11 @@ using UnityEngine.UI;
 ///   PrimaryBG → 【RT 疊加 RawImage】 → 控制格（idle 透明，可透視）→ Header/ButtonBar/StatusBar
 ///
 /// RT 優先順序：
-///   1. GameDisplayRT.Current  → 遊戲場景畫面（遊戲載入時）
-///   2. SensorGridRT.Current   → 感應格即時預覽（僅感應測試畫面時）
-///   3. null                   → 不顯示疊加（疊加 alpha = 0）
+///   1. GameDisplayRT.Current         → 遊戲場景畫面（遊戲載入時）
+///   2. TileGridTexture.SensorTex     → 感應格即時預覽（僅感應測試畫面時）
+///   3. null                          → 不顯示疊加（疊加 alpha = 0）
 ///
-/// 遊戲載入時自動隱藏 Display 2 的感應晶片格（讓遊戲畫面乾淨）。
+/// 遊戲載入時自動讓感應格 idle 格子透明（讓遊戲畫面透出）。
 /// </summary>
 public class ConsoleGameOverlay : MonoBehaviour
 {
@@ -48,19 +48,17 @@ public class ConsoleGameOverlay : MonoBehaviour
     private void Update()
     {
         // 優先順序：
-        //   1. GameDisplayRT  — 遊戲場景 Mirror Camera RT
-        //   2. SensorGridRT   — 晶片示意 ON 時，Unity Camera 捕捉感應格
+        //   1. GameDisplayRT      — 遊戲場景 Mirror Camera RT
+        //   2. SensorTex          — 晶片示意 ON 時，TileGridTexture CPU 紋理
         //   3. Display2ScreenCapture — 晶片示意 OFF 時，GDI 桌面截圖（顯示 D2 桌面/瀏覽器）
         bool tilesVisible = _stm == null || _stm.GameTileVisible;
-        RenderTexture rt = GameDisplayRT.Current ?? (tilesVisible ? SensorGridRT.Current : null);
-        Texture tex = rt;
+        RenderTexture gameRT = GameDisplayRT.Current;
+        Texture tex = gameRT ?? (tilesVisible ? (Texture)_stm?.TileGrid?.SensorTex : null);
 
         // 追蹤遊戲 RT 載入/卸載：遊戲存在時讓感應格 idle 透明度跟隨 overlayAlpha
-        var gameRT = GameDisplayRT.Current;
         if (gameRT != _lastGameRT)
         {
             _lastGameRT = gameRT;
-            SensorTileCell.TileIdleAlpha = gameRT != null ? (1f - overlayAlpha) : 1f;
             _stm?.RefreshSensorTileIdleColors();
         }
 
