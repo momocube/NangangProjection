@@ -59,7 +59,7 @@ public class ControlGridPointerHandler : MonoBehaviour,
             _pressCell = ci;
             onLeftDown?.Invoke(fi, ci);
             if (_holdRoutine != null) StopCoroutine(_holdRoutine);
-            _holdRoutine = StartCoroutine(HoldRoutine(fi, ci));
+            _holdRoutine = StartCoroutine(HoldRoutine());
         }
     }
 
@@ -121,12 +121,14 @@ public class ControlGridPointerHandler : MonoBehaviour,
         return hitTest(local);
     }
 
-    IEnumerator HoldRoutine(int fi, int ci)
+    IEnumerator HoldRoutine()
     {
         while (true)
         {
             yield return new WaitForSeconds(HoldInterval);
-            onHoldTick?.Invoke(fi, ci);
+            // 追蹤目前 hover 位置：滑鼠按住移動時，tick 隨著游標走而非固定在按下的格子
+            if (_hoverFace >= 0 && _hoverCell >= 0)
+                onHoldTick?.Invoke(_hoverFace, _hoverCell);
         }
     }
 }
