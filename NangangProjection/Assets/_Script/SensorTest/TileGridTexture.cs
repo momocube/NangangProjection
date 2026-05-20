@@ -3,9 +3,11 @@ using UnityEngine;
 
 /// <summary>
 /// 以兩張 Texture2D 取代原先 3000+ 個 SensorTileCell / ControlTileCell GameObject：
-///   SensorTex  → Display 2 感應格視覺（深色底 + 邊框 + 格子顏色）
+///   SensorTex  → Display 2 感應格視覺（深色底 + 格子顏色）
 ///   ControlTex → Display 1 控制格視覺（透明底 + 格子顏色）
 ///
+/// 貼圖解析度：每格 1 像素（以 CellPixelWidth=16 為單位），比全畫布解析度小約 250 倍；
+/// RawImage + FilterMode.Point 放大後視覺完全相同。
 /// 狀態變更只寫入 CPU 像素緩衝，LateUpdate 統一 Apply（每幀最多 2 次 GPU 上傳）。
 /// </summary>
 public class TileGridTexture : MonoBehaviour
@@ -14,8 +16,7 @@ public class TileGridTexture : MonoBehaviour
 
     // ── 顏色 ─────────────────────────────────────────────────────────────────
 
-    // Sensor (D2) — border + fill
-    static readonly Color32 SB  = new Color32( 72,  72,  72, 255); // border
+    // Sensor (D2)
     static readonly Color32 SId = new Color32( 15,  15,  20, 255); // idle fill
     static readonly Color32 SAc = new Color32(230,  26,  26, 255); // active
     static readonly Color32 SLk = new Color32(217, 184,   0, 255); // locked
@@ -57,9 +58,13 @@ public class TileGridTexture : MonoBehaviour
 
     // ── 初始化 ────────────────────────────────────────────────────────────────
 
-    public void Initialize(int texW, int texH, IList<SensorFaceConfig> faceConfigs, float activeDuration)
+    /// <param name="canvasW">畫布寬度（px）；貼圖內部縮小為 canvasW/16 × canvasH/16。</param>
+    public void Initialize(int canvasW, int canvasH, IList<SensorFaceConfig> faceConfigs, float activeDuration)
     {
         _activeDuration = activeDuration;
+        const int u = SensorHardwareConst.CellPixelWidth;   // 16
+        int texW = canvasW / u;
+        int texH = canvasH / u;
         _texW = texW;
         _texH = texH;
 
@@ -119,10 +124,10 @@ public class TileGridTexture : MonoBehaviour
     }
 
     /// <summary>切換場域時重建（尺寸可能改變）。</summary>
-    public void Reinitialize(int texW, int texH, IList<SensorFaceConfig> faceConfigs)
+    public void Reinitialize(int canvasW, int canvasH, IList<SensorFaceConfig> faceConfigs)
     {
         _hoverFace = _hoverCell = -1;
-        Initialize(texW, texH, faceConfigs, _activeDuration);
+        Initialize(canvasW, canvasH, faceConfigs, _activeDuration);
     }
 
     // ── 狀態設定 ─────────────────────────────────────────────────────────────
@@ -280,14 +285,15 @@ public class TileGridTexture : MonoBehaviour
     void PaintCellSensor(int fi, int ci, CellState state)
     {
         if (fi < 0 || fi >= _faces.Count) return;
-        var  fr  = _faces[fi];
-        var  cfg = fr.config;
-        int  cw  = cfg.GizmoCellW;
-        int  ch  = cfg.GizmoCellH;
-        int  col = ci % cfg.colCount;
-        int  row = ci / cfg.colCount;
-        int  px  = cfg.originX + col * cw;
-        int  py  = cfg.originY + row * ch;
+        var  fr   = _faces[fi];
+        var  cfg  = fr.config;
+        const int u = SensorHardwareConst.CellPixelWidth;
+        int  cellW = cfg.GizmoCellW / u;   // 1 (橫) or 2 (直)
+        int  cellH = cfg.GizmoCellH / u;   // 2 (橫) or 1 (直)
+        int  col   = ci % cfg.colCount;
+        int  row   = ci / cfg.colCount;
+        int  texX  = cfg.originX / u + col * cellW;
+        int  texY  = cfg.originY / u + row * cellH;
 
         Color32 fillColor = state switch
         {
@@ -298,23 +304,21 @@ public class TileGridTexture : MonoBehaviour
             _                  => fr.sensorIdle[ci],
         };
 
-        // 整格先填 border color
-        FillRect(_sensorPx, px, py, cw, ch, SB);
-        // 內部（左 1px、上 1px 縮排）填 fill color
-        FillRect(_sensorPx, px + 1, py + 1, cw - 1, ch - 1, fillColor);
+        FillRect(_sensorPx, texX, texY, cellW, cellH, fillColor);
     }
 
     void PaintCellControl(int fi, int ci, CellState state)
     {
         if (fi < 0 || fi >= _faces.Count) return;
-        var  fr  = _faces[fi];
-        var  cfg = fr.config;
-        int  cw  = cfg.GizmoCellW;
-        int  ch  = cfg.GizmoCellH;
-        int  col = ci % cfg.colCount;
-        int  row = ci / cfg.colCount;
-        int  px  = cfg.originX + col * cw;
-        int  py  = cfg.originY + row * ch;
+        var  fr   = _faces[fi];
+        var  cfg  = fr.config;
+        const int u = SensorHardwareConst.CellPixelWidth;
+        int  cellW = cfg.GizmoCellW / u;
+        int  cellH = cfg.GizmoCellH / u;
+        int  col   = ci % cfg.colCount;
+        int  row   = ci / cfg.colCount;
+        int  texX  = cfg.originX / u + col * cellW;
+        int  texY  = cfg.originY / u + row * cellH;
 
         bool hovered = (fi == _hoverFace && ci == _hoverCell);
 
@@ -328,7 +332,7 @@ public class TileGridTexture : MonoBehaviour
             _                  => C0,
         };
 
-        FillRect(_controlPx, px, py, cw, ch, fillColor);
+        FillRect(_controlPx, texX, texY, cellW, cellH, fillColor);
     }
 
     /// <summary>填充矩形到 CPU 像素緩衝（Y 軸翻轉：canvas top → texture bottom）。</summary>
