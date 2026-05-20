@@ -355,17 +355,37 @@ public class NangangSetupWindow : EditorWindow
         if (_profileSO != null)
         {
             _profileSO.Update();
-            Prop(_profileSO, "profileName", "名稱");
-            Prop(_profileSO, "sensorScenePath", "感應場景路徑");
-            Prop(_profileSO, "gameSceneName", "遊戲場景名稱");
-            Prop(_profileSO, "showPresetSelector", "顯示場域切換");
-            Prop(_profileSO, "gameTileVisible", "初始晶片示意");
-            Prop(_profileSO, "activeDuration", "晶片亮起時間");
-            Prop(_profileSO, "overlayAlpha", "主畫面疊加不透明度");
+            Prop(_profileSO, "profileName",       "名稱");
+            Prop(_profileSO, "sensorScenePath",   "感應場景路徑");
+            Prop(_profileSO, "gameSceneName",     "遊戲場景名稱");
+            Prop(_profileSO, "showPresetSelector","顯示場域切換");
+            Prop(_profileSO, "gameTileVisible",   "初始晶片示意");
+            Prop(_profileSO, "activeDuration",    "晶片亮起時間");
+            Prop(_profileSO, "overlayAlpha",      "主畫面疊加不透明度");
 
             EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("Display 2 位置（兩個元件統一來源）", EditorStyles.boldLabel);
+            Prop(_profileSO, "display2X", "Display 2 X（px，通常等於 Display 1 寬度 = 1920）");
+            Prop(_profileSO, "display2Y", "Display 2 Y（px，通常為 0）");
+            EditorGUILayout.HelpBox(
+                "display2X/Y 套用後會同時更新：\n" +
+                "  • SensorTestManager.display2WindowOffsetX\n" +
+                "  • SensorClickSimulator.display2OffsetX / display2OffsetY",
+                MessageType.Info);
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("點擊模式（單一來源）", EditorStyles.boldLabel);
+            Prop(_profileSO, "clickMode",    "點擊模式（Listen / PostMessage / 滑鼠點擊）");
+            Prop(_profileSO, "clickCooldown","點擊冷卻秒數");
+            EditorGUILayout.HelpBox(
+                "點擊模式在此統一設定，套用後寫入 SensorClickSimulator。\n" +
+                "不要在「點擊模擬」區段直接修改，避免與設定檔不一致。",
+                MessageType.None);
+
+            EditorGUILayout.Space(6);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("套用到目前場景"))
+            var applyStyle = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
+            if (GUILayout.Button("▶ 套用到目前場景", applyStyle, GUILayout.Height(28)))
                 ApplyProfileToCurrentScene(_profile);
             if (GUILayout.Button("設為 Build 啟用場景"))
                 ApplyBuildSceneProfile(_profile);
@@ -501,17 +521,19 @@ public class NangangSetupWindow : EditorWindow
 
         if (!HasComponent(_stm, "SensorTestManager")) { EndSection(); return; }
 
-        Prop(_stmSO, "_gameTileVisible",      "初始晶片示意（Display 2）開啟");
-        Prop(_stmSO, "display2WindowOffsetX", "Display 2 螢幕 X 起始位置（px，預設 1920）");
-        Prop(_stmSO, "activeDuration",         "晶片觸發亮紅持續時間（秒，預設 1.5）");
+        Prop(_stmSO, "_gameTileVisible", "初始晶片示意（Display 2）開啟");
 
-        if (_overlaySO != null)
-        {
-            EditorGUILayout.Space(2);
-            using (new EditorGUI.DisabledScope(false))
-                EditorGUILayout.LabelField("ConsoleGameOverlay", EditorStyles.miniLabel);
-            Prop(_overlaySO, "overlayAlpha", "初始疊加不透明度（0=全透明，1=全顯示）");
-        }
+        // display2WindowOffsetX、activeDuration、overlayAlpha 統一由設定檔管理，勿直接編輯
+        int curD2X = _stm != null ? _stm.display2WindowOffsetX : 1920;
+        using (new EditorGUI.DisabledScope(true))
+            EditorGUILayout.IntField(new GUIContent(
+                "Display 2 X（唯讀，由設定檔控制）",
+                "請在「場景設定檔」的 display2X 修改，再按「套用到目前場景」。"),
+                curD2X);
+
+        EditorGUILayout.HelpBox(
+            "Display 2 X/Y、晶片亮起時間、疊加透明度，請在「場景設定檔」區段統一設定後按「套用」。",
+            MessageType.None);
 
         EndSection();
     }
@@ -580,13 +602,38 @@ public class NangangSetupWindow : EditorWindow
 
     void DrawClickSection()
     {
-        if (!BeginSection("點擊模擬（SensorClickSimulator）", ref _foldClick)) return;
+        if (!BeginSection("點擊模擬（SensorClickSimulator）進階設定", ref _foldClick)) return;
 
         if (!HasComponent(_clickSim, "SensorClickSimulator")) { EndSection(); return; }
 
-        Prop(_clickSimSO, "_mode",          "初始點擊模式（內部監聽 / PostMessage / 滑鼠點擊）");
-        Prop(_clickSimSO, "cooldownEnabled","冷卻啟用");
-        Prop(_clickSimSO, "clickCooldown",  "冷卻時間（秒，0.1 ～ 5.0）");
+        // ── 唯讀：顯示目前生效值（由設定檔控制，不在此處直接修改）──────────────
+        EditorGUILayout.HelpBox(
+            "點擊模式 / 冷卻 請在「場景設定檔」區段設定，按「套用」後才會生效。",
+            MessageType.None);
+
+        string modeLabel = _clickSim != null ? _clickSim.ModeLabel : "—";
+        using (new EditorGUI.DisabledScope(true))
+        {
+            EditorGUILayout.TextField(
+                new GUIContent("目前點擊模式（唯讀）", "在「場景設定檔」的 clickMode 修改。"),
+                modeLabel);
+            EditorGUILayout.Toggle(
+                new GUIContent("目前冷卻啟用（唯讀）", "由 disableClickCooldown 控制。"),
+                _clickSim != null && _clickSim.cooldownEnabled);
+        }
+
+        EditorGUILayout.Space(4);
+
+        // ── 進階設定（不在設定檔中，可直接編輯）────────────────────────────────
+        EditorGUILayout.LabelField("外送 UDP（進階）", EditorStyles.boldLabel);
+        Prop(_clickSimSO, "externalEnabled", "同時轉發 UDP 座標給外部程式");
+        Prop(_clickSimSO, "externalIP",      "外部程式 IP");
+        Prop(_clickSimSO, "externalPort",    "外部程式 Port（預設 20002）");
+
+        EditorGUILayout.Space(2);
+        EditorGUILayout.LabelField("滑鼠模式進階（ClickMode = Mouse 時生效）", EditorStyles.boldLabel);
+        Prop(_clickSimSO, "pressHoldDuration", "按壓按住秒數（預設 0.3）");
+        Prop(_clickSimSO, "dragReleaseDelay",  "拖曳放開延遲（預設 0.5）");
 
         EndSection();
     }
@@ -635,15 +682,16 @@ public class NangangSetupWindow : EditorWindow
         if (_stm != null)
         {
             Undo.RecordObject(_stm, "Apply scene profile");
-            _stm.gameSceneName = profile.gameSceneName;
-            _stm.showPresetSelector = profile.showPresetSelector;
-            _stm.activeDuration = profile.activeDuration;
-            SetSerializedField(_stm, "_gameTileVisible", profile.gameTileVisible);
+            _stm.gameSceneName          = profile.gameSceneName;
+            _stm.showPresetSelector     = profile.showPresetSelector;
+            _stm.activeDuration         = profile.activeDuration;
+            _stm.display2WindowOffsetX  = profile.display2X;    // Display 2 位置統一套用
+            SetSerializedField(_stm, "_gameTileVisible",  profile.gameTileVisible);
             SetSerializedField(_stm, "showClickLogPanel", !(reduceCost && profile.hideClickLogPanel));
-            _stm.showLogButton = !(reduceCost && profile.hideDiagnosticLogButton);
-            _stm.tapBoundaryMs = profile.tapBoundaryMs;
+            _stm.showLogButton     = !(reduceCost && profile.hideDiagnosticLogButton);
+            _stm.tapBoundaryMs     = profile.tapBoundaryMs;
             _stm.touchEndTimeoutMs = profile.touchEndTimeoutMs;
-            _stm.ghostTouchMode = reduceCost && profile.disableGhostTouchFilter
+            _stm.ghostTouchMode    = reduceCost && profile.disableGhostTouchFilter
                 ? GhostTouchMode.None
                 : profile.ghostTouchMode;
             EditorUtility.SetDirty(_stm);
@@ -652,7 +700,7 @@ public class NangangSetupWindow : EditorWindow
         if (_udp != null)
         {
             Undo.RecordObject(_udp, "Apply scene profile");
-            _udp.debugLog = !(reduceCost && profile.disableUdpDebugLog);
+            _udp.debugLog          = !(reduceCost && profile.disableUdpDebugLog);
             _udp.maxPointsPerFrame = profile.maxPointsPerFrame;
             EditorUtility.SetDirty(_udp);
         }
@@ -660,10 +708,12 @@ public class NangangSetupWindow : EditorWindow
         if (_clickSim != null)
         {
             Undo.RecordObject(_clickSim, "Apply scene profile");
-            _clickSim.debugLog = !(reduceCost && profile.disableClickDebugLog);
+            _clickSim.debugLog        = !(reduceCost && profile.disableClickDebugLog);
             _clickSim.cooldownEnabled = !(reduceCost && profile.disableClickCooldown);
-            _clickSim.clickCooldown = profile.clickCooldown;
-            SetSerializedField(_clickSim, "_mode", (int)profile.clickMode);
+            _clickSim.clickCooldown   = profile.clickCooldown;
+            SetSerializedField(_clickSim, "_mode",          (int)profile.clickMode);
+            SetSerializedField(_clickSim, "display2OffsetX", profile.display2X);   // Display 2 位置統一套用
+            SetSerializedField(_clickSim, "display2OffsetY", profile.display2Y);
             EditorUtility.SetDirty(_clickSim);
         }
 
