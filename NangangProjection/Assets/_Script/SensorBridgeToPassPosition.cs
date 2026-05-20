@@ -59,6 +59,7 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     private float[]       _fadeEndTime = new float[MAX_SLOTS];
     private Vector2[]     _smoothedPos = new Vector2[MAX_SLOTS];
     private List<Vector2Int> _frameHits = new List<Vector2Int>(MAX_SLOTS);
+    private bool[]        _hitUsed     = new bool[64];   // 預分配，上限 >= maxPointsPerFrame+1，避免每幀 new
     private int _lastCanvasEventFrame = -1;
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -77,12 +78,17 @@ public class SensorBridgeToPassPosition : MonoBehaviour
         _pptm.inputPosition.Clear();
         for (int i = 0; i < MAX_SLOTS; i++)
             _pptm.inputPosition.Add(new Vector4(PARK_X, PARK_Y, 0f, 0f));
+    }
 
+    private void OnEnable()
+    {
+        SensorBus.OnTouch       -= OnSensorTouch;        // 防重複訂閱
         SensorBus.OnTouch       += OnSensorTouch;
+        SensorBus.OnCanvasTouch -= OnSensorCanvasTouch;
         SensorBus.OnCanvasTouch += OnSensorCanvasTouch;
     }
 
-    private void OnDestroy()
+    private void OnDisable()
     {
         SensorBus.OnTouch       -= OnSensorTouch;
         SensorBus.OnCanvasTouch -= OnSensorCanvasTouch;
@@ -128,7 +134,10 @@ public class SensorBridgeToPassPosition : MonoBehaviour
     {
         float now      = Time.time;
         int   hitCount = _frameHits.Count;
-        bool[] hitUsed = new bool[hitCount];
+        // 重用預分配陣列，避免每幀 GC；若罕見超出預分配大小則回退到動態分配
+        if (hitCount > _hitUsed.Length) _hitUsed = new bool[hitCount + 16];
+        System.Array.Clear(_hitUsed, 0, hitCount);
+        bool[] hitUsed = _hitUsed;
 
         // Step 1：現有 active slot 找最近的 hit
         for (int s = 0; s < MAX_SLOTS; s++)

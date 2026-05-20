@@ -28,6 +28,9 @@ public class UdpSensorReceiver : MonoBehaviour
     [Tooltip("每幀最多消化的觸碰點數，超出部分延至下幀（防止單幀爆量卡頓）")]
     public int maxPointsPerFrame = 32;
 
+    [Tooltip("背景接收佇列上限。超過此數量的封包會被丟棄，防止感應器爆量時記憶體無限增長（預設 256）")]
+    public int maxQueueSize = 256;
+
     /// <summary>每次解析到一個有效座標點時觸發（主執行緒）</summary>
     public static event Action<int, int> OnPacketReceived;
 
@@ -162,6 +165,7 @@ public class UdpSensorReceiver : MonoBehaviour
         {
             for (int i = 0; i < count; i++)
             {
+                if (_pending.Count >= maxQueueSize) break;   // 佇列上限：丟棄多餘封包防爆量
                 int offset = 5 + i * 4;
                 int x = (data[offset]     << 8) | data[offset + 1];
                 int y = (data[offset + 2] << 8) | data[offset + 3];

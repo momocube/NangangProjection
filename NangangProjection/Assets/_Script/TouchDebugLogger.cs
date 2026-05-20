@@ -49,6 +49,11 @@ public class TouchDebugLogger : MonoBehaviour
     private string _toastMsg    = "";
     private float  _toastExpiry = -1f;
 
+    // 快取 GUIStyle，OnGUI 第一幀初始化後重用，避免每幀 new 觸發 GC
+    private GUIStyle _styleLabelRich;
+    private GUIStyle _styleToast;
+    private GUIStyle _styleHover;
+
     private Rect    _winRect = new Rect(20, 20, 340, 460);
     private int     _winId;
     private enum ResizeMode { None, Right, Bottom, Corner }
@@ -162,8 +167,17 @@ public class TouchDebugLogger : MonoBehaviour
         }
     }
 
+    private void EnsureStyles()
+    {
+        if (_styleLabelRich != null) return;
+        _styleLabelRich = new GUIStyle(GUI.skin.label) { richText = true, fontSize = 12 };
+        _styleToast     = new GUIStyle(GUI.skin.label) { normal = { textColor = new Color(0.4f, 1f, 0.4f) } };
+        _styleHover     = new GUIStyle(_styleLabelRich) { normal = { textColor = Color.white } };
+    }
+
     private void DrawWindow(int id)
     {
+        EnsureStyles();
         if (Event.current.type == EventType.Repaint)
             _hoveredIdx = -1;
         // ── 工具列 ───────────────────────────────────────────────────────────
@@ -172,8 +186,7 @@ public class TouchDebugLogger : MonoBehaviour
         // Toast 訊息
         if (Time.unscaledTime < _toastExpiry)
         {
-            var toastStyle = new GUIStyle(GUI.skin.label) { normal = { textColor = new Color(0.4f, 1f, 0.4f) } };
-            GUILayout.Label(_toastMsg, toastStyle);
+            GUILayout.Label(_toastMsg, _styleToast);
         }
 
         GUILayout.BeginHorizontal();
@@ -205,8 +218,6 @@ public class TouchDebugLogger : MonoBehaviour
         // 固定欄寬：ColMinW 扣掉複製鈕，不隨視窗撐大
         float colW = ColMinW - CopyBtnW - 6;
 
-        var labelStyle = new GUIStyle(GUI.skin.label) { richText = true, fontSize = 12 };
-
         // ── 欄位並排（左對齊，固定寬度）────────────────────────────────────
         GUILayout.BeginHorizontal();
         for (int c = 0; c < cols; c++)
@@ -216,7 +227,7 @@ public class TouchDebugLogger : MonoBehaviour
             {
                 int idx = c * rows + r;   // 左欄先填滿
                 if (idx < _entries.Count)
-                    DrawEntry(idx, _entries[idx], labelStyle, colW);
+                    DrawEntry(idx, _entries[idx], colW);
                 else
                     GUILayout.Space(RowH);
             }
@@ -228,21 +239,13 @@ public class TouchDebugLogger : MonoBehaviour
         GUI.DragWindow(new Rect(0, 0, _winRect.width - GripSz, 20));
     }
 
-    private void DrawEntry(int idx, LogEntry e, GUIStyle style, float labelW)
+    private void DrawEntry(int idx, LogEntry e, float labelW)
     {
-        string countStr = e.count > 1 ? $" ×{e.count}" : "";
         string rich = e.kind == EntryKind.Raw
             ? $"<b>[{e.time:F2}s]</b>  raw ({e.a}, {e.b}){(e.count > 1 ? $" <color=yellow>×{e.count}</color>" : "")}"
             : $"<b>[{e.time:F2}s]</b>  <color=#88ff88>col={e.a,3} row={e.b,2}</color>{(e.count > 1 ? $" <color=yellow>×{e.count}</color>" : "")}";
 
-        // hover 高亮
-        bool hovered = _hoveredIdx == idx;
-        if (hovered)
-        {
-            var hi = new GUIStyle(style);
-            hi.normal.textColor = Color.white;
-            style = hi;
-        }
+        GUIStyle style = _hoveredIdx == idx ? _styleHover : _styleLabelRich;
 
         GUILayout.BeginHorizontal();
         GUILayout.Label(rich, style, GUILayout.Width(labelW), GUILayout.Height(RowH));
