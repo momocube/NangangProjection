@@ -25,16 +25,16 @@ public class NangangSetupWindow : EditorWindow
 
     // ── 元件 ─────────────────────────────────────────────────────────────────
 
-    SensorTestManager         _stm;
-    TouchDebugLogger          _logger;
-    SensorClickSimulator      _clickSim;
-    UdpSensorReceiver         _udp;
-    ConsoleGameOverlay        _overlay;
-    VirtualCellManager        _vcell;
+    SensorTestManager          _stm;
+    TouchDebugLogger           _logger;
+    SensorClickSimulator       _clickSim;
+    UdpSensorReceiver          _udp;
+    ConsoleGameOverlay         _overlay;
+    VirtualCellManager         _vcell;
     SensorBridgeToPassPosition _bridge;
-    Display2ScreenCapture     _display2Capture;
-    CoordTestPanel            _coordTestPanel;
-    GameConsole               _gameConsole;
+    Display2ScreenCapture      _display2Capture;
+    CoordTestPanel             _coordTestPanel;
+    GameConsole                _gameConsole;
 
     // ── Serialized Objects ────────────────────────────────────────────────────
 
@@ -46,22 +46,27 @@ public class NangangSetupWindow : EditorWindow
 
     // ── 折疊狀態 ─────────────────────────────────────────────────────────────
 
-    bool _foldFeature = true;   // 功能開關（新增）
-    bool _foldUdp     = true;
+    bool _foldFeature = true;
+    bool _foldProfile = true;
     bool _foldVenue   = true;
     bool _foldScene   = true;
-    bool _foldDisplay = true;
-    bool _foldLog     = true;
-    bool _foldVCell   = true;
-    bool _foldProfile = true;
-    bool _foldPerf    = true;
+
+    // 場景設定檔內部子折疊
+    bool _foldPerfSub      = true;
+    bool _foldCommonUdp    = false;
+    bool _foldCommonBridge = false;
+    bool _foldCommonLog    = false;
+    bool _foldCommonVCell  = false;
+    bool _foldCommonClick  = false;
 
     SceneInitialSettingsProfile _profile;
-    bool _foldBridge  = false;  // 較少改動，預設收起
-    bool _foldClick   = false;
 
     Vector2 _scroll;
     double  _refreshTime = -999;
+
+    static GUIStyle _applyButtonStyle;
+    static GUIStyle ApplyButtonStyle
+        => _applyButtonStyle ??= new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
 
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
@@ -122,7 +127,6 @@ public class NangangSetupWindow : EditorWindow
         EditorGUILayout.Space(2);
         _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-        // 更新全部 SO
         _stmSO?.Update(); _loggerSO?.Update(); _clickSimSO?.Update();
         _udpSO?.Update(); _overlaySO?.Update(); _vcellSO?.Update(); _bridgeSO?.Update();
         _profileSO?.Update();
@@ -130,20 +134,12 @@ public class NangangSetupWindow : EditorWindow
 
         DrawFeatureToggleSection();
         DrawProfileSection();
-        DrawPerformanceSection();
-        DrawUdpSection();
         DrawVenueSection();
         DrawSceneSection();
-        DrawDisplaySection();
-        DrawLogSection();
-        DrawVCellSection();
-        DrawBridgeSection();
-        DrawClickSection();
 
         EditorGUILayout.Space(8);
         EditorGUILayout.EndScrollView();
 
-        // 套用所有修改
         _stmSO?.ApplyModifiedProperties(); _loggerSO?.ApplyModifiedProperties();
         _clickSimSO?.ApplyModifiedProperties(); _udpSO?.ApplyModifiedProperties();
         _overlaySO?.ApplyModifiedProperties(); _vcellSO?.ApplyModifiedProperties();
@@ -157,15 +153,10 @@ public class NangangSetupWindow : EditorWindow
     static GUIContent _warningIcon;
     static GUIContent WarningIcon => _warningIcon ??= EditorGUIUtility.IconContent("console.warnicon.sml");
 
-    /// <summary>
-    /// 立即控制場景中元件啟用/停用，無需點擊「套用」按鈕。
-    /// 高耗能功能開啟前跳出確認對話框。
-    /// </summary>
     void DrawFeatureToggleSection()
     {
         if (!BeginSection("功能開關（即時套用到場景）", ref _foldFeature)) return;
 
-        // ── 高耗能功能 ────────────────────────────────────────────────────────
         EditorGUILayout.LabelField("▸ 高耗能功能", EditorStyles.boldLabel);
         EditorGUI.indentLevel++;
 
@@ -200,7 +191,6 @@ public class NangangSetupWindow : EditorWindow
         EditorGUI.indentLevel--;
         EditorGUILayout.Space(4);
 
-        // ── 一般功能 ─────────────────────────────────────────────────────────
         EditorGUILayout.LabelField("▸ 除錯輔助功能", EditorStyles.boldLabel);
         EditorGUI.indentLevel++;
 
@@ -280,7 +270,6 @@ public class NangangSetupWindow : EditorWindow
         EditorGUI.indentLevel--;
         EditorGUILayout.Space(4);
 
-        // ── 效能快速摘要 ─────────────────────────────────────────────────────
         int highPowerOn = 0;
         if (_display2Capture != null && _display2Capture.gameObject.activeSelf) highPowerOn++;
         if (_overlay != null && _overlay.enabled) highPowerOn++;
@@ -295,16 +284,12 @@ public class NangangSetupWindow : EditorWindow
         EndSection();
     }
 
-    /// <summary>帶高耗能警告的 toggle。</summary>
     static void ToggleHighPower(string label, string tooltip, System.Func<bool> getEnabled,
         System.Action<bool> setEnabled, string warningText)
     {
         bool current = getEnabled();
         EditorGUILayout.BeginHorizontal();
-
-        // 警告圖示
         GUILayout.Label(WarningIcon, GUILayout.Width(18), GUILayout.Height(18));
-
         EditorGUI.BeginChangeCheck();
         bool next = EditorGUILayout.ToggleLeft(
             new GUIContent(label, tooltip), current,
@@ -313,20 +298,15 @@ public class NangangSetupWindow : EditorWindow
         {
             if (next && !current)
             {
-                // 要開啟：先詢問
                 bool confirmed = EditorUtility.DisplayDialog(
-                    "⚠ 高耗能功能確認",
-                    warningText,
-                    "確定開啟", "取消");
+                    "⚠ 高耗能功能確認", warningText, "確定開啟", "取消");
                 if (!confirmed) next = false;
             }
-            if (next != current)
-                setEnabled(next);
+            if (next != current) setEnabled(next);
         }
         EditorGUILayout.EndHorizontal();
     }
 
-    /// <summary>一般功能 toggle，無警告。</summary>
     static void ToggleNormal(string label, string tooltip,
         System.Func<bool> getEnabled, System.Action<bool> setEnabled)
     {
@@ -338,7 +318,9 @@ public class NangangSetupWindow : EditorWindow
     }
 
     static void MarkSceneDirty()
-        => EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+        => EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+
+    // ── 場景設定檔（含全部子分類）────────────────────────────────────────────
 
     void DrawProfileSection()
     {
@@ -352,113 +334,173 @@ public class NangangSetupWindow : EditorWindow
             _profileSO = _profile != null ? new SerializedObject(_profile) : null;
         }
 
-        if (_profileSO != null)
-        {
-            _profileSO.Update();
-            Prop(_profileSO, "profileName",       "名稱");
-            Prop(_profileSO, "sensorScenePath",   "感應場景路徑");
-            Prop(_profileSO, "gameSceneName",     "遊戲場景名稱");
-            Prop(_profileSO, "showPresetSelector","顯示場域切換");
-            Prop(_profileSO, "gameTileVisible",   "初始晶片示意");
-            Prop(_profileSO, "activeDuration",    "晶片亮起時間");
-            Prop(_profileSO, "overlayAlpha",      "主畫面疊加不透明度");
-
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("Display 2 位置（兩個元件統一來源）", EditorStyles.boldLabel);
-            Prop(_profileSO, "display2X", "Display 2 X（px，通常等於 Display 1 寬度 = 1920）");
-            Prop(_profileSO, "display2Y", "Display 2 Y（px，通常為 0）");
-            EditorGUILayout.HelpBox(
-                "display2X/Y 套用後會同時更新：\n" +
-                "  • SensorTestManager.display2WindowOffsetX\n" +
-                "  • SensorClickSimulator.display2OffsetX / display2OffsetY",
-                MessageType.Info);
-
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("點擊模式（單一來源）", EditorStyles.boldLabel);
-            Prop(_profileSO, "clickMode",    "點擊模式（Listen / PostMessage / 滑鼠點擊）");
-            Prop(_profileSO, "clickCooldown","點擊冷卻秒數");
-            EditorGUILayout.HelpBox(
-                "點擊模式在此統一設定，套用後寫入 SensorClickSimulator。\n" +
-                "不要在「點擊模擬」區段直接修改，避免與設定檔不一致。",
-                MessageType.None);
-
-            EditorGUILayout.Space(6);
-            EditorGUILayout.BeginHorizontal();
-            var applyStyle = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
-            if (GUILayout.Button("▶ 套用到目前場景", applyStyle, GUILayout.Height(28)))
-                ApplyProfileToCurrentScene(_profile);
-            if (GUILayout.Button("設為 Build 啟用場景"))
-                ApplyBuildSceneProfile(_profile);
-            EditorGUILayout.EndHorizontal();
-        }
-        else
+        if (_profileSO == null)
         {
             EditorGUILayout.HelpBox(
                 "請指定一個 SceneInitialSettingsProfile。預設檔在：\n" +
                 "Assets/_Script/MultiSensor/Setting/SceneInitialProfiles/",
                 MessageType.Info);
+            EndSection();
+            return;
         }
 
-        EndSection();
-    }
+        _profileSO.Update();
 
-    void DrawPerformanceSection()
-    {
-        if (!BeginSection("降低效能負擔", ref _foldPerf)) return;
+        // ── 場景專屬：基本 ────────────────────────────────────────────────────
+        EditorGUILayout.Space(4);
+        EditorGUILayout.LabelField("▸ 場景專屬設定", EditorStyles.boldLabel);
+        EditorGUI.indentLevel++;
+        Prop(_profileSO, "profileName",        "名稱");
+        Prop(_profileSO, "sensorScenePath",    "感應場景路徑");
+        Prop(_profileSO, "gameSceneName",      "遊戲場景名稱");
+        Prop(_profileSO, "showPresetSelector", "顯示場域切換");
+        Prop(_profileSO, "gameTileVisible",    "初始晶片示意");
+        Prop(_profileSO, "activeDuration",     "晶片亮起時間");
+        Prop(_profileSO, "overlayAlpha",       "主畫面疊加不透明度");
+        EditorGUILayout.Space(2);
+        Prop(_profileSO, "display2X", "Display 2 X（px，通常等於 Display 1 寬度 1920）");
+        Prop(_profileSO, "display2Y", "Display 2 Y（px，通常為 0）");
+        EditorGUILayout.HelpBox(
+            "display2X/Y 套用後同時更新：SensorTestManager.display2WindowOffsetX\n" +
+            "以及 SensorClickSimulator.display2OffsetX / display2OffsetY",
+            MessageType.None);
+        EditorGUI.indentLevel--;
 
-        if (_profileSO != null)
+        // ── 感應器 & 點擊 ─────────────────────────────────────────────────────
+        EditorGUILayout.Space(4);
+        EditorGUILayout.LabelField("▸ 感應器 & 點擊", EditorStyles.boldLabel);
+        EditorGUI.indentLevel++;
+        Prop(_profileSO, "maxPointsPerFrame",  "每幀最多 UDP 點數");
+        Prop(_profileSO, "ghostTouchMode",     "Ghost Touch 模式");
+        Prop(_profileSO, "tapBoundaryMs",      "Tap / Press 分界 ms");
+        Prop(_profileSO, "touchEndTimeoutMs",  "Touch 結束 timeout ms");
+        Prop(_profileSO, "clickMode",          "點擊模式");
+        Prop(_profileSO, "clickCooldown",      "點擊冷卻秒數");
+        EditorGUILayout.HelpBox(
+            "點擊模式在此統一設定，套用後寫入 SensorClickSimulator。",
+            MessageType.None);
+        EditorGUI.indentLevel--;
+
+        // ── 降低效能負擔（子折疊）────────────────────────────────────────────
+        EditorGUILayout.Space(4);
+        _foldPerfSub = EditorGUILayout.Foldout(_foldPerfSub, "▸ 降低效能負擔", true);
+        if (_foldPerfSub)
         {
+            EditorGUI.indentLevel++;
             Prop(_profileSO, "lowerPerformanceCost", "啟用降低效能負擔");
-            Prop(_profileSO, "disableDisplay2ScreenCapture", "停用 Display 2 擷取");
-            Prop(_profileSO, "disableRuntimeLogObject", "停用 Log 物件");
-            Prop(_profileSO, "disableTouchDebugLogger", "停用 TouchDebugLogger");
-            Prop(_profileSO, "disableCoordTestPanel", "停用座標測試面板");
-            Prop(_profileSO, "disableGameConsole", "停用外部 Console");
-            Prop(_profileSO, "hideClickLogPanel", "隱藏點擊 Log 面板");
-            Prop(_profileSO, "hideDiagnosticLogButton", "隱藏診斷 Log 按鈕");
-            Prop(_profileSO, "disableUdpDebugLog", "關閉 UDP Debug Log");
-            Prop(_profileSO, "disableClickDebugLog", "關閉點擊 Debug Log");
-            Prop(_profileSO, "disableGhostTouchFilter", "停用 Ghost Touch 過濾");
-            Prop(_profileSO, "disableClickCooldown", "停用點擊冷卻");
-            Prop(_profileSO, "maxPointsPerFrame", "每幀最多 UDP 點數");
-            Prop(_profileSO, "ghostTouchMode", "Ghost Touch 模式");
-            Prop(_profileSO, "tapBoundaryMs", "Tap / Press 分界 ms");
-            Prop(_profileSO, "touchEndTimeoutMs", "Touch 結束 timeout ms");
-            Prop(_profileSO, "clickMode", "點擊模式");
-            Prop(_profileSO, "clickCooldown", "點擊冷卻秒數");
+            bool lpc = _profile != null && _profile.lowerPerformanceCost;
+            using (new EditorGUI.DisabledScope(!lpc))
+            {
+                Prop(_profileSO, "disableDisplay2ScreenCapture", "停用 Display 2 擷取");
+                Prop(_profileSO, "disableRuntimeLogObject",      "停用 Log 物件");
+                Prop(_profileSO, "disableTouchDebugLogger",      "停用 TouchDebugLogger");
+                Prop(_profileSO, "disableCoordTestPanel",        "停用座標測試面板");
+                Prop(_profileSO, "disableGameConsole",           "停用外部 Console");
+                Prop(_profileSO, "hideClickLogPanel",            "隱藏點擊 Log 面板");
+                Prop(_profileSO, "hideDiagnosticLogButton",      "隱藏診斷 Log 按鈕");
+                Prop(_profileSO, "disableUdpDebugLog",           "關閉 UDP Debug Log");
+                Prop(_profileSO, "disableClickDebugLog",         "關閉點擊 Debug Log");
+                Prop(_profileSO, "disableGhostTouchFilter",      "停用 Ghost Touch 過濾");
+                Prop(_profileSO, "disableClickCooldown",         "停用點擊冷卻");
+            }
+            EditorGUI.indentLevel--;
         }
-        else
+
+        // ── 場域通用 ──────────────────────────────────────────────────────────
+        EditorGUILayout.Space(6);
+        EditorGUILayout.LabelField("▸ 場域通用設定", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox(
+            "以下設定不因場域（舞台/光域）而異，所有 profile 通常填相同值。",
+            MessageType.None);
+
+        // 感應接收（UDP）
+        EditorGUILayout.Space(2);
+        _foldCommonUdp = EditorGUILayout.Foldout(_foldCommonUdp, "  感應接收（UDP）", true);
+        if (_foldCommonUdp)
         {
-            EditorGUILayout.HelpBox("選擇設定檔後可編輯降低效能負擔選項。", MessageType.Info);
+            EditorGUI.indentLevel++;
+            Prop(_profileSO, "listenPort",   "監聽 Port（預設 20001）");
+            Prop(_profileSO, "maxQueueSize", "背景佇列上限（預設 256，超過丟棄）");
+            EditorGUI.indentLevel--;
         }
 
+        // 感應橋接
+        _foldCommonBridge = EditorGUILayout.Foldout(_foldCommonBridge, "  感應橋接（SensorBridgeToPassPosition）", true);
+        if (_foldCommonBridge)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.HelpBox("格子欄列數需與 SensorTestManager 場域 colCount/rowCount 一致。", MessageType.None);
+            Prop(_profileSO, "bridgeGridCols",          "格子欄數（colCount，預設 128）");
+            Prop(_profileSO, "bridgeGridRows",          "格子列數（rowCount，預設 24）");
+            Prop(_profileSO, "bridgeDisplayWidth",      "Display 2 寬度（px，預設 2048）");
+            Prop(_profileSO, "bridgeDisplayHeight",     "Display 2 高度（px，預設 768）");
+            EditorGUILayout.Space(2);
+            Prop(_profileSO, "bridgeTouchTimeout",      "離手逾時（秒）");
+            Prop(_profileSO, "bridgeMatchRadiusCells",  "配對半徑（格子單位）");
+            Prop(_profileSO, "bridgeReleaseHoldSeconds","按壓結束淡出（秒）");
+            Prop(_profileSO, "bridgePositionSmoothSpeed","水波位置平滑速度（0=關閉）");
+            EditorGUI.indentLevel--;
+        }
+
+        // 觸碰日誌
+        _foldCommonLog = EditorGUILayout.Foldout(_foldCommonLog, "  觸碰日誌（TouchDebugLogger）", true);
+        if (_foldCommonLog)
+        {
+            EditorGUI.indentLevel++;
+            Prop(_profileSO, "logShowWindow",    "初始顯示 Log 視窗");
+            Prop(_profileSO, "logListenRawUdp",  "訂閱 UDP 原始座標（校準用）");
+            Prop(_profileSO, "logListenSensorBus","訂閱 SensorBus 格子座標");
+            Prop(_profileSO, "logToggleKey",     "切換視窗按鍵（預設 F9）");
+            EditorGUI.indentLevel--;
+        }
+
+        // 虛擬格
+        _foldCommonVCell = EditorGUILayout.Foldout(_foldCommonVCell, "  虛擬格（VirtualCellManager）", true);
+        if (_foldCommonVCell)
+        {
+            EditorGUI.indentLevel++;
+            Prop(_profileSO, "pollingIntervalMs",
+                "硬體輪詢間隔（ms）；超過 2× 此值無觸碰視為離手（預設 100）");
+            EditorGUI.indentLevel--;
+        }
+
+        // 點擊模擬進階
+        _foldCommonClick = EditorGUILayout.Foldout(_foldCommonClick, "  點擊模擬進階（SensorClickSimulator）", true);
+        if (_foldCommonClick)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.LabelField("外送 UDP", EditorStyles.boldLabel);
+            Prop(_profileSO, "clickExternalEnabled", "同時轉發 UDP 座標給外部程式");
+            Prop(_profileSO, "clickExternalIP",      "外部程式 IP（預設 127.0.0.1）");
+            Prop(_profileSO, "clickExternalPort",    "外部程式 Port（預設 20002）");
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField("滑鼠模式進階（ClickMode = Mouse 時生效）", EditorStyles.boldLabel);
+            Prop(_profileSO, "clickPressHoldDuration", "按壓按住秒數（預設 0.3）");
+            Prop(_profileSO, "clickDragReleaseDelay",  "拖曳放開延遲（預設 0.5）");
+            EditorGUI.indentLevel--;
+        }
+
+        // ── 套用按鈕 ─────────────────────────────────────────────────────────
+        EditorGUILayout.Space(8);
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("▶ 套用到目前場景", ApplyButtonStyle, GUILayout.Height(28)))
+            ApplyProfileToCurrentScene(_profile);
+        if (GUILayout.Button("設為 Build 啟用場景"))
+            ApplyBuildSceneProfile(_profile);
+        EditorGUILayout.EndHorizontal();
+
         EndSection();
     }
 
-    // ── 各區段 ────────────────────────────────────────────────────────────────
-
-    void DrawUdpSection()
-    {
-        if (!BeginSection("感應接收 / UDP", ref _foldUdp)) return;
-
-        if (!HasComponent(_udp, "UdpSensorReceiver")) { EndSection(); return; }
-
-        Prop(_udpSO, "listenPort",       "監聽 Port（預設 20001）");
-        Prop(_udpSO, "debugLog",         "封包 Debug Log（建議關閉，效能影響大）");
-        Prop(_udpSO, "maxPointsPerFrame","每幀最多消化點數（預設 32）");
-        Prop(_udpSO, "maxQueueSize",     "背景佇列上限（預設 256，超過丟棄）");
-
-        EndSection();
-    }
+    // ── 場域預設 ─────────────────────────────────────────────────────────────
 
     void DrawVenueSection()
     {
-        if (!BeginSection("場域預設", ref _foldVenue)) return;
+        if (!BeginSection("場域預設（VenuePresetConfig）", ref _foldVenue)) return;
 
         if (!HasComponent(_stm, "SensorTestManager")) { EndSection(); return; }
 
         Prop(_stmSO, "showPresetSelector", "顯示場域切換按鈕 ◀/▶（多場域時開啟）");
-
         EditorGUILayout.Space(4);
 
         if (_presetSOs.Count == 0)
@@ -483,6 +525,8 @@ public class NangangSetupWindow : EditorWindow
 
         EndSection();
     }
+
+    // ── 遊戲場景（Build Settings 檢查）──────────────────────────────────────
 
     void DrawSceneSection()
     {
@@ -515,132 +559,8 @@ public class NangangSetupWindow : EditorWindow
         EndSection();
     }
 
-    void DrawDisplaySection()
-    {
-        if (!BeginSection("顯示設定", ref _foldDisplay)) return;
-
-        if (!HasComponent(_stm, "SensorTestManager")) { EndSection(); return; }
-
-        Prop(_stmSO, "_gameTileVisible", "初始晶片示意（Display 2）開啟");
-
-        // display2WindowOffsetX、activeDuration、overlayAlpha 統一由設定檔管理，勿直接編輯
-        int curD2X = _stm != null ? _stm.display2WindowOffsetX : 1920;
-        using (new EditorGUI.DisabledScope(true))
-            EditorGUILayout.IntField(new GUIContent(
-                "Display 2 X（唯讀，由設定檔控制）",
-                "請在「場景設定檔」的 display2X 修改，再按「套用到目前場景」。"),
-                curD2X);
-
-        EditorGUILayout.HelpBox(
-            "Display 2 X/Y、晶片亮起時間、疊加透明度，請在「場景設定檔」區段統一設定後按「套用」。",
-            MessageType.None);
-
-        EndSection();
-    }
-
-    void DrawLogSection()
-    {
-        if (!BeginSection("觸碰日誌（TouchDebugLogger）", ref _foldLog)) return;
-
-        if (!HasComponent(_logger, "TouchDebugLogger")) { EndSection(); return; }
-
-        Prop(_loggerSO, "showWindow",       "初始顯示 Log 視窗");
-        Prop(_loggerSO, "toggleKey",        "切換視窗按鍵（預設 F9）");
-        EditorGUILayout.Space(2);
-        Prop(_loggerSO, "listenRawUdp",    "訂閱 UDP 原始座標（校準 rawMin/Max 用）");
-        Prop(_loggerSO, "listenSensorBus", "訂閱 SensorBus 格子座標（正常使用時開啟）");
-
-        EndSection();
-    }
-
-    void DrawVCellSection()
-    {
-        if (!BeginSection("虛擬格（VirtualCellManager）", ref _foldVCell)) return;
-
-        if (_vcell == null)
-        {
-            EditorGUILayout.HelpBox(
-                "VirtualCellManager 未掛載於場景中。\n" +
-                "若需虛擬格功能，請在 SensorTestManager 的 GameObject 上加入此元件，\n" +
-                "並在各 VenuePresetConfig 的「虛擬格模式」選擇 Size32 / Size64。",
-                MessageType.Info);
-            EndSection();
-            return;
-        }
-
-        Prop(_vcellSO, "pollingIntervalMs",
-            "硬體輪詢間隔（ms）\n超過 2× 此值無觸碰 = 離手（預設 100ms）");
-
-        EndSection();
-    }
-
-    void DrawBridgeSection()
-    {
-        if (!BeginSection("感應橋接（SensorBridgeToPassPosition）", ref _foldBridge)) return;
-
-        if (_bridge == null)
-        {
-            EditorGUILayout.HelpBox(
-                "SensorBridgeToPassPosition 未在場景中找到。若遊戲場景使用水波 VFX，此元件需存在並正確設定。",
-                MessageType.Info);
-            EndSection();
-            return;
-        }
-
-        EditorGUILayout.HelpBox("格子解析度需與 SensorTestManager 場域一致。", MessageType.None);
-        Prop(_bridgeSO, "gridCols",     "格子欄數（colCount，預設 128）");
-        Prop(_bridgeSO, "gridRows",     "格子列數（rowCount，預設 24）");
-        Prop(_bridgeSO, "displayWidth", "Display 2 寬度（px，預設 2048）");
-        Prop(_bridgeSO, "displayHeight","Display 2 高度（px，預設 768）");
-        EditorGUILayout.Space(2);
-        Prop(_bridgeSO, "touchTimeout",           "離手逾時（秒）");
-        Prop(_bridgeSO, "matchRadiusCells",       "配對半徑（格子單位）");
-        Prop(_bridgeSO, "releaseHoldSeconds","按壓結束淡出（秒）");
-
-        EndSection();
-    }
-
-    void DrawClickSection()
-    {
-        if (!BeginSection("點擊模擬（SensorClickSimulator）進階設定", ref _foldClick)) return;
-
-        if (!HasComponent(_clickSim, "SensorClickSimulator")) { EndSection(); return; }
-
-        // ── 唯讀：顯示目前生效值（由設定檔控制，不在此處直接修改）──────────────
-        EditorGUILayout.HelpBox(
-            "點擊模式 / 冷卻 請在「場景設定檔」區段設定，按「套用」後才會生效。",
-            MessageType.None);
-
-        string modeLabel = _clickSim != null ? _clickSim.ModeLabel : "—";
-        using (new EditorGUI.DisabledScope(true))
-        {
-            EditorGUILayout.TextField(
-                new GUIContent("目前點擊模式（唯讀）", "在「場景設定檔」的 clickMode 修改。"),
-                modeLabel);
-            EditorGUILayout.Toggle(
-                new GUIContent("目前冷卻啟用（唯讀）", "由 disableClickCooldown 控制。"),
-                _clickSim != null && _clickSim.cooldownEnabled);
-        }
-
-        EditorGUILayout.Space(4);
-
-        // ── 進階設定（不在設定檔中，可直接編輯）────────────────────────────────
-        EditorGUILayout.LabelField("外送 UDP（進階）", EditorStyles.boldLabel);
-        Prop(_clickSimSO, "externalEnabled", "同時轉發 UDP 座標給外部程式");
-        Prop(_clickSimSO, "externalIP",      "外部程式 IP");
-        Prop(_clickSimSO, "externalPort",    "外部程式 Port（預設 20002）");
-
-        EditorGUILayout.Space(2);
-        EditorGUILayout.LabelField("滑鼠模式進階（ClickMode = Mouse 時生效）", EditorStyles.boldLabel);
-        Prop(_clickSimSO, "pressHoldDuration", "按壓按住秒數（預設 0.3）");
-        Prop(_clickSimSO, "dragReleaseDelay",  "拖曳放開延遲（預設 0.5）");
-
-        EndSection();
-    }
-
     // ── 共用工具 ──────────────────────────────────────────────────────────────
 
-    /// <summary>折疊區段標頭。回傳 true 代表展開，須呼叫 EndSection()。</summary>
     static bool BeginSection(string label, ref bool foldout)
     {
         EditorGUILayout.Space(2);
@@ -651,7 +571,6 @@ public class NangangSetupWindow : EditorWindow
 
     static void EndSection() => EditorGUILayout.EndFoldoutHeaderGroup();
 
-    /// <summary>元件不存在時顯示警告並回傳 false。</summary>
     static bool HasComponent(Object obj, string typeName)
     {
         if (obj != null) return true;
@@ -659,7 +578,6 @@ public class NangangSetupWindow : EditorWindow
         return false;
     }
 
-    /// <summary>顯示單一 SerializedProperty。找不到欄位時顯示警告。</summary>
     static void Prop(SerializedObject so, string propName, string label)
     {
         if (so == null) return;
@@ -670,6 +588,8 @@ public class NangangSetupWindow : EditorWindow
             EditorGUILayout.HelpBox($"找不到序列化欄位：{propName}（可能已改名）", MessageType.Warning);
     }
 
+    // ── 套用設定檔到場景 ──────────────────────────────────────────────────────
+
     void ApplyProfileToCurrentScene(SceneInitialSettingsProfile profile)
     {
         if (profile == null) return;
@@ -679,13 +599,14 @@ public class NangangSetupWindow : EditorWindow
         Undo.SetCurrentGroupName("Apply Nangang scene initial settings");
         int undoGroup = Undo.GetCurrentGroup();
 
+        // SensorTestManager
         if (_stm != null)
         {
             Undo.RecordObject(_stm, "Apply scene profile");
-            _stm.gameSceneName          = profile.gameSceneName;
-            _stm.showPresetSelector     = profile.showPresetSelector;
-            _stm.activeDuration         = profile.activeDuration;
-            _stm.display2WindowOffsetX  = profile.display2X;    // Display 2 位置統一套用
+            _stm.gameSceneName         = profile.gameSceneName;
+            _stm.showPresetSelector    = profile.showPresetSelector;
+            _stm.activeDuration        = profile.activeDuration;
+            _stm.display2WindowOffsetX = profile.display2X;
             SetSerializedField(_stm, "_gameTileVisible",  profile.gameTileVisible);
             SetSerializedField(_stm, "showClickLogPanel", !(reduceCost && profile.hideClickLogPanel));
             _stm.showLogButton     = !(reduceCost && profile.hideDiagnosticLogButton);
@@ -697,26 +618,37 @@ public class NangangSetupWindow : EditorWindow
             EditorUtility.SetDirty(_stm);
         }
 
+        // UdpSensorReceiver
         if (_udp != null)
         {
             Undo.RecordObject(_udp, "Apply scene profile");
             _udp.debugLog          = !(reduceCost && profile.disableUdpDebugLog);
             _udp.maxPointsPerFrame = profile.maxPointsPerFrame;
+            _udp.listenPort        = profile.listenPort;
+            _udp.maxQueueSize      = profile.maxQueueSize;
             EditorUtility.SetDirty(_udp);
         }
 
+        // SensorClickSimulator
         if (_clickSim != null)
         {
             Undo.RecordObject(_clickSim, "Apply scene profile");
             _clickSim.debugLog        = !(reduceCost && profile.disableClickDebugLog);
             _clickSim.cooldownEnabled = !(reduceCost && profile.disableClickCooldown);
             _clickSim.clickCooldown   = profile.clickCooldown;
-            SetSerializedField(_clickSim, "_mode",          (int)profile.clickMode);
-            SetSerializedField(_clickSim, "display2OffsetX", profile.display2X);   // Display 2 位置統一套用
-            SetSerializedField(_clickSim, "display2OffsetY", profile.display2Y);
             EditorUtility.SetDirty(_clickSim);
+            // Private / serialized-only fields
+            SetSerializedField(_clickSim, "_mode",              (int)profile.clickMode);
+            SetSerializedField(_clickSim, "display2OffsetX",    profile.display2X);
+            SetSerializedField(_clickSim, "display2OffsetY",    profile.display2Y);
+            SetSerializedField(_clickSim, "externalEnabled",    profile.clickExternalEnabled);
+            SetSerializedField(_clickSim, "externalIP",         profile.clickExternalIP);
+            SetSerializedField(_clickSim, "externalPort",       profile.clickExternalPort);
+            SetSerializedField(_clickSim, "pressHoldDuration",  profile.clickPressHoldDuration);
+            SetSerializedField(_clickSim, "dragReleaseDelay",   profile.clickDragReleaseDelay);
         }
 
+        // ConsoleGameOverlay
         if (_overlay != null)
         {
             Undo.RecordObject(_overlay, "Apply scene profile");
@@ -724,19 +656,25 @@ public class NangangSetupWindow : EditorWindow
             EditorUtility.SetDirty(_overlay);
         }
 
+        // Display2ScreenCapture
         if (_display2Capture != null)
-            SetObjectActive(_display2Capture.gameObject, !(reduceCost && profile.disableDisplay2ScreenCapture));
+            SetObjectActive(_display2Capture.gameObject,
+                !(reduceCost && profile.disableDisplay2ScreenCapture));
 
+        // TouchDebugLogger
         if (_logger != null)
         {
             Undo.RecordObject(_logger, "Apply scene profile");
-            _logger.listenRawUdp = !(reduceCost && profile.disableTouchDebugLogger);
-            _logger.listenSensorBus = !(reduceCost && profile.disableTouchDebugLogger);
-            _logger.showWindow = false;
-            _logger.enabled = !(reduceCost && profile.disableTouchDebugLogger);
+            bool logEnabled      = !(reduceCost && profile.disableTouchDebugLogger);
+            _logger.enabled      = logEnabled;
+            _logger.showWindow   = logEnabled && profile.logShowWindow;
+            _logger.listenRawUdp  = logEnabled && profile.logListenRawUdp;
+            _logger.listenSensorBus = logEnabled && profile.logListenSensorBus;
+            _logger.toggleKey    = profile.logToggleKey;
             EditorUtility.SetDirty(_logger);
         }
 
+        // CoordTestPanel
         if (_coordTestPanel != null)
         {
             Undo.RecordObject(_coordTestPanel, "Apply scene profile");
@@ -744,6 +682,7 @@ public class NangangSetupWindow : EditorWindow
             EditorUtility.SetDirty(_coordTestPanel);
         }
 
+        // GameConsole
         if (_gameConsole != null)
         {
             Undo.RecordObject(_gameConsole, "Apply scene profile");
@@ -751,11 +690,35 @@ public class NangangSetupWindow : EditorWindow
             EditorUtility.SetDirty(_gameConsole);
         }
 
+        // Log 物件整體停用
         if (reduceCost && profile.disableRuntimeLogObject)
         {
-            if (_logger != null) SetObjectActive(_logger.gameObject, false);
+            if (_logger != null)         SetObjectActive(_logger.gameObject, false);
             else if (_coordTestPanel != null) SetObjectActive(_coordTestPanel.gameObject, false);
-            else if (_gameConsole != null) SetObjectActive(_gameConsole.gameObject, false);
+            else if (_gameConsole != null)    SetObjectActive(_gameConsole.gameObject, false);
+        }
+
+        // SensorBridgeToPassPosition
+        if (_bridge != null)
+        {
+            Undo.RecordObject(_bridge, "Apply scene profile");
+            _bridge.gridCols             = profile.bridgeGridCols;
+            _bridge.gridRows             = profile.bridgeGridRows;
+            _bridge.displayWidth         = profile.bridgeDisplayWidth;
+            _bridge.displayHeight        = profile.bridgeDisplayHeight;
+            _bridge.touchTimeout         = profile.bridgeTouchTimeout;
+            _bridge.matchRadiusCells     = profile.bridgeMatchRadiusCells;
+            _bridge.releaseHoldSeconds   = profile.bridgeReleaseHoldSeconds;
+            _bridge.positionSmoothSpeed  = profile.bridgePositionSmoothSpeed;
+            EditorUtility.SetDirty(_bridge);
+        }
+
+        // VirtualCellManager
+        if (_vcell != null)
+        {
+            Undo.RecordObject(_vcell, "Apply scene profile");
+            SetSerializedField(_vcell, "pollingIntervalMs", profile.pollingIntervalMs);
+            EditorUtility.SetDirty(_vcell);
         }
 
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
@@ -780,7 +743,6 @@ public class NangangSetupWindow : EditorWindow
                 scenes.Add(new EditorBuildSettingsScene(scene.path, true));
                 continue;
             }
-
             bool enabled = scene.path == profile.sensorScenePath;
             if (enabled) foundSensor = true;
             scenes.Add(new EditorBuildSettingsScene(scene.path, enabled));
@@ -798,6 +760,8 @@ public class NangangSetupWindow : EditorWindow
 
         EditorBuildSettings.scenes = scenes.ToArray();
     }
+
+    // ── SetSerializedField 多型 ────────────────────────────────────────────────
 
     static void SetObjectActive(GameObject go, bool active)
     {
@@ -830,6 +794,26 @@ public class NangangSetupWindow : EditorWindow
         so.ApplyModifiedProperties();
     }
 
+    static void SetSerializedField(Object target, string propName, float value)
+    {
+        if (target == null) return;
+        var so = new SerializedObject(target);
+        var prop = so.FindProperty(propName);
+        if (prop == null || prop.propertyType != SerializedPropertyType.Float) return;
+        prop.floatValue = value;
+        so.ApplyModifiedProperties();
+    }
+
+    static void SetSerializedField(Object target, string propName, string value)
+    {
+        if (target == null) return;
+        var so = new SerializedObject(target);
+        var prop = so.FindProperty(propName);
+        if (prop == null || prop.propertyType != SerializedPropertyType.String) return;
+        prop.stringValue = value;
+        so.ApplyModifiedProperties();
+    }
+
     static string FindScenePathByName(string sceneName)
     {
         if (string.IsNullOrEmpty(sceneName)) return null;
@@ -846,10 +830,7 @@ public class NangangSetupWindow : EditorWindow
     static bool IsSceneInBuild(string sceneName)
     {
         foreach (var s in EditorBuildSettings.scenes)
-        {
-            if (Path.GetFileNameWithoutExtension(s.path) == sceneName)
-                return true;
-        }
+            if (Path.GetFileNameWithoutExtension(s.path) == sceneName) return true;
         return false;
     }
 }

@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4a6a8d309d7a4d158f0c15c645192a13, type: 3}
+  m_Name: Sensor_704_2688x3840
+  m_EditorClassIdentifier: 
+  profileName: 704 Sensor 2688x3840
+  sensorScenePath: Assets/Scenes/sensor_2688x3840.unity
+  gameSceneName: 
+  showPresetSelector: 1
+  gameTileVisible: 0
+  activeDuration: 0.5
+  overlayAlpha: 0.528
+  display2X: 1920
+  display2Y: 0
+  lowerPerformanceCost: 1
+  disableDisplay2ScreenCapture: 1
+  disableRuntimeLogObject: 1
+  disableTouchDebugLogger: 1
+  disableCoordTestPanel: 1
+  disableGameConsole: 1
+  hideClickLogPanel: 1
+  hideDiagnosticLogButton: 1
+  disableUdpDebugLog: 1
+  disableClickDebugLog: 1
+  disableGhostTouchFilter: 1
+  disableClickCooldown: 1
+  maxPointsPerFrame: 64
+  ghostTouchMode: 0
+  tapBoundaryMs: 200
+  touchEndTimeoutMs: 220
+  clickMode: 1
+  clickCooldown: 0.1
