@@ -169,6 +169,8 @@ public class UdpSensorReceiver : MonoBehaviour
                 int offset = 5 + i * 4;
                 int x = (data[offset]     << 8) | data[offset + 1];
                 int y = (data[offset + 2] << 8) | data[offset + 3];
+                // 鎖定格子的訊號在背景執行緒就丟棄，不進佇列、不消耗 maxPointsPerFrame 配額
+                if (SensorTestManager.Instance?.IsRawPixelLocked(x, y) == true) continue;
                 _pending.Enqueue(new Vector2Int(x, y));
 
                 if (debugLog) Debug.Log($"[UDP] 點[{i}] X={x} Y={y}");

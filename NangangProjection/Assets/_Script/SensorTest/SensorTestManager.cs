@@ -57,12 +57,23 @@ public partial class SensorTestManager : MonoBehaviour
         public int              lockedCount;
     }
 
+    // 執行緒安全鎖定快照：ParsePacket 背景執行緒用此在入佇列前過濾敏感晶片訊號。
+    // volatile 參考 + 不可變內容 = 無需 lock 的 publish-immutable-state 模式。
+    sealed class LockedSnapshot
+    {
+        public readonly SensorFaceConfig[] configs;
+        public readonly bool[][]           locked;
+        public LockedSnapshot(SensorFaceConfig[] c, bool[][] l) { configs = c; locked = l; }
+    }
+
     public static SensorTestManager Instance { get; private set; }
 
     int                  _presetIdx;
     DisplayCanvasConfig  _canvasConfig;
     bool                 _rotateDisplay90;
     List<FaceData>       _faces = new List<FaceData>();
+    volatile LockedSnapshot _lockedSnapshot;
+    bool                 _snapshotDirty;
 
     // key = faceIdx * 100000 + cellIdx；value = 1 秒滑動窗口的觸發時間戳
     readonly Dictionary<int, Queue<float>> _cellHitTimes = new Dictionary<int, Queue<float>>();
@@ -337,6 +348,7 @@ public partial class SensorTestManager : MonoBehaviour
             };
             _faces.Add(fd);
         }
+        RebuildLockedSnapshot();   // 場域切換後以新面資料建立乾淨快照
     }
 
     void DestroyGridTiles()
@@ -433,6 +445,45 @@ public partial class SensorTestManager : MonoBehaviour
         UpdateSmartTouch(bestFace, cellIdx);
     }
 
+    // ── 鎖定快照（執行緒安全，供 UDP 背景執行緒過濾）────────────────────────
+
+    /// <summary>
+    /// 從主執行緒的鎖定狀態建立不可變快照並原子發佈。
+    /// 呼叫後背景執行緒下一個封包即生效。
+    /// </summary>
+    void RebuildLockedSnapshot()
+    {
+        int n = _faces.Count;
+        var configs = new SensorFaceConfig[n];
+        var locked  = new bool[n][];
+        for (int f = 0; f < n; f++)
+        {
+            configs[f] = _faces[f].config;
+            locked[f]  = (bool[])_faces[f].locked.Clone();
+        }
+        _lockedSnapshot = new LockedSnapshot(configs, locked);
+    }
+
+    /// <summary>
+    /// 背景執行緒安全：判斷 (rawX, rawY) 是否對應鎖定格子。
+    /// 使用 volatile 快照，O(face 數) 查詢，無需 lock。
+    /// </summary>
+    public bool IsRawPixelLocked(int rawX, int rawY)
+    {
+        var snap = _lockedSnapshot;
+        if (snap == null) return false;
+        for (int f = 0; f < snap.configs.Length; f++)
+        {
+            var cfg = snap.configs[f];
+            if (!cfg.ContainsRaw(rawX, rawY)) continue;
+            var (px, py) = cfg.RawToPixel(rawX, rawY);
+            var (col, row) = cfg.PixelToCell(px, py);
+            int idx = row * cfg.colCount + col;
+            return idx < snap.locked[f].Length && snap.locked[f][idx];
+        }
+        return false;
+    }
+
     // ── 觸發 / 鎖定 ──────────────────────────────────────────────────────────
 
     void ActivateCell(int faceIdx, int cellIdx, bool skipVisual = false)
@@ -443,6 +494,7 @@ public partial class SensorTestManager : MonoBehaviour
             fd.locked[cellIdx] = true;
             fd.lockedCount++;
             _tileGrid?.SetLocked(faceIdx, cellIdx, true);
+            _snapshotDirty = true;   // Update() 統一重建，避免每次觸碰都 clone 陣列
             return;
         }
         if (fd.locked[cellIdx]) return;
@@ -501,6 +553,7 @@ public partial class SensorTestManager : MonoBehaviour
         Debug.Log($"[SensorTest] face={faceIdx} #{idx + 1} ({col},{row}) " +
                   $"{(fd.locked[idx] ? "鎖定" : "解鎖")} | 共鎖定 {TotalLocked} 格");
         SetStatusIdle();
+        RebuildLockedSnapshot();   // 手動鎖定立即生效，下一個 UDP 封包即過濾
     }
 
     void OnLeftClick(int faceIdx, int cellIdx) => ActivateCell(faceIdx, cellIdx);
@@ -631,6 +684,13 @@ public partial class SensorTestManager : MonoBehaviour
         {
             _cellHitCleanTimer = 0f;
             CleanCellHitTimes();
+        }
+
+        // 智慧鎖格批次更新快照（避免每次觸碰都 clone 陣列）
+        if (_snapshotDirty)
+        {
+            _snapshotDirty = false;
+            RebuildLockedSnapshot();
         }
     }
 
@@ -835,6 +895,7 @@ public partial class SensorTestManager : MonoBehaviour
         _vcellManager?.UnlockAllVCells();
         SetStatusIdle();
         Debug.Log("[SensorTest] 解除全部鎖定");
+        RebuildLockedSnapshot();   // 全部解鎖：清空快照，背景執行緒不再過濾任何訊號
     }
 
     void OnTileHover(int faceIdx, int col, int row, int idx, bool locked)
