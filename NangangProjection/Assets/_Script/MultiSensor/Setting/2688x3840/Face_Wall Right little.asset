@@ -24,5 +24,5 @@ MonoBehaviour:
   rawMaxX: 4592
   rawMinY: 2440
   rawMaxY: 2680
-  flipX: 1
-  flipY: 1
+  flipX: 0
+  flipY: 0
