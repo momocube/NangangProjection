@@ -87,12 +87,6 @@ public class SceneInitialSettingsProfile : ScriptableObject
     public int pollingIntervalMs = 100;
 
     [Header("場域通用 / 點擊模擬進階（SensorClickSimulator）")]
-    [Tooltip("同時轉發 UDP 座標給外部程式。")]
-    public bool clickExternalEnabled = false;
-    [Tooltip("外部程式 IP（預設 127.0.0.1）。")]
-    public string clickExternalIP = "127.0.0.1";
-    [Tooltip("外部程式 Port（預設 20002）。")]
-    public int clickExternalPort = 20002;
     [Tooltip("滑鼠模式：按壓按住秒數（預設 0.3）。")]
     public float clickPressHoldDuration = 0.3f;
     [Tooltip("滑鼠模式：拖曳放開延遲秒數（預設 0.5）。")]

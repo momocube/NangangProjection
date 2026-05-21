@@ -1,15 +1,12 @@
 using System.Collections;
-using System.Net;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Text;
 using UnityEngine;
 
 /// <summary>
 /// 感應觸碰 → Display 2 點擊事件。
 /// 訂閱 SensorBus.OnTouch（已通過鎖定檢查），支援三種主模式：
 ///
-///   監聽       — 走 SensorBus 廣播；若 externalEnabled=true 同時送 UDP
+///   監聽       — 只走 SensorBus 廣播，不發 OS 事件
 ///   PostMessage — 直送目標視窗訊息，游標不動
 ///   滑鼠       — SendInput 模擬，子行為由 mouseBehavior 決定（點擊／按壓／拖曳）
 /// </summary>
@@ -21,12 +18,6 @@ public class SensorClickSimulator : MonoBehaviour
     [Header("Display 2 在 Windows 桌面的起始位置")]
     public int display2OffsetX = 1920;
     public int display2OffsetY = 0;
-
-    [Header("監聽模式")]
-    [Tooltip("開啟後在監聽模式同時送出 UDP 座標。")]
-    public bool   externalEnabled = false;
-    public string externalIP      = "127.0.0.1";
-    public int    externalPort    = 20002;
 
     [Header("點擊冷卻（監聽 / PostMessage / 滑鼠·點擊 有效）")]
     public bool  cooldownEnabled = true;
@@ -59,9 +50,7 @@ public class SensorClickSimulator : MonoBehaviour
     const int CellW = 16;
     const int CellH = 32;
 
-    float     _lastClickTime = float.NegativeInfinity;
-    UdpClient _udp;
-    IPEndPoint _udpEndpoint;
+    float _lastClickTime = float.NegativeInfinity;
 
     // 按壓 / 拖曳狀態
     Coroutine _pressCoroutine;
@@ -118,8 +107,6 @@ public class SensorClickSimulator : MonoBehaviour
 
     void OnEnable()
     {
-        _udp         = new UdpClient();
-        _udpEndpoint = new IPEndPoint(IPAddress.Parse(externalIP), externalPort);
         SensorBus.OnTouch      -= OnTouch;
         SensorBus.OnTouch      += OnTouch;
         SensorBus.OnTap        -= OnSmartTap;
@@ -139,8 +126,6 @@ public class SensorClickSimulator : MonoBehaviour
         SensorBus.OnPressStart -= OnSmartPressStart;
         SensorBus.OnPressEnd   -= OnSmartPressEnd;
         SensorBus.OnDrag       -= OnSmartDrag;
-        _udp?.Close();
-        _udp = null;
 
         if (_isDragging)
         {
@@ -168,7 +153,6 @@ public class SensorClickSimulator : MonoBehaviour
                 if (!CheckCooldown()) return;
                 if (debugLog) Debug.Log($"[SensorClick] 監聽 格({col},{row})");
                 OnSimEvent?.Invoke($"監聽  格({col},{row})");
-                if (externalEnabled) ExternalUdpSend(col, row);
                 break;
 
             case ClickMode.PostMessage:
@@ -439,24 +423,6 @@ public class SensorClickSimulator : MonoBehaviour
         _dragReleaseCoroutine = null;
     }
 
-    // ── External UDP ──────────────────────────────────────────────────────────
-
-    void ExternalUdpSend(int col, int row)
-    {
-        if (_udp == null) return;
-        string json  = $"{{\"col\":{col},\"row\":{row}}}";
-        byte[] bytes = Encoding.UTF8.GetBytes(json);
-        try
-        {
-            _udp.Send(bytes, bytes.Length, _udpEndpoint);
-            if (debugLog) Debug.Log($"[SensorClick] UDP 外送 格({col},{row}) → {externalIP}:{externalPort}");
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogWarning($"[SensorClick] UDP 外送失敗: {e.Message}");
-        }
-    }
-
     // ── 智慧觸碰事件（由 SensorBus.OnTap / OnPressStart / OnPressEnd 觸發）────
 
     void OnSmartTap(int col, int row)
@@ -471,7 +437,6 @@ public class SensorClickSimulator : MonoBehaviour
                 if (!CheckCooldown()) return;
                 if (debugLog) Debug.Log($"[SensorClick] 智慧·輕觸 監聽 格({col},{row})");
                 OnSimEvent?.Invoke($"智慧·輕觸  監聽  格({col},{row})");
-                if (externalEnabled) ExternalUdpSend(col, row);
                 break;
             case ClickMode.PostMessage:
                 if (!CheckCooldown()) return;
@@ -587,7 +552,6 @@ public class SensorClickSimulator : MonoBehaviour
             {
                 if (debugLog) Debug.Log($"[SensorClick] 智慧·拖曳 監聽 格({col},{row})");
                 OnSimEvent?.Invoke($"智慧·拖曳  監聽  格({col},{row})");
-                if (externalEnabled) ExternalUdpSend(col, row);
                 break;
             }
         }
