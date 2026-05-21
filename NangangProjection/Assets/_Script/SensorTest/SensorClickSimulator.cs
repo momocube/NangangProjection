@@ -59,6 +59,10 @@ public class SensorClickSimulator : MonoBehaviour
     const int CellW = 16;
     const int CellH = 32;
 
+    // 固定標記：每個由本腳本發出的 SendInput 事件都帶此 dwExtraInfo，
+    // 供 Display1GraphicRaycaster 識別感應器合成事件，避免誤觸 Display 1 UI。
+    internal const long SensorInputExtraInfo = unchecked((long)0x4E4E4753524C4F4EL);
+
     float     _lastClickTime = float.NegativeInfinity;
     UdpClient _udp;
     IPEndPoint _udpEndpoint;
@@ -212,11 +216,8 @@ public class SensorClickSimulator : MonoBehaviour
     bool IsValidDisplay2Hwnd(System.IntPtr hwnd)
     {
         if (hwnd == System.IntPtr.Zero) return false;
-#if !UNITY_EDITOR
-        if (_knownDisplay2Hwnd != System.IntPtr.Zero && hwnd != _knownDisplay2Hwnd)
-            return false;
-#endif
-        return true;
+        if (_knownDisplay2Hwnd == System.IntPtr.Zero) return false;
+        return hwnd == _knownDisplay2Hwnd;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -327,6 +328,7 @@ public class SensorClickSimulator : MonoBehaviour
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        inputs[0].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
@@ -336,6 +338,8 @@ public class SensorClickSimulator : MonoBehaviour
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        inputs[0].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
+        Display1GraphicRaycaster.NotifySensorClick();
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
@@ -344,6 +348,7 @@ public class SensorClickSimulator : MonoBehaviour
         var inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        inputs[0].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
@@ -356,15 +361,19 @@ public class SensorClickSimulator : MonoBehaviour
         uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         var inputs = new INPUT[2];
 
+        var marker = new System.IntPtr(SensorInputExtraInfo);
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | flags;
+        inputs[0].u.mi.dwExtraInfo = marker;
 
         inputs[1].type = INPUT_MOUSE;
         inputs[1].u.mi.dx = normX; inputs[1].u.mi.dy = normY;
         inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | flags;
+        inputs[1].u.mi.dwExtraInfo = marker;
 
 
+        Display1GraphicRaycaster.NotifySensorClick();
         uint sent = SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
         LastSendInputTime = Time.realtimeSinceStartup;
         if (sent != 2)
