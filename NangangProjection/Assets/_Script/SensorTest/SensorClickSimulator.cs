@@ -139,10 +139,42 @@ public class SensorClickSimulator : MonoBehaviour
         }
     }
 
+    void Update()
+    {
+        // F12 = 安全停止：強制切回監聽模式，立刻釋放任何按住的滑鼠
+        if (Input.GetKeyDown(KeyCode.F12))
+        {
+            if (_isDragging)        { SendMouseUp(); _isDragging = false; }
+            if (_smartPressStarted) { SendMouseUp(); _smartPressStarted = false; }
+            _mode = ClickMode.Listen;
+            Debug.Log("[SensorClick] F12 → 監聽模式（安全停止，OS 事件已暫停）");
+            OnSimEvent?.Invoke("F12  切換為  監聽（安全停止）");
+        }
+    }
+
+    /// <summary>
+    /// 操作者守衛：當 OS 游標目前不在 Display 2 範圍（= 操作者正在用 Display 1 控制台）時，
+    /// sensor 觸碰不再對外送 PostMessage / SendInput，避免游標被搶走、按鈕按不到。
+    /// 監聽模式不受影響（本來就不發 OS 事件）。
+    /// </summary>
+    bool IsCursorOutsideDisplay2(float canvasW, float canvasH)
+    {
+        GetCursorPos(out POINT p);
+        int d2L = display2OffsetX;
+        int d2T = display2OffsetY;
+        int d2R = display2OffsetX + Mathf.RoundToInt(canvasW);
+        int d2B = display2OffsetY + Mathf.RoundToInt(canvasH);
+        return p.x < d2L || p.x >= d2R || p.y < d2T || p.y >= d2B;
+    }
+
     // ── 觸碰處理 ──────────────────────────────────────────────────────────────
 
     void OnCanvasTouch(float x, float y, float canvasW, float canvasH)
     {
+        // 操作者守衛：游標在 Display 1 時，sensor 觸碰不發 OS 事件
+        if (_mode != ClickMode.Listen && IsCursorOutsideDisplay2(canvasW, canvasH))
+            return;
+
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
@@ -429,6 +461,7 @@ public class SensorClickSimulator : MonoBehaviour
     void OnSmartTap(float x, float y, float canvasW, float canvasH)
     {
         if (!tapClickEnabled) return;
+        if (_mode != ClickMode.Listen && IsCursorOutsideDisplay2(canvasW, canvasH)) return;
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
@@ -456,6 +489,7 @@ public class SensorClickSimulator : MonoBehaviour
     void OnSmartPressStart(float x, float y, float canvasW, float canvasH)
     {
         if (!pressClickEnabled) return;
+        if (IsCursorOutsideDisplay2(canvasW, canvasH)) return;
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
@@ -528,6 +562,7 @@ public class SensorClickSimulator : MonoBehaviour
     void OnSmartDrag(float x, float y, float canvasW, float canvasH)
     {
         if (!dragClickEnabled) return;
+        if (_mode != ClickMode.Listen && IsCursorOutsideDisplay2(canvasW, canvasH)) return;
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
