@@ -152,27 +152,28 @@ public class SensorClickSimulator : MonoBehaviour
         }
     }
 
+    [Header("操作者守衛 — 場域鏡像區（Display 1 像素 Rect）")]
+    [Tooltip("游標『在此 Rect 內』時 sensor 觸碰才會送 OS 事件；在外（按鈕區、標題列等）= 不送，方便操作者按按鈕。預設：Display 1 扣掉頂部 220px 控制列。")]
+    public RectInt venueMirrorRect = new RectInt(0, 220, 1920, 860);
+
     /// <summary>
-    /// 操作者守衛：當 OS 游標目前不在 Display 2 範圍（= 操作者正在用 Display 1 控制台）時，
-    /// sensor 觸碰不再對外送 PostMessage / SendInput，避免游標被搶走、按鈕按不到。
+    /// 操作者守衛：游標是否在「場域鏡像顯示區」內。
+    /// 在 → 允許注入；不在（按鈕區、標題列、Display 2…）→ 不注入。
     /// 監聽模式不受影響（本來就不發 OS 事件）。
     /// </summary>
-    bool IsCursorOutsideDisplay2(float canvasW, float canvasH)
+    bool IsCursorInVenueMirror()
     {
         GetCursorPos(out POINT p);
-        int d2L = display2OffsetX;
-        int d2T = display2OffsetY;
-        int d2R = display2OffsetX + Mathf.RoundToInt(canvasW);
-        int d2B = display2OffsetY + Mathf.RoundToInt(canvasH);
-        return p.x < d2L || p.x >= d2R || p.y < d2T || p.y >= d2B;
+        return p.x >= venueMirrorRect.xMin && p.x < venueMirrorRect.xMax
+            && p.y >= venueMirrorRect.yMin && p.y < venueMirrorRect.yMax;
     }
 
     // ── 觸碰處理 ──────────────────────────────────────────────────────────────
 
     void OnCanvasTouch(float x, float y, float canvasW, float canvasH)
     {
-        // 操作者守衛：游標在 Display 1 時，sensor 觸碰不發 OS 事件
-        if (_mode != ClickMode.Listen && IsCursorOutsideDisplay2(canvasW, canvasH))
+        // 操作者守衛：只有游標在「場域鏡像區」內才送 OS 事件
+        if (_mode != ClickMode.Listen && !IsCursorInVenueMirror())
             return;
 
         int cx = Mathf.RoundToInt(x);
@@ -461,7 +462,7 @@ public class SensorClickSimulator : MonoBehaviour
     void OnSmartTap(float x, float y, float canvasW, float canvasH)
     {
         if (!tapClickEnabled) return;
-        if (_mode != ClickMode.Listen && IsCursorOutsideDisplay2(canvasW, canvasH)) return;
+        if (_mode != ClickMode.Listen && !IsCursorInVenueMirror()) return;
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
@@ -489,7 +490,7 @@ public class SensorClickSimulator : MonoBehaviour
     void OnSmartPressStart(float x, float y, float canvasW, float canvasH)
     {
         if (!pressClickEnabled) return;
-        if (IsCursorOutsideDisplay2(canvasW, canvasH)) return;
+        if (!IsCursorInVenueMirror()) return;
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
@@ -562,7 +563,7 @@ public class SensorClickSimulator : MonoBehaviour
     void OnSmartDrag(float x, float y, float canvasW, float canvasH)
     {
         if (!dragClickEnabled) return;
-        if (_mode != ClickMode.Listen && IsCursorOutsideDisplay2(canvasW, canvasH)) return;
+        if (_mode != ClickMode.Listen && !IsCursorInVenueMirror()) return;
         int cx = Mathf.RoundToInt(x);
         int cy = Mathf.RoundToInt(y);
         int absX = display2OffsetX + cx;
