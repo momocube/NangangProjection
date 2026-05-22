@@ -139,16 +139,35 @@ public class SensorClickSimulator : MonoBehaviour
         }
     }
 
+    // 安全停止熱鍵：全域偵測（不需 Unity 視窗焦點，Electron 在前景也有效）
+    // F12 = 安全停止（VK_F12 = 0x7B）
+    // Pause/Break = 強制切回監聽（VK_PAUSE = 0x13，多數程式不會攔截）
+    const int VK_F12   = 0x7B;
+    const int VK_PAUSE = 0x13;
+    bool _f12WasDown;
+    bool _pauseWasDown;
+
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
+
     void Update()
     {
-        // F12 = 安全停止：強制切回監聽模式，立刻釋放任何按住的滑鼠
-        if (Input.GetKeyDown(KeyCode.F12))
+        // 使用 GetAsyncKeyState 做全域偵測（不需 Unity 視窗焦點）
+        bool f12Now   = (GetAsyncKeyState(VK_F12)   & 0x8000) != 0;
+        bool pauseNow = (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0;
+
+        bool f12Pressed   = f12Now   && !_f12WasDown;
+        bool pausePressed = pauseNow && !_pauseWasDown;
+        _f12WasDown   = f12Now;
+        _pauseWasDown = pauseNow;
+
+        if (f12Pressed || pausePressed)
         {
             if (_isDragging)        { SendMouseUp(); _isDragging = false; }
             if (_smartPressStarted) { SendMouseUp(); _smartPressStarted = false; }
             _mode = ClickMode.Listen;
-            Debug.Log("[SensorClick] F12 → 監聽模式（安全停止，OS 事件已暫停）");
-            OnSimEvent?.Invoke("F12  切換為  監聽（安全停止）");
+            string key = f12Pressed ? "F12" : "Pause/Break";
+            Debug.Log($"[SensorClick] {key} → 監聽模式（安全停止，OS 事件已暫停）");
+            OnSimEvent?.Invoke($"{key}  切換為  監聽（安全停止）");
         }
     }
 
