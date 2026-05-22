@@ -172,8 +172,8 @@ public class SensorClickSimulator : MonoBehaviour
     }
 
     [Header("操作者守衛 — 場域鏡像區（Display 1 像素 Rect）")]
-    [Tooltip("游標『在此 Rect 內』時 sensor 觸碰才會送 OS 事件；在外（按鈕區、標題列等）= 不送，方便操作者按按鈕。預設：Display 1 扣掉頂部 220px 控制列。")]
-    public RectInt venueMirrorRect = new RectInt(0, 220, 1920, 860);
+    [Tooltip("游標『在此 Rect 內』時 sensor 觸碰才會送 OS 事件；在外（標題列 0-58、底部 4 列按鈕 914-1080）= 不送，方便操作者按按鈕。預設對應 1920×1080 Display 1 的格子鏡像區。")]
+    public RectInt venueMirrorRect = new RectInt(0, 78, 1920, 836);
 
     /// <summary>
     /// 操作者守衛：游標是否在「場域鏡像顯示區」內。
