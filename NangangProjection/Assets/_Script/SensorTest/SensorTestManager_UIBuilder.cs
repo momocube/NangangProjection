@@ -178,26 +178,34 @@ public partial class SensorTestManager
 
     void BuildSensitivityBar(RectTransform parent, TMP_FontAsset font)
     {
-        // ── Section 1：感應冷卻 (0 → 0.33) ──────────────────────────────────────
+        // ── Section 1：感應冷卻 + 跳變模式 (0 → 0.33) ──────────────────────────────
         var cooldownLabel = CreatePanel(parent, "CooldownLabel", Color.clear,
-            new Vector2(0.000f, 0f), new Vector2(0.080f, 1f), Vector2.zero, Vector2.zero);
+            new Vector2(0.000f, 0f), new Vector2(0.060f, 1f), Vector2.zero, Vector2.zero);
         cooldownLabel.GetComponent<Image>().raycastTarget = false;
         AddText(cooldownLabel.transform, "LabelText", "感應冷卻",
             13, TextAlignmentOptions.MidlineRight, new Color(0.60f, 0.65f, 0.75f), font);
 
         _cooldownToggleBtnText =
-            CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.080f, 0.200f, font);
+            CreateButton(parent, "BtnCooldownToggle", "冷卻 ON", OnToggleCooldown, 0.060f, 0.160f, font);
         _cooldownToggleBtnImage = _cooldownToggleBtnText.transform.parent.GetComponent<Image>();
 
-        CreateButton(parent, "BtnCooldownDec", "-", OnDecreaseCooldown, 0.200f, 0.250f, font);
+        CreateButton(parent, "BtnCooldownDec", "-", OnDecreaseCooldown, 0.160f, 0.200f, font);
 
         var cooldownValPanel = CreatePanel(parent, "CooldownValue", new Color(0.10f, 0.12f, 0.16f),
-            new Vector2(0.250f, 0.1f), new Vector2(0.310f, 0.9f), Vector2.zero, Vector2.zero);
+            new Vector2(0.200f, 0.1f), new Vector2(0.265f, 0.9f), Vector2.zero, Vector2.zero);
         cooldownValPanel.GetComponent<Image>().raycastTarget = false;
         _cooldownText = AddText(cooldownValPanel.transform, "ValueText", "1.0 秒",
             14, TextAlignmentOptions.Midline, new Color(0.95f, 0.95f, 1.00f), font);
 
-        CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.310f, 0.330f, font);
+        CreateButton(parent, "BtnCooldownInc", "+", OnIncreaseCooldown, 0.265f, 0.285f, font);
+
+        var jumpDiv = CreatePanel(parent, "JumpModeDiv", new Color(0.30f, 0.32f, 0.40f),
+            new Vector2(0.286f, 0.1f), new Vector2(0.290f, 0.9f), Vector2.zero, Vector2.zero);
+        jumpDiv.GetComponent<Image>().raycastTarget = false;
+
+        _jumpModeBtnText =
+            CreateButton(parent, "BtnJumpMode", "跳變", OnToggleJumpMode, 0.291f, 0.333f, font);
+        _jumpModeBtnImage = _jumpModeBtnText.transform.parent.GetComponent<Image>();
 
         var div1 = CreatePanel(parent, "BarDivider1", new Color(0.30f, 0.32f, 0.40f),
             new Vector2(0.333f, 0.1f), new Vector2(0.340f, 0.9f), Vector2.zero, Vector2.zero);
@@ -255,6 +263,7 @@ public partial class SensorTestManager
 
         UpdateCooldownToggleButton();
         UpdateCooldownText();
+        UpdateJumpModeButton();
         UpdateOverlayAlphaText();
         UpdateDimAlphaText();
     }

@@ -81,6 +81,10 @@ public partial class SensorTestManager : MonoBehaviour
     readonly List<int> _staleHitKeys = new List<int>();
     readonly List<int> _staleChipTouchKeys = new List<int>();
 
+    // ── 跳變模式 ─────────────────────────────────────────────────────────────────
+    bool _jumpModeEnabled = false;
+    readonly HashSet<int> _jumpModeOccupied = new HashSet<int>();
+
     int TotalLocked    { get { int n = 0; foreach (var f in _faces) n += f.lockedCount; return n; } }
     int TotalCells     { get { int n = 0; foreach (var f in _faces) n += f.config.colCount * f.config.rowCount; return n; } }
 
@@ -106,6 +110,9 @@ public partial class SensorTestManager : MonoBehaviour
     TextMeshProUGUI  _cooldownText;
     TextMeshProUGUI  _cooldownToggleBtnText;
     Image _cooldownToggleBtnImage;
+
+    TextMeshProUGUI  _jumpModeBtnText;
+    Image            _jumpModeBtnImage;
 
     bool  _gridLineVisible      = true;
     TextMeshProUGUI  _gridLineBtnText;
@@ -360,6 +367,7 @@ public partial class SensorTestManager : MonoBehaviour
         _smartTouches.Clear();
         _cellHitTimes.Clear();
         _chipLastTouchTimes.Clear();
+        _jumpModeOccupied.Clear();
         _pendingCells.Clear();
         _faces.Clear();
     }
@@ -522,6 +530,14 @@ public partial class SensorTestManager : MonoBehaviour
             if (!shouldActivate) return;
 
             _tileGrid?.SetActive(faceIdx, cellIdx);
+        }
+
+        // 跳變模式：放在 skipVisual 判斷外，確保 UDP 路徑（skipVisual=true）也能被攔截
+        if (_jumpModeEnabled)
+        {
+            if (_jumpModeOccupied.Contains(key))
+                return;
+            _jumpModeOccupied.Add(key);
         }
 
         BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
@@ -1077,6 +1093,23 @@ public partial class SensorTestManager : MonoBehaviour
         float v  = _clickSim != null ? _clickSim.clickCooldown : 1f;
         _cooldownText.text  = $"{v:F1} 秒";
         _cooldownText.color = on ? new Color(0.95f, 0.95f, 1.00f) : new Color(0.40f, 0.40f, 0.42f);
+    }
+
+    void OnToggleJumpMode()
+    {
+        _jumpModeEnabled = !_jumpModeEnabled;
+        if (!_jumpModeEnabled) _jumpModeOccupied.Clear();
+        UpdateJumpModeButton();
+    }
+
+    void UpdateJumpModeButton()
+    {
+        if (_jumpModeBtnText == null) return;
+        _jumpModeBtnText.text = _jumpModeEnabled ? "跳變 ON" : "跳變";
+        if (_jumpModeBtnImage != null)
+            _jumpModeBtnImage.color = _jumpModeEnabled
+                ? new Color(0.15f, 0.35f, 0.20f)
+                : new Color(0.15f, 0.18f, 0.25f);
     }
 
     void OnDecreaseOverlayAlpha()

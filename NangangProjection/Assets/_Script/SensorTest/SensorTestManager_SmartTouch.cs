@@ -187,6 +187,7 @@ public partial class SensorTestManager
         {
             var st = _smartTouches[key];
             _smartTouches.Remove(key);
+            _jumpModeOccupied.Remove(key);   // 玩家抬腳，解鎖跳變
 
             if (st.faceIdx >= _faces.Count) continue;
 
