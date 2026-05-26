@@ -333,6 +333,17 @@ public partial class SensorTestManager
 
     void OnControlLeftDown(int fi, int ci)
     {
+        // 感應冷卻 debounce：gate 整個 down 事件（Touch + PressStart 都一起攔）
+        bool cooldownOn = _clickSim != null && _clickSim.cooldownEnabled;
+        float debounceS = cooldownOn ? _clickSim.clickCooldown : 0f;
+        if (debounceS > 0f)
+        {
+            int key = fi * 100000 + ci;
+            float now = Time.realtimeSinceStartup;
+            if (_chipLastTouchTimes.TryGetValue(key, out float lastT) && now - lastT <= debounceS)
+                return;
+            // 不在這裡更新時間戳——由 ActivateCell 的 if(!skipVisual) 統一負責
+        }
         OnLeftClick(fi, ci);
         OnMousePressStart(fi, ci);
     }

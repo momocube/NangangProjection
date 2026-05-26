@@ -821,8 +821,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   display2OffsetX: 1920
   display2OffsetY: 0
-  cooldownEnabled: 0
-  clickCooldown: 0.1
+  cooldownEnabled: 1
+  clickCooldown: 1
   tapClickEnabled: 1
   pressClickEnabled: 0
   dragClickEnabled: 0
@@ -831,6 +831,11 @@ MonoBehaviour:
   dragReleaseDelay: 0.5
   debugLog: 0
   _mode: 1
+  venueMirrorRect:
+    x: 0
+    y: 78
+    width: 1920
+    height: 836
 --- !u!4 &400500
 Transform:
   m_ObjectHideFlags: 0

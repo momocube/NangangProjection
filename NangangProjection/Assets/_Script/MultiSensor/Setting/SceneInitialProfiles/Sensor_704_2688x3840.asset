@@ -38,7 +38,7 @@ MonoBehaviour:
   tapBoundaryMs: 160
   touchEndTimeoutMs: 180
   clickMode: 1
-  clickCooldown: 0
+  clickCooldown: 1
   listenPort: 20001
   maxQueueSize: 256
   bridgeGridCols: 128
@@ -54,8 +54,5 @@ MonoBehaviour:
   logListenSensorBus: 0
   logToggleKey: 290
   pollingIntervalMs: 100
-  clickExternalEnabled: 0
-  clickExternalIP: 127.0.0.1
-  clickExternalPort: 20002
   clickPressHoldDuration: 0.3
   clickDragReleaseDelay: 0.5

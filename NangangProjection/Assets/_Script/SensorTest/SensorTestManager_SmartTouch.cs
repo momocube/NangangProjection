@@ -220,6 +220,18 @@ public partial class SensorTestManager
         var fd = _faces[faceIdx];
         if (fd.locked[cellIdx]) return;
 
+        // 感應冷卻 debounce：與物理滑鼠路徑共用同一個 _chipLastTouchTimes 字典
+        bool cooldownOn = _clickSim != null && _clickSim.cooldownEnabled;
+        float debounceS = cooldownOn ? _clickSim.clickCooldown : 0f;
+        if (debounceS > 0f)
+        {
+            int debounceKey = faceIdx * 100000 + cellIdx;
+            float nowR = Time.realtimeSinceStartup;
+            if (_chipLastTouchTimes.TryGetValue(debounceKey, out float lastT) && nowR - lastT <= debounceS)
+                return;
+            _chipLastTouchTimes[debounceKey] = nowR;
+        }
+
         // 輕觸：解算時閃一次紅燈
         _tileGrid?.SetActive(faceIdx, cellIdx);
 
