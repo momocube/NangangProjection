@@ -15,7 +15,7 @@ MonoBehaviour:
   profileName: 704 Sensor 2688x3840
   sensorScenePath: Assets/Scenes/sensor_2688x3840.unity
   gameSceneName: 
-  showPresetSelector: 1
+  showPresetSelector: 0
   gameTileVisible: 0
   activeDuration: 0.5
   overlayAlpha: 0.528
@@ -32,10 +32,30 @@ MonoBehaviour:
   disableUdpDebugLog: 1
   disableClickDebugLog: 1
   disableGhostTouchFilter: 1
-  disableClickCooldown: 1
+  disableClickCooldown: 0
   maxPointsPerFrame: 64
   ghostTouchMode: 0
-  tapBoundaryMs: 200
-  touchEndTimeoutMs: 220
+  tapBoundaryMs: 160
+  touchEndTimeoutMs: 180
   clickMode: 1
-  clickCooldown: 0.1
+  clickCooldown: 0
+  listenPort: 20001
+  maxQueueSize: 256
+  bridgeGridCols: 128
+  bridgeGridRows: 24
+  bridgeDisplayWidth: 2048
+  bridgeDisplayHeight: 768
+  bridgeTouchTimeout: 0.3
+  bridgeMatchRadiusCells: 3
+  bridgeReleaseHoldSeconds: 0.7
+  bridgePositionSmoothSpeed: 12
+  logShowWindow: 0
+  logListenRawUdp: 1
+  logListenSensorBus: 0
+  logToggleKey: 290
+  pollingIntervalMs: 100
+  clickExternalEnabled: 0
+  clickExternalIP: 127.0.0.1
+  clickExternalPort: 20002
+  clickPressHoldDuration: 0.3
+  clickDragReleaseDelay: 0.5

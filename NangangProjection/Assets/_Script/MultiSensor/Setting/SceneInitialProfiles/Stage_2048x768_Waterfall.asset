@@ -34,6 +34,6 @@ MonoBehaviour:
   maxPointsPerFrame: 32
   ghostTouchMode: 0
   tapBoundaryMs: 160
-  touchEndTimeoutMs: 220
+  touchEndTimeoutMs: 180
   clickMode: 1
   clickCooldown: 0.1

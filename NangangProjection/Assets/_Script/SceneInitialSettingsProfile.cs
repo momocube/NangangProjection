@@ -40,7 +40,7 @@ public class SceneInitialSettingsProfile : ScriptableObject
     public int maxPointsPerFrame = 32;
     public GhostTouchMode ghostTouchMode = GhostTouchMode.None;
     public float tapBoundaryMs = 160f;
-    public float touchEndTimeoutMs = 220f;
+    public float touchEndTimeoutMs = 180f;
 
     [Header("場景專屬 / 點擊")]
     public SensorClickSimulator.ClickMode clickMode = SensorClickSimulator.ClickMode.PostMessage;

@@ -77,6 +77,9 @@ public partial class SensorTestManager : MonoBehaviour
 
     // key = faceIdx * 100000 + cellIdx；value = 1 秒滑動窗口的觸發時間戳
     readonly Dictionary<int, Queue<float>> _cellHitTimes = new Dictionary<int, Queue<float>>();
+    readonly Dictionary<int, float> _chipLastTouchTimes = new Dictionary<int, float>();
+    readonly List<int> _staleHitKeys = new List<int>();
+    readonly List<int> _staleChipTouchKeys = new List<int>();
 
     int TotalLocked    { get { int n = 0; foreach (var f in _faces) n += f.lockedCount; return n; } }
     int TotalCells     { get { int n = 0; foreach (var f in _faces) n += f.config.colCount * f.config.rowCount; return n; } }
@@ -336,6 +339,7 @@ public partial class SensorTestManager : MonoBehaviour
         _canvasConfig = presets[idx].canvasConfig;
         _viewFaceIdx  = -1;   // 切換場域時重設為全覽
         // _rotateDisplay90 由 CalcControlScale() 自動決定，此處不手動設定
+        _chipLastTouchTimes.Clear();
         _faces.Clear();
         foreach (var fc in presets[idx].faces)
         {
@@ -355,6 +359,7 @@ public partial class SensorTestManager : MonoBehaviour
     {
         _smartTouches.Clear();
         _cellHitTimes.Clear();
+        _chipLastTouchTimes.Clear();
         _pendingCells.Clear();
         _faces.Clear();
     }
@@ -504,17 +509,25 @@ public partial class SensorTestManager : MonoBehaviour
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
-        SensorBus.Touch(col, row);
+        int key = faceIdx * 100000 + cellIdx;
+        float now = Time.realtimeSinceStartup;
+        float touchRepeatSuppressS = touchEndTimeoutMs / 1000f;
+        bool shouldBroadcastTouch = !_chipLastTouchTimes.TryGetValue(key, out float lastTouchTime)
+            || now - lastTouchTime > touchRepeatSuppressS;
+        _chipLastTouchTimes[key] = now;
+
+        if (shouldBroadcastTouch)
+        {
+            BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
+            SensorBus.Touch(col, row);
+        }
 
         // 滑動窗口：計算此格最近 1 秒的觸發次數
-        int key = faceIdx * 100000 + cellIdx;
         if (!_cellHitTimes.TryGetValue(key, out var q))
         {
             q = new Queue<float>();
             _cellHitTimes[key] = q;
         }
-        float now = Time.realtimeSinceStartup;
         q.Enqueue(now);
         while (q.Count > 0 && now - q.Peek() > 1f) q.Dequeue();
         _lastHitKey    = key;
@@ -532,14 +545,21 @@ public partial class SensorTestManager : MonoBehaviour
     void CleanCellHitTimes()
     {
         float now = Time.realtimeSinceStartup;
-        var stale = new System.Collections.Generic.List<int>();
+        _staleHitKeys.Clear();
         foreach (var kv in _cellHitTimes)
         {
             var q = kv.Value;
             while (q.Count > 0 && now - q.Peek() > 1f) q.Dequeue();
-            if (q.Count == 0) stale.Add(kv.Key);
+            if (q.Count == 0) _staleHitKeys.Add(kv.Key);
         }
-        foreach (var k in stale) _cellHitTimes.Remove(k);
+        foreach (var k in _staleHitKeys) _cellHitTimes.Remove(k);
+
+        _staleChipTouchKeys.Clear();
+        float touchRepeatSuppressS = touchEndTimeoutMs / 1000f;
+        foreach (var kv in _chipLastTouchTimes)
+            if (now - kv.Value > touchRepeatSuppressS)
+                _staleChipTouchKeys.Add(kv.Key);
+        foreach (var k in _staleChipTouchKeys) _chipLastTouchTimes.Remove(k);
     }
 
     void ToggleLock(int faceIdx, int col, int row)
@@ -696,6 +716,7 @@ public partial class SensorTestManager : MonoBehaviour
 
     void HandleDragInteract()
     {
+        if (Display1GraphicRaycaster.ShouldSuppressDisplay1Pointer()) return;
         // 忽略 SensorClickSimulator 剛剛注入的合成 OS 滑鼠事件（50ms 時間窗），防止回饋迴圈
         if (_clickSim != null &&
             Time.realtimeSinceStartup - _clickSim.LastSendInputTime < 0.05f)

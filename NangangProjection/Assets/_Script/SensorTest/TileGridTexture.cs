@@ -38,10 +38,12 @@ public class TileGridTexture : MonoBehaviour
         public SensorFaceConfig config;
         public CellState[]      states;
         public float[]          activeExpiry;  // Time.time 到期時回 Idle
+        public bool[]           activeTracked;
         public Color32[]        sensorIdle;    // 每格的 sensor idle fill color（face tint）
     }
 
     readonly List<FaceRuntime> _faces = new List<FaceRuntime>();
+    readonly List<int> _activeKeys = new List<int>();
     int     _texW, _texH;
     float   _activeDuration = 1.5f;
     float   _sensorIdleAlpha = 1f;
@@ -88,6 +90,7 @@ public class TileGridTexture : MonoBehaviour
         if (_controlPx == null || _controlPx.Length != pixelCount) _controlPx = new Color32[pixelCount];
 
         _faces.Clear();
+        _activeKeys.Clear();
         _hoverFace = _hoverCell = -1;
 
         // 先把 Control 全部清透明
@@ -99,10 +102,11 @@ public class TileGridTexture : MonoBehaviour
             int cellCount = cfg.colCount * cfg.rowCount;
             var fr = new FaceRuntime
             {
-                config       = cfg,
-                states       = new CellState[cellCount],
-                activeExpiry = new float[cellCount],
-                sensorIdle   = new Color32[cellCount],
+                config        = cfg,
+                states        = new CellState[cellCount],
+                activeExpiry  = new float[cellCount],
+                activeTracked = new bool[cellCount],
+                sensorIdle    = new Color32[cellCount],
             };
             // 計算每格 idle tint（與原 SensorTileCell.SetFaceColor 相同：Lerp(ColIdle, faceColor, 0.12)）
             Color tint = cfg.gizmoColor;
@@ -141,6 +145,11 @@ public class TileGridTexture : MonoBehaviour
         bool wasActive = fr.states[ci] == CellState.Active;
         fr.states[ci]       = CellState.Active;
         fr.activeExpiry[ci] = Time.time + _activeDuration;
+        if (!fr.activeTracked[ci])
+        {
+            fr.activeTracked[ci] = true;
+            _activeKeys.Add(MakeKey(fi, ci));
+        }
         // 格子已是 Active 時只更新計時器，不重繪（避免 100Hz 感應每幀觸發全圖 Apply）
         if (!wasActive) PaintCellBoth(fi, ci, CellState.Active);
     }
@@ -153,6 +162,7 @@ public class TileGridTexture : MonoBehaviour
         var newState = locked ? CellState.Locked : CellState.Idle;
         if (fr.states[ci] == newState) return;
         fr.states[ci] = newState;
+        ClearActiveTracking(fr, ci);
         if (locked) fr.activeExpiry[ci] = 0f;
         PaintCellBoth(fi, ci, newState);
     }
@@ -164,6 +174,7 @@ public class TileGridTexture : MonoBehaviour
         var fr = _faces[fi];
         if (fr.states[ci] == CellState.Locked) return;
         fr.states[ci] = pressing ? CellState.Pressing : CellState.Idle;
+        ClearActiveTracking(fr, ci);
         if (pressing) fr.activeExpiry[ci] = 0f;
         PaintCellBoth(fi, ci, fr.states[ci]);
     }
@@ -175,6 +186,7 @@ public class TileGridTexture : MonoBehaviour
         var fr = _faces[fi];
         if (fr.states[ci] == CellState.Locked) return;
         fr.states[ci] = pending ? CellState.Pending : CellState.Idle;
+        ClearActiveTracking(fr, ci);
         PaintCellBoth(fi, ci, fr.states[ci]);
     }
 
@@ -227,18 +239,32 @@ public class TileGridTexture : MonoBehaviour
 
     void LateUpdate()
     {
-        // 掃描逾時的 Active 格子 → 回 Idle
         float now = Time.time;
-        for (int fi = 0; fi < _faces.Count; fi++)
+        for (int i = _activeKeys.Count - 1; i >= 0; i--)
         {
-            var fr = _faces[fi];
-            for (int ci = 0; ci < fr.states.Length; ci++)
+            int key = _activeKeys[i];
+            int fi = key / 100000;
+            int ci = key - fi * 100000;
+            if (!Valid(fi, ci))
             {
-                if (fr.states[ci] == CellState.Active && now >= fr.activeExpiry[ci])
-                {
-                    fr.states[ci] = CellState.Idle;
-                    PaintCellBoth(fi, ci, CellState.Idle);
-                }
+                RemoveActiveKeyAt(i);
+                continue;
+            }
+
+            var fr = _faces[fi];
+            if (fr.states[ci] != CellState.Active)
+            {
+                FinishActiveTracking(fr, ci);
+                RemoveActiveKeyAt(i);
+                continue;
+            }
+
+            if (now >= fr.activeExpiry[ci])
+            {
+                fr.states[ci] = CellState.Idle;
+                FinishActiveTracking(fr, ci);
+                PaintCellBoth(fi, ci, CellState.Idle);
+                RemoveActiveKeyAt(i);
             }
         }
 
@@ -357,6 +383,26 @@ public class TileGridTexture : MonoBehaviour
 
     bool Valid(int fi, int ci)
         => fi >= 0 && fi < _faces.Count && ci >= 0 && ci < _faces[fi].states.Length;
+
+    static int MakeKey(int fi, int ci) => fi * 100000 + ci;
+
+    static void ClearActiveTracking(FaceRuntime fr, int ci)
+    {
+        fr.activeExpiry[ci] = 0f;
+    }
+
+    static void FinishActiveTracking(FaceRuntime fr, int ci)
+    {
+        fr.activeTracked[ci] = false;
+        fr.activeExpiry[ci] = 0f;
+    }
+
+    void RemoveActiveKeyAt(int index)
+    {
+        int last = _activeKeys.Count - 1;
+        _activeKeys[index] = _activeKeys[last];
+        _activeKeys.RemoveAt(last);
+    }
 
     static Color32 ToColor32(Color c)
         => new Color32(

@@ -14,10 +14,10 @@ public partial class SensorTestManager
 
     [Header("輕觸 / 按壓辨識")]
     [Tooltip("持續觸碰超過此值（ms）視為按壓，否則視為輕觸。")]
-    public float tapBoundaryMs = 200f;
+    public float tapBoundaryMs = 160f;
 
-    [Tooltip("超過此值（ms）未收到新封包視為手指離開（硬體 100ms 輪詢，需留 jitter 緩衝，建議 180~250ms）。")]
-    public float touchEndTimeoutMs = 200f;
+    [Tooltip("超過此值（ms）未收到新封包視為手指離開（硬體 100ms 輪詢，需留 jitter 緩衝，建議 160~220ms）。")]
+    public float touchEndTimeoutMs = 180f;
 
     // ── UI 狀態 ───────────────────────────────────────────────────────────────
 

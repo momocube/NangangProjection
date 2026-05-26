@@ -43,6 +43,7 @@ public class ControlGridPointerHandler : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData e)
     {
+        if (Display1GraphicRaycaster.ShouldSuppressDisplay1Pointer()) return;
         var (fi, ci) = GetCell(e);
         if (fi < 0) return;
 
@@ -66,6 +67,12 @@ public class ControlGridPointerHandler : MonoBehaviour,
     public void OnPointerUp(PointerEventData e)
     {
         if (e.button != PointerEventData.InputButton.Left) return;
+        if (Display1GraphicRaycaster.ShouldSuppressDisplay1Pointer())
+        {
+            if (_holdRoutine != null) { StopCoroutine(_holdRoutine); _holdRoutine = null; }
+            _pressFace = _pressCell = -1;
+            return;
+        }
         if (_holdRoutine != null) { StopCoroutine(_holdRoutine); _holdRoutine = null; }
         if (_pressFace >= 0)
         {
@@ -76,12 +83,14 @@ public class ControlGridPointerHandler : MonoBehaviour,
 
     public void OnPointerMove(PointerEventData e)
     {
+        if (Display1GraphicRaycaster.ShouldSuppressDisplay1Pointer()) return;
         var (fi, ci) = GetCell(e);
         UpdateHover(fi, ci);
     }
 
     public void OnPointerEnter(PointerEventData e)
     {
+        if (Display1GraphicRaycaster.ShouldSuppressDisplay1Pointer()) return;
         var (fi, ci) = GetCell(e);
         UpdateHover(fi, ci);
     }

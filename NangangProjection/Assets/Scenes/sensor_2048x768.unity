@@ -263,6 +263,7 @@ GameObject:
   - component: {fileID: 400405}
   - component: {fileID: 114410}
   - component: {fileID: 1595614133}
+  - component: {fileID: 114411}
   m_Layer: 0
   m_Name: SensorTestManager
   m_TagString: Untagged
@@ -286,7 +287,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &114100
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -402,23 +403,23 @@ MonoBehaviour:
   showPresetSelector: 0
   controlGridParent: {fileID: 224110}
   sensorGridParent: {fileID: 224210}
-  gameSceneName: Map_CybercubeLogo_J_2048x768
+  gameSceneName: 
   uiFontOverride: {fileID: 11400000, guid: 81dece84d7b6e884da6c2dcadd303782, type: 2}
   display2WindowOffsetX: 1920
-  activeDuration: 0.05
+  activeDuration: 0.5
   _gameTileVisible: 0
-  showClickLogPanel: 1
+  showClickLogPanel: 0
   clickLogMaxLines: 6
   clickLogCollapseWindow: 0.3
-  ghostTouchMode: 2
+  ghostTouchMode: 0
   ghostTouchWindowMs: 300
   ghostNeighborCols: 3
   ghostNeighborRows: 2
   ghostConfirmCount: 2
-  showLogButton: 1
+  showLogButton: 0
   logRecordDuration: 5
   tapBoundaryMs: 160
-  touchEndTimeoutMs: 220
+  touchEndTimeoutMs: 180
 --- !u!114 &114401
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -433,7 +434,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   listenPort: 20001
   debugLog: 0
-  maxPointsPerFrame: 32
+  maxPointsPerFrame: 64
+  maxQueueSize: 256
 --- !u!114 &114404
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -461,6 +463,33 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   display2WindowOffsetX: 1920
   uiFontOverride: {fileID: 0}
+--- !u!114 &114411
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100400}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b0f61a5ea0041a34eae6a07c81e00558, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  display2OffsetX: 1920
+  display2OffsetY: 0
+  externalEnabled: 0
+  externalIP: 127.0.0.1
+  externalPort: 20002
+  cooldownEnabled: 1
+  clickCooldown: 1
+  tapClickEnabled: 1
+  pressClickEnabled: 1
+  dragClickEnabled: 1
+  mouseBehavior: 0
+  pressHoldDuration: 0.3
+  dragReleaseDelay: 0.5
+  debugLog: 0
+  _mode: 1
 --- !u!114 &114500
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -825,8 +854,8 @@ MonoBehaviour:
   externalEnabled: 0
   externalIP: 127.0.0.1
   externalPort: 20002
-  cooldownEnabled: 1
-  clickCooldown: 0.1
+  cooldownEnabled: 0
+  clickCooldown: 0
   tapClickEnabled: 1
   pressClickEnabled: 1
   dragClickEnabled: 1
@@ -954,12 +983,12 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1595614130}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ee55ff66778800112233cc44dd55ee66, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  listenRawUdp: 1
+  listenRawUdp: 0
   listenSensorBus: 0
   showWindow: 0
   toggleKey: 290
@@ -983,13 +1012,13 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 100400}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cc33dd44ee55ff667788990011223344, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   controlGridParent: {fileID: 224110}
-  overlayAlpha: 0.45
+  overlayAlpha: 0.528
 --- !u!114 &1595614134
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -997,7 +1026,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1595614130}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 752a45bb25947f9478b2b18aec974e18, type: 3}
   m_Name: 
