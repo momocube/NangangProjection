@@ -44,11 +44,11 @@ public class VirtualCellManager : MonoBehaviour
 
     System.Func<int, int, bool> _isChipLocked;   // (faceIdx, chipIdx) → locked?
 
-    // Value tuple lists: (faceIdx, vcellIdx, Image)
-    readonly List<(int fi, int vi, Image img)> _controlLockOverlays
-        = new List<(int, int, Image)>();
-    readonly List<(int fi, int vi, Image img)> _sensorLockOverlays
-        = new List<(int, int, Image)>();
+    RawImage  _controlOverlayImage;
+    RawImage  _sensorOverlayImage;
+    Texture2D _vcellOverlayTex;
+    int       _vcellTexW, _vcellTexH;
+    Color32[] _vcellPixelBuf;
 
     RawImage  _sensorLineImage;
     Texture2D _sensorLineTex;
@@ -300,53 +300,43 @@ public class VirtualCellManager : MonoBehaviour
         bool rotate90, float faceViewWidth,
         float faceViewOriginX, float faceViewOriginY)
     {
-        _controlLockOverlays.Clear();
+        if (_controlOverlayImage != null) { Destroy(_controlOverlayImage.gameObject); _controlOverlayImage = null; }
         if (!Enabled || parent == null) return;
 
-        int fStart = viewFaceIdx >= 0 ? viewFaceIdx : 0;
-        int fEnd   = viewFaceIdx >= 0 ? viewFaceIdx + 1 : _faceData.Count;
+        EnsureOverlayTexture();
 
-        for (int fi = fStart; fi < fEnd && fi < _faceData.Count; fi++)
+        var go = new GameObject("VCellControlOverlay");
+        go.layer = 5;
+        go.transform.SetParent(parent, false);
+        var rt  = go.AddComponent<RectTransform>();
+        var img = go.AddComponent<RawImage>();
+        img.texture       = _vcellOverlayTex;
+        img.raycastTarget = false;
+
+        // Mirror the same positioning used by ControlTexOverlay
+        int   cW       = (int)_canvasW;
+        int   cH       = (int)_canvasH;
+        float displayW = (rotate90 ? cH : cW) * scale;
+        float displayH = (rotate90 ? cW : cH) * scale;
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+        if (!rotate90)
         {
-            var fv  = _faceData[fi];
-            var cfg = fv.config;
-
-            for (int vr = 0; vr < fv.vcellsY; vr++)
-            for (int vc = 0; vc < fv.vcellsX; vc++)
-            {
-                int vi = vr * fv.vcellsX + vc;
-                var go = new GameObject($"VCellLock_f{fi}_{vi}");
-                go.layer = 5;
-                go.transform.SetParent(parent, false);
-
-                var rt = go.AddComponent<RectTransform>();
-                rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
-                rt.pivot     = new Vector2(0f, 1f);
-
-                float cx = cfg.originX + vc * _cellSizePx - faceViewOriginX;
-                float cy = cfg.originY + vr * _cellSizePx - faceViewOriginY;
-
-                if (!rotate90)
-                {
-                    rt.anchoredPosition = new Vector2(
-                         offsetX + cx * scale,
-                        -(offsetY + cy * scale));
-                    rt.sizeDelta = new Vector2(_cellSizePx * scale, _cellSizePx * scale);
-                }
-                else
-                {
-                    rt.anchoredPosition = new Vector2(
-                         offsetX + cy * scale,
-                        -(offsetY + (faceViewWidth - cx - _cellSizePx) * scale));
-                    rt.sizeDelta = new Vector2(_cellSizePx * scale, _cellSizePx * scale);
-                }
-
-                var img = go.AddComponent<Image>();
-                img.raycastTarget = false;
-                img.color = Color.clear;
-                _controlLockOverlays.Add((fi, vi, img));
-            }
+            rt.localEulerAngles = Vector3.zero;
+            rt.sizeDelta        = new Vector2(displayW, displayH);
+            img.uvRect          = new Rect(0f, 0f, 1f, 1f);
         }
+        else
+        {
+            rt.localEulerAngles = new Vector3(0f, 0f, -90f);
+            rt.sizeDelta        = new Vector2(cW * scale, cH * scale);
+            img.uvRect          = new Rect(1f, 1f, -1f, -1f);
+        }
+        rt.anchoredPosition = new Vector2(
+            offsetX + displayW * 0.5f,
+            -(offsetY + displayH * 0.5f));
+
+        _controlOverlayImage = img;
         RefreshAllLockOverlays();
     }
 
@@ -357,15 +347,9 @@ public class VirtualCellManager : MonoBehaviour
     /// </summary>
     public void BuildSensorVCellOverlay(RectTransform parent, int canvasW, int canvasH, SensorFaceConfig[] faces)
     {
-        // Destroy existing sensor overlays (not auto-destroyed by BuildSensorGrid on view switch)
-        foreach (var (_, _, img) in _sensorLockOverlays)
-            if (img != null) Destroy(img.gameObject);
-        _sensorLockOverlays.Clear();
-
-        if (_sensorLineImage != null) Destroy(_sensorLineImage.gameObject);
-        _sensorLineImage = null;
-        if (_sensorLineTex != null) Destroy(_sensorLineTex);
-        _sensorLineTex = null;
+        if (_sensorOverlayImage != null) { Destroy(_sensorOverlayImage.gameObject); _sensorOverlayImage = null; }
+        if (_sensorLineImage    != null) { Destroy(_sensorLineImage.gameObject);    _sensorLineImage    = null; }
+        if (_sensorLineTex      != null) { Destroy(_sensorLineTex);                 _sensorLineTex      = null; }
 
         if (!Enabled || parent == null) return;
 
@@ -432,32 +416,40 @@ public class VirtualCellManager : MonoBehaviour
         _sensorLineTex.Apply();
         _sensorLineImage.texture = _sensorLineTex;
 
-        // ── 每個 VCell 的鎖定覆蓋 Image ──────────────────────────────────────
-        for (int fi = 0; fi < _faceData.Count; fi++)
-        {
-            var fv  = _faceData[fi];
-            var cfg = fv.config;
-            for (int vr = 0; vr < fv.vcellsY; vr++)
-            for (int vc = 0; vc < fv.vcellsX; vc++)
-            {
-                int vi = vr * fv.vcellsX + vc;
-                var go = new GameObject($"VCellSLock_f{fi}_{vi}");
-                go.layer = 5;
-                go.transform.SetParent(parent, false);
-                var rt = go.AddComponent<RectTransform>();
-                rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
-                rt.pivot = new Vector2(0f, 1f);
-                rt.anchoredPosition = new Vector2(
-                    cfg.originX + vc * _cellSizePx,
-                   -(cfg.originY + vr * _cellSizePx));
-                rt.sizeDelta = new Vector2(_cellSizePx, _cellSizePx);
-                var img = go.AddComponent<Image>();
-                img.raycastTarget = false;
-                img.color = Color.clear;
-                _sensorLockOverlays.Add((fi, vi, img));
-            }
-        }
+        // ── VCell 狀態覆蓋（單 RawImage＋小 Texture2D，FilterMode.Point）─────
+        EnsureOverlayTexture();
+        var oGO = new GameObject("VCellSensorOverlay");
+        oGO.layer = 5;
+        oGO.transform.SetParent(parent, false);
+        var oRT = oGO.AddComponent<RectTransform>();
+        oRT.anchorMin = oRT.anchorMax = new Vector2(0f, 1f);
+        oRT.pivot     = new Vector2(0f, 1f);
+        oRT.anchoredPosition = Vector2.zero;
+        oRT.sizeDelta        = new Vector2(canvasW, canvasH);
+        _sensorOverlayImage  = oGO.AddComponent<RawImage>();
+        _sensorOverlayImage.texture       = _vcellOverlayTex;
+        _sensorOverlayImage.raycastTarget = false;
+
         RefreshAllLockOverlays();
+    }
+
+    void EnsureOverlayTexture()
+    {
+        _vcellTexW = Mathf.Max(1, (int)_canvasW / _cellSizePx);
+        _vcellTexH = Mathf.Max(1, (int)_canvasH / _cellSizePx);
+
+        if (_vcellOverlayTex != null &&
+            _vcellOverlayTex.width  == _vcellTexW &&
+            _vcellOverlayTex.height == _vcellTexH)
+            return;
+
+        if (_vcellOverlayTex != null) Destroy(_vcellOverlayTex);
+        _vcellOverlayTex            = new Texture2D(_vcellTexW, _vcellTexH, TextureFormat.RGBA32, false);
+        _vcellOverlayTex.filterMode = FilterMode.Point;
+        _vcellPixelBuf              = new Color32[_vcellTexW * _vcellTexH];
+        System.Array.Clear(_vcellPixelBuf, 0, _vcellPixelBuf.Length);
+        _vcellOverlayTex.SetPixels32(_vcellPixelBuf);
+        _vcellOverlayTex.Apply();
     }
 
     // ── Overlay 顏色計算 ──────────────────────────────────────────────────────
@@ -489,26 +481,44 @@ public class VirtualCellManager : MonoBehaviour
         return true;
     }
 
-    /// <summary>重新整理所有 VCell 鎖定覆蓋顏色（鎖定狀態變更後呼叫）。</summary>
+    /// <summary>重新整理所有 VCell 狀態覆蓋（鎖定或觸碰狀態全量重繪）。</summary>
     public void RefreshAllLockOverlays()
     {
-        foreach (var (fi, vi, img) in _controlLockOverlays)
-            if (img != null && fi < _faceData.Count)
-                img.color = VCellOverlayColor(fi, _faceData[fi], vi);
-        foreach (var (fi, vi, img) in _sensorLockOverlays)
-            if (img != null && fi < _faceData.Count)
-                img.color = VCellOverlayColor(fi, _faceData[fi], vi);
+        if (_vcellOverlayTex == null || _vcellPixelBuf == null) return;
+
+        System.Array.Clear(_vcellPixelBuf, 0, _vcellPixelBuf.Length);
+        for (int fi = 0; fi < _faceData.Count; fi++)
+        {
+            var fv = _faceData[fi];
+            for (int vrow = 0; vrow < fv.vcellsY; vrow++)
+            for (int vcol = 0; vcol < fv.vcellsX; vcol++)
+            {
+                int vi  = vrow * fv.vcellsX + vcol;
+                var col = VCellOverlayColor(fi, fv, vi);
+                if (col.a <= 0f) continue;
+                int texX = fv.config.originX / _cellSizePx + vcol;
+                int texY = _vcellTexH - 1 - (fv.config.originY / _cellSizePx + vrow);
+                if ((uint)texX < (uint)_vcellTexW && (uint)texY < (uint)_vcellTexH)
+                    _vcellPixelBuf[texY * _vcellTexW + texX] = (Color32)col;
+            }
+        }
+        _vcellOverlayTex.SetPixels32(_vcellPixelBuf);
+        _vcellOverlayTex.Apply();
     }
 
-    /// <summary>重新整理特定 VCell 的覆蓋顏色（VCell 鎖切換後呼叫）。</summary>
+    /// <summary>重新整理特定 VCell 的覆蓋顏色（VCell 鎖或觸碰狀態單格變更後呼叫）。</summary>
     public void RefreshLockOverlaysForVCell(int faceIdx, int vcellIdx)
     {
-        if (faceIdx >= _faceData.Count) return;
-        var col = VCellOverlayColor(faceIdx, _faceData[faceIdx], vcellIdx);
-        foreach (var (fi, vi, img) in _controlLockOverlays)
-            if (fi == faceIdx && vi == vcellIdx && img != null) img.color = col;
-        foreach (var (fi, vi, img) in _sensorLockOverlays)
-            if (fi == faceIdx && vi == vcellIdx && img != null) img.color = col;
+        if (_vcellOverlayTex == null || _vcellPixelBuf == null || faceIdx >= _faceData.Count) return;
+        var fv   = _faceData[faceIdx];
+        int vcol = vcellIdx % fv.vcellsX;
+        int vrow = vcellIdx / fv.vcellsX;
+        int texX = fv.config.originX / _cellSizePx + vcol;
+        int texY = _vcellTexH - 1 - (fv.config.originY / _cellSizePx + vrow);
+        if ((uint)texX >= (uint)_vcellTexW || (uint)texY >= (uint)_vcellTexH) return;
+        _vcellPixelBuf[texY * _vcellTexW + texX] = (Color32)VCellOverlayColor(faceIdx, fv, vcellIdx);
+        _vcellOverlayTex.SetPixels32(_vcellPixelBuf);
+        _vcellOverlayTex.Apply();
     }
 
     /// <summary>晶片鎖切換後呼叫，自動偵測該格所屬 VCell 的「全晶片鎖」狀態並更新覆蓋。</summary>
