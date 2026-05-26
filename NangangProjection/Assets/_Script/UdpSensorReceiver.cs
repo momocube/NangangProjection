@@ -25,11 +25,11 @@ public class UdpSensorReceiver : MonoBehaviour
     public bool debugLog = false;
 
     [Header("效能")]
-    [Tooltip("每幀最多消化的觸碰點數，超出部分延至下幀（防止單幀爆量卡頓）")]
-    public int maxPointsPerFrame = 32;
+    [Tooltip("每幀最多消化的觸碰點數，0 = 不限制（每幀清空佇列，最低延遲）。預設 0")]
+    public int maxPointsPerFrame = 0;
 
-    [Tooltip("背景接收佇列上限。超過此數量的封包會被丟棄，防止感應器爆量時記憶體無限增長（預設 256）")]
-    public int maxQueueSize = 256;
+    [Tooltip("背景接收佇列上限。超過時丟棄最舊的點，保留最新觸碰（預設 64）")]
+    public int maxQueueSize = 64;
 
     /// <summary>每次解析到一個有效座標點時觸發（主執行緒）</summary>
     public static event Action<int, int> OnPacketReceived;
@@ -63,7 +63,9 @@ public class UdpSensorReceiver : MonoBehaviour
         lock (_lock)
         {
             if (_pending.Count == 0) return;
-            int take = Mathf.Min(_pending.Count, maxPointsPerFrame);
+            int take = (maxPointsPerFrame <= 0)
+                ? _pending.Count
+                : Mathf.Min(_pending.Count, maxPointsPerFrame);
             for (int i = 0; i < take; i++)
                 _batchBuffer.Add(_pending.Dequeue());
         }
@@ -161,16 +163,19 @@ public class UdpSensorReceiver : MonoBehaviour
 
         // 解析每個點，以像素座標形式存入佇列
         int count = dataSize / 4;
+        var mgr = SensorTestManager.Instance;
         lock (_lock)
         {
             for (int i = 0; i < count; i++)
             {
-                if (_pending.Count >= maxQueueSize) break;   // 佇列上限：丟棄多餘封包防爆量
                 int offset = 5 + i * 4;
                 int x = (data[offset]     << 8) | data[offset + 1];
                 int y = (data[offset + 2] << 8) | data[offset + 3];
-                // 鎖定格子的訊號在背景執行緒就丟棄，不進佇列、不消耗 maxPointsPerFrame 配額
-                if (SensorTestManager.Instance?.IsRawPixelLocked(x, y) == true) continue;
+                // 鎖定格子的訊號在背景執行緒就丟棄，不進佇列、不消耗配額
+                if (mgr != null && mgr.IsRawPixelLocked(x, y)) continue;
+
+                // 佇列上限：丟棄最舊的點，保留最新觸碰（觸碰輸入永遠以最新狀態為準）
+                while (_pending.Count >= maxQueueSize) _pending.Dequeue();
                 _pending.Enqueue(new Vector2Int(x, y));
 
                 if (debugLog) Debug.Log($"[UDP] 點[{i}] X={x} Y={y}");

@@ -821,11 +821,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   display2OffsetX: 1920
   display2OffsetY: 0
-  externalEnabled: 0
-  externalIP: 127.0.0.1
-  externalPort: 20002
-  cooldownEnabled: 1
-  clickCooldown: 0
+  cooldownEnabled: 0
+  clickCooldown: 0.1
   tapClickEnabled: 1
   pressClickEnabled: 0
   dragClickEnabled: 0

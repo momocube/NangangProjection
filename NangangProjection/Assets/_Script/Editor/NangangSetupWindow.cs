@@ -469,11 +469,6 @@ public class NangangSetupWindow : EditorWindow
         if (_foldCommonClick)
         {
             EditorGUI.indentLevel++;
-            EditorGUILayout.LabelField("外送 UDP", EditorStyles.boldLabel);
-            Prop(_profileSO, "clickExternalEnabled", "同時轉發 UDP 座標給外部程式");
-            Prop(_profileSO, "clickExternalIP",      "外部程式 IP（預設 127.0.0.1）");
-            Prop(_profileSO, "clickExternalPort",    "外部程式 Port（預設 20002）");
-            EditorGUILayout.Space(2);
             EditorGUILayout.LabelField("滑鼠模式進階（ClickMode = Mouse 時生效）", EditorStyles.boldLabel);
             Prop(_profileSO, "clickPressHoldDuration", "按壓按住秒數（預設 0.3）");
             Prop(_profileSO, "clickDragReleaseDelay",  "拖曳放開延遲（預設 0.5）");
@@ -641,9 +636,6 @@ public class NangangSetupWindow : EditorWindow
             SetSerializedField(_clickSim, "_mode",              (int)profile.clickMode);
             SetSerializedField(_clickSim, "display2OffsetX",    profile.display2X);
             SetSerializedField(_clickSim, "display2OffsetY",    profile.display2Y);
-            SetSerializedField(_clickSim, "externalEnabled",    profile.clickExternalEnabled);
-            SetSerializedField(_clickSim, "externalIP",         profile.clickExternalIP);
-            SetSerializedField(_clickSim, "externalPort",       profile.clickExternalPort);
             SetSerializedField(_clickSim, "pressHoldDuration",  profile.clickPressHoldDuration);
             SetSerializedField(_clickSim, "dragReleaseDelay",   profile.clickDragReleaseDelay);
         }
