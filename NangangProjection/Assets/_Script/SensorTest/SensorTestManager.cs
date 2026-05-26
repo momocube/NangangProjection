@@ -504,23 +504,28 @@ public partial class SensorTestManager : MonoBehaviour
         }
         if (fd.locked[cellIdx]) return;
 
-        if (!skipVisual)
-            _tileGrid?.SetActive(faceIdx, cellIdx);
-
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         int key = faceIdx * 100000 + cellIdx;
         float now = Time.realtimeSinceStartup;
-        float touchRepeatSuppressS = touchEndTimeoutMs / 1000f;
-        bool shouldBroadcastTouch = !_chipLastTouchTimes.TryGetValue(key, out float lastTouchTime)
-            || now - lastTouchTime > touchRepeatSuppressS;
-        _chipLastTouchTimes[key] = now;
 
-        if (shouldBroadcastTouch)
+        if (!skipVisual)
         {
-            BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
-            SensorBus.Touch(col, row);
+            // 用 clickCooldown 做視覺 + 廣播的統一 debounce（物理滑鼠與感應訊號共用）
+            bool cooldownOn = _clickSim != null && _clickSim.cooldownEnabled;
+            float debounceS = cooldownOn ? _clickSim.clickCooldown : 0f;
+            bool shouldActivate = debounceS <= 0f
+                || !_chipLastTouchTimes.TryGetValue(key, out float lastTouchTime)
+                || now - lastTouchTime > debounceS;
+            _chipLastTouchTimes[key] = now;
+
+            if (!shouldActivate) return;
+
+            _tileGrid?.SetActive(faceIdx, cellIdx);
         }
+
+        BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
+        SensorBus.Touch(col, row);
 
         // 滑動窗口：計算此格最近 1 秒的觸發次數
         if (!_cellHitTimes.TryGetValue(key, out var q))
@@ -555,9 +560,11 @@ public partial class SensorTestManager : MonoBehaviour
         foreach (var k in _staleHitKeys) _cellHitTimes.Remove(k);
 
         _staleChipTouchKeys.Clear();
-        float touchRepeatSuppressS = touchEndTimeoutMs / 1000f;
+        float chipDebounceS = (_clickSim != null && _clickSim.cooldownEnabled)
+            ? _clickSim.clickCooldown
+            : touchEndTimeoutMs / 1000f;
         foreach (var kv in _chipLastTouchTimes)
-            if (now - kv.Value > touchRepeatSuppressS)
+            if (now - kv.Value > chipDebounceS)
                 _staleChipTouchKeys.Add(kv.Key);
         foreach (var k in _staleChipTouchKeys) _chipLastTouchTimes.Remove(k);
     }
