@@ -49,6 +49,9 @@ public class SensorClickSimulator : MonoBehaviour
     /// <summary>記錄模組可訂閱：每次發出 OS 事件時通知（描述字串）。</summary>
     public static event System.Action<string> OnSimEvent;
 
+    // SendInput dwExtraInfo 標記，讓 Display1GraphicRaycaster 辨識感應器合成事件
+    internal const long SensorInputExtraInfo = unchecked((long)0x4E4E4753524C4F4EL);
+
     float _lastClickTime = float.NegativeInfinity;
 
     // 按壓 / 拖曳狀態
@@ -373,6 +376,7 @@ public class SensorClickSimulator : MonoBehaviour
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        inputs[0].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
@@ -381,6 +385,7 @@ public class SensorClickSimulator : MonoBehaviour
         var inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        inputs[0].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
@@ -396,10 +401,12 @@ public class SensorClickSimulator : MonoBehaviour
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
         inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | flags;
+        inputs[0].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
 
         inputs[1].type = INPUT_MOUSE;
         inputs[1].u.mi.dx = normX; inputs[1].u.mi.dy = normY;
         inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTUP | flags;
+        inputs[1].u.mi.dwExtraInfo = new System.IntPtr(SensorInputExtraInfo);
 
 
         uint sent = SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
