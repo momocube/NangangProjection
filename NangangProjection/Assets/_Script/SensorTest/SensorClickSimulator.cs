@@ -372,6 +372,7 @@ public class SensorClickSimulator : MonoBehaviour
 
     void SendMouseDown(int normX, int normY)
     {
+        Display1GraphicRaycaster.NotifySensorClick();
         var inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
         inputs[0].u.mi.dx = normX; inputs[0].u.mi.dy = normY;
@@ -393,6 +394,7 @@ public class SensorClickSimulator : MonoBehaviour
 
     void SendInputClick(int absX, int absY, int cx, int cy)
     {
+        Display1GraphicRaycaster.NotifySensorClick();
         var (normX, normY) = AbsToNorm(absX, absY);
 
         uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;

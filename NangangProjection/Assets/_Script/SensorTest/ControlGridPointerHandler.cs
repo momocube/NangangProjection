@@ -43,7 +43,6 @@ public class ControlGridPointerHandler : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData e)
     {
-        if (Display1GraphicRaycaster.ShouldSuppressDisplay1Pointer()) return;
         var (fi, ci) = GetCell(e);
         if (fi < 0) return;
 
