@@ -253,8 +253,11 @@ public class SensorClickSimulator : MonoBehaviour
     {
         if (hwnd == System.IntPtr.Zero) return false;
 #if !UNITY_EDITOR
-        if (_knownDisplay2Hwnd != System.IntPtr.Zero && hwnd != _knownDisplay2Hwnd)
-            return false;
+        // D2 Unity 視窗已設為 WS_EX_TRANSPARENT click-through：
+        // WindowFromPoint 會穿透到背景視窗，那才是真正的目標。
+        // 若找到的是 Unity 自己，代表 click-through 未生效（如 alpha=255 邊界情況），
+        // 拒絕發送（送給自己無意義）。
+        if (hwnd == _knownDisplay2Hwnd) return false;
 #endif
         return true;
     }

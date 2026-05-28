@@ -125,6 +125,9 @@ public partial class SensorTestManager
         _tileGrid.Initialize(_canvasConfig.canvasWidth, _canvasConfig.canvasHeight,
                              faceConfigs, activeDuration);
 
+        // 截圖尺寸跟著畫布（場域切換時同步）
+        Display2ScreenCapture.Instance?.Resize(_canvasConfig.canvasWidth, _canvasConfig.canvasHeight);
+
         BuildD2Display();
         BuildControlDisplay();
     }

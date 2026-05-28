@@ -197,8 +197,15 @@ public partial class SensorTestManager : MonoBehaviour
     [DllImport("user32.dll")] static extern int  GetClassName(System.IntPtr hWnd, System.Text.StringBuilder sb, int max);
     [DllImport("user32.dll")] static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] static extern bool GetWindowRect(System.IntPtr hWnd, out RECT lpRect);
-    const int SW_HIDE = 0;
-    const int SW_SHOW = 5;
+    [DllImport("user32.dll")] static extern int  GetWindowLong(System.IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")] static extern int  SetWindowLong(System.IntPtr hWnd, int nIndex, int dwNewLong);
+    [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(System.IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+    const int  SW_HIDE      = 0;
+    const int  SW_SHOW      = 5;
+    const int  GWL_EXSTYLE    = -20;
+    const int  WS_EX_LAYERED  = 0x00080000;
+    const int  WS_EX_TRANSPARENT = 0x00000020;
+    const uint LWA_ALPHA      = 0x00000002;
 
     // ── 生命週期 ──────────────────────────────────────────────────────────────
 
@@ -277,6 +284,7 @@ public partial class SensorTestManager : MonoBehaviour
         if (_overlay == null)
             Debug.LogError("[SensorTestManager] ConsoleGameOverlay 元件不在此 GameObject 上，格點疊加層不會顯示。請將元件移到 SensorTestManager 同一個 GO。");
         NotifyOverlay();
+        SyncD2TileAlpha();
         RebuildSensorVCellOverlay();
         UpdateClickModeButton();
         UpdateCooldownToggleButton();
@@ -325,17 +333,38 @@ public partial class SensorTestManager : MonoBehaviour
     /// <summary>遊戲 RT 狀態改變時由 ConsoleGameOverlay 呼叫，同步 D2 感應格 idle 透明度。</summary>
     public void RefreshSensorTileIdleColors()
     {
-        bool gameActive = GameDisplayRT.Current != null;
-        float alpha = gameActive ? (1f - (_overlay != null ? _overlay.overlayAlpha : 0f)) : 1f;
+        float alpha = 1f - (_overlay != null ? _overlay.overlayAlpha : 0f);
         _tileGrid?.SetSensorIdleAlpha(alpha);
     }
 
     /// <summary>overlayAlpha 改變時同步 D2 感應格透明度（1-alpha → 格子 idle alpha）。</summary>
     void SyncD2TileAlpha()
     {
-        if (_overlay == null || GameDisplayRT.Current == null) return;
+        if (_overlay == null) return;
         _tileGrid?.SetSensorIdleAlpha(1f - _overlay.overlayAlpha);
+#if !UNITY_EDITOR
+        ApplyD2WindowAlpha(_overlay.overlayAlpha);
+#endif
     }
+
+#if !UNITY_EDITOR
+    /// <summary>
+    /// WS_EX_LAYERED：讓 D2 視窗對 OS 合成器半透明（alpha=1 全不透明，0 全透明）。
+    /// WS_EX_TRANSPARENT：讓 D2 視窗 click-through，WindowFromPoint 穿透到背景視窗，
+    ///   PostMessage / SendInput 才能正確打到背景程式，而不是被 Unity 自己攔截。
+    /// D2 Canvas_Secondary 純顯示用，本來就不需要接收任何 OS 點擊事件。
+    /// </summary>
+    void ApplyD2WindowAlpha(float alpha)
+    {
+        if (_display2Hwnd == System.IntPtr.Zero) return;
+        int ex    = GetWindowLong(_display2Hwnd, GWL_EXSTYLE);
+        int newEx = ex | WS_EX_LAYERED | WS_EX_TRANSPARENT;
+        if (ex != newEx)
+            SetWindowLong(_display2Hwnd, GWL_EXSTYLE, newEx);
+        byte b = (byte)Mathf.RoundToInt(Mathf.Clamp01(alpha) * 255f);
+        SetLayeredWindowAttributes(_display2Hwnd, 0, b, LWA_ALPHA);
+    }
+#endif
 
     // ── 場域預設切換 ──────────────────────────────────────────────────────────
 
@@ -401,6 +430,7 @@ public partial class SensorTestManager : MonoBehaviour
 
         SetGameTileVisible(_gameTileVisible);
         NotifyOverlay();
+        SyncD2TileAlpha();
         RebuildSensorVCellOverlay();
         BuildFaceSelector();
         UpdatePresetLabel();
@@ -541,7 +571,8 @@ public partial class SensorTestManager : MonoBehaviour
         }
 
         BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
-        SensorBus.Touch(col, row);
+        if (_vcellManager == null || !_vcellManager.Enabled)
+            SensorBus.Touch(col, row);
 
         // 滑動窗口：計算此格最近 1 秒的觸發次數
         if (!_cellHitTimes.TryGetValue(key, out var q))
@@ -1186,6 +1217,7 @@ public partial class SensorTestManager : MonoBehaviour
         if (found != System.IntPtr.Zero)
         {
             Debug.Log($"[SensorTest] Display 2 HWND = 0x{found.ToInt64():X}");
+            ApplyD2WindowAlpha(_overlay != null ? _overlay.overlayAlpha : 1f);
             ShowWindow(found, _gameTileVisible ? SW_SHOW : SW_HIDE);
         }
         else
