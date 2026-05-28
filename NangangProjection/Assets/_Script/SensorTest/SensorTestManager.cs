@@ -276,6 +276,7 @@ public partial class SensorTestManager : MonoBehaviour
         if (_vcellManager != null)
         {
             _vcellManager.Initialize(presets[_presetIdx], _canvasConfig);
+            _vcellManager.SetTileGrid(_tileGrid);
             _vcellManager.SetChipLockedQuery((fi, ci) =>
                 fi < _faces.Count && ci < _faces[fi].locked.Length && _faces[fi].locked[ci]);
         }
@@ -425,6 +426,7 @@ public partial class SensorTestManager : MonoBehaviour
         yield return null;
 
         BuildGridTextures();
+        _vcellManager?.SetTileGrid(_tileGrid);
         SetLoadingProgress(0.95f);
         yield return null;
 
@@ -570,9 +572,16 @@ public partial class SensorTestManager : MonoBehaviour
             _jumpModeOccupied.Add(key);
         }
 
-        BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
-        if (_vcellManager == null || !_vcellManager.Enabled)
+        // VCell 啟用：直接通知 VCellManager（不廣播 SensorBus 晶片事件）
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            _vcellManager.HandleChipTouch(faceIdx, cellIdx);
+        }
+        else
+        {
+            BroadcastCanvasCell(fd, col, row, TouchKind.Touch);
             SensorBus.Touch(col, row);
+        }
 
         // 滑動窗口：計算此格最近 1 秒的觸發次數
         if (!_cellHitTimes.TryGetValue(key, out var q))
@@ -639,20 +648,26 @@ public partial class SensorTestManager : MonoBehaviour
         var fd = _faces[faceIdx];
         if (fd.locked[cellIdx]) return;
         _tileGrid?.SetPressing(faceIdx, cellIdx, true);
-        int col = cellIdx % fd.config.colCount;
-        int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
-        SensorBus.PressStart(col, row);
+        if (_vcellManager == null || !_vcellManager.Enabled)
+        {
+            int col = cellIdx % fd.config.colCount;
+            int row = cellIdx / fd.config.colCount;
+            BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
+            SensorBus.PressStart(col, row);
+        }
     }
 
     void OnMousePressEnd(int faceIdx, int cellIdx)
     {
         var fd = _faces[faceIdx];
         _tileGrid?.SetPressing(faceIdx, cellIdx, false);
-        int col = cellIdx % fd.config.colCount;
-        int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
-        SensorBus.PressEnd(col, row);
+        if (_vcellManager == null || !_vcellManager.Enabled)
+        {
+            int col = cellIdx % fd.config.colCount;
+            int row = cellIdx / fd.config.colCount;
+            BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
+            SensorBus.PressEnd(col, row);
+        }
     }
 
     enum TouchKind { Touch, Tap, PressStart, PressEnd, Drag }

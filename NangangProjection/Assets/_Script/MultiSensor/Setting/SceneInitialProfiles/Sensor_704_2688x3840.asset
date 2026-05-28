@@ -22,7 +22,7 @@ MonoBehaviour:
   display2X: 1920
   display2Y: 0
   lowerPerformanceCost: 1
-  disableDisplay2ScreenCapture: 1
+  disableDisplay2ScreenCapture: 0
   disableRuntimeLogObject: 1
   disableTouchDebugLogger: 1
   disableCoordTestPanel: 1

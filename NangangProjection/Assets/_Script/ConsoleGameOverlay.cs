@@ -51,9 +51,8 @@ public class ConsoleGameOverlay : MonoBehaviour
         //   1. GameDisplayRT      — 遊戲場景 Mirror Camera RT
         //   2. SensorTex          — 晶片示意 ON 時，TileGridTexture CPU 紋理
         //   3. Display2ScreenCapture — 晶片示意 OFF 時，GDI 桌面截圖（顯示 D2 桌面/瀏覽器）
-        bool tilesVisible = _stm == null || _stm.GameTileVisible;
         RenderTexture gameRT = GameDisplayRT.Current;
-        Texture tex = gameRT ?? (tilesVisible ? (Texture)_stm?.TileGrid?.SensorTex : null);
+        Texture tex = (Texture)gameRT;
 
         // 追蹤遊戲 RT 載入/卸載：遊戲存在時讓感應格 idle 透明度跟隨 overlayAlpha
         if (gameRT != _lastGameRT)

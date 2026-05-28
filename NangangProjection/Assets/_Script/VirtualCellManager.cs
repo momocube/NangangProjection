@@ -5,12 +5,12 @@ using UnityEngine.UI;
 /// <summary>
 /// 虛擬格管理器。掛在 SensorTestManager 同一 GameObject 上。
 ///
-/// 訂閱 SensorBus.OnCanvasTouch（只接收未被晶片鎖的觸碰），
+/// SensorTestManager 在 VCell 啟用時直接呼叫 HandleChipTouch（不走 SensorBus），
 /// 以計時器判斷每格晶片的活躍狀態，彙整後廣播 VirtualCellBus 事件。
 ///
 /// 雙層鎖：
 ///   晶片鎖（Ctrl+右鍵）→ 晶片不貢獻觸碰，由 SensorTestManager 攔截於 ActivateCell
-///   VCell 鎖（右鍵）   → 整格不廣播，由本腳本攔截於 HandleCanvasTouch
+///   VCell 鎖（右鍵）   → 整格不廣播，由本腳本攔截於 HandleChipTouch
 /// </summary>
 public class VirtualCellManager : MonoBehaviour
 {
@@ -52,6 +52,8 @@ public class VirtualCellManager : MonoBehaviour
 
     RawImage  _sensorLineImage;
     Texture2D _sensorLineTex;
+
+    TileGridTexture _tileGrid;
 
     // ── 初始化 ────────────────────────────────────────────────────────────────
 
@@ -142,47 +144,39 @@ public class VirtualCellManager : MonoBehaviour
         return true;
     }
 
-    // ── 事件訂閱 ─────────────────────────────────────────────────────────────
-
-    void OnEnable()  => SensorBus.OnCanvasTouch += HandleCanvasTouch;
-    void OnDisable() => SensorBus.OnCanvasTouch -= HandleCanvasTouch;
-
     // ── Touch 接收 ────────────────────────────────────────────────────────────
 
-    // SensorBus.OnCanvasTouch 只在晶片未被晶片鎖時才觸發（ActivateCell 已攔截）
-    // 因此此處只需處理 VCell 鎖判斷。
-    void HandleCanvasTouch(float x, float y, float w, float h)
+    /// <summary>
+    /// SensorTestManager 在 VCell 啟用時直接呼叫（替代 SensorBus.CanvasTouch 廣播路徑）。
+    /// 晶片未被晶片鎖才會到達此處（ActivateCell 已攔截）。
+    /// </summary>
+    public void HandleChipTouch(int faceIdx, int chipIdx)
     {
-        if (!Enabled) return;
+        if (!Enabled || faceIdx >= _faceData.Count) return;
 
-        for (int fi = 0; fi < _faceData.Count; fi++)
+        var fv = _faceData[faceIdx];
+        fv.chipLastTouch[chipIdx] = Time.realtimeSinceStartup;
+
+        int col      = chipIdx % fv.config.colCount;
+        int row      = chipIdx / fv.config.colCount;
+        int vcol     = col / fv.chipsPerVCellX;
+        int vrow     = row / fv.chipsPerVCellY;
+        int vcellIdx = vrow * fv.vcellsX + vcol;
+
+        if (fv.vcellLocked[vcellIdx]) return;
+
+        // 個別晶片視覺：TileGridTexture 已有防重繪（Active 時只更新 timer），100Hz 呼叫安全
+        _tileGrid?.SetActive(faceIdx, chipIdx);
+
+        // 每次 chip touch 都廣播 VCell 中心座標，維持連續更新（驅動 SensorClickSimulator / 遊戲效果）
+        var center = VCellCenter(fv, vcol, vrow);
+        SensorBus.CanvasTouch(center.x, center.y, _canvasW, _canvasH);
+
+        if (!fv.vcellActive[vcellIdx])
         {
-            var fv  = _faceData[fi];
-            var cfg = fv.config;
-
-            float lx = x - cfg.originX;
-            float ly = y - cfg.originY;
-            if (lx < 0f || ly < 0f || lx >= cfg.TotalPixelWidth || ly >= cfg.TotalPixelHeight) continue;
-
-            int col     = Mathf.Clamp(Mathf.FloorToInt(lx / cfg.GizmoCellW), 0, cfg.colCount - 1);
-            int row     = Mathf.Clamp(Mathf.FloorToInt(ly / cfg.GizmoCellH), 0, cfg.rowCount - 1);
-            int chipIdx = row * cfg.colCount + col;
-
-            fv.chipLastTouch[chipIdx] = Time.realtimeSinceStartup;
-
-            int vcol     = col / fv.chipsPerVCellX;
-            int vrow     = row / fv.chipsPerVCellY;
-            int vcellIdx = vrow * fv.vcellsX + vcol;
-
-            if (fv.vcellLocked[vcellIdx]) return;
-
-            if (!fv.vcellActive[vcellIdx])
-            {
-                fv.vcellActive[vcellIdx] = true;
-                BroadcastTouch(fv, vcol, vrow);
-                RefreshLockOverlaysForVCell(fi, vcellIdx);
-            }
-            return;
+            fv.vcellActive[vcellIdx] = true;
+            BroadcastTouch(faceIdx, fv, vcol, vrow);
+            RefreshLockOverlaysForVCell(faceIdx, vcellIdx);
         }
     }
 
@@ -229,7 +223,7 @@ public class VirtualCellManager : MonoBehaviour
 
     // ── 廣播 ──────────────────────────────────────────────────────────────────
 
-    void BroadcastTouch(FaceVCellData fv, int vcol, int vrow)
+    void BroadcastTouch(int faceIdx, FaceVCellData fv, int vcol, int vrow)
     {
         var c = VCellCenter(fv, vcol, vrow);
         VirtualCellBus.VirtualCellTouch(c.x, c.y, _canvasW, _canvasH, _cellSizePx);
@@ -287,8 +281,29 @@ public class VirtualCellManager : MonoBehaviour
 
     // ── 視覺 Overlay 公開 API ─────────────────────────────────────────────────
 
+    /// <summary>設定 TileGridTexture 參考，用於 VCell 觸發時閃燈。場域切換後須重新呼叫。</summary>
+    public void SetTileGrid(TileGridTexture tileGrid) => _tileGrid = tileGrid;
+
     /// <summary>設定晶片鎖定查詢委派，用於自動偵測「全格晶片都被晶片鎖」。</summary>
     public void SetChipLockedQuery(System.Func<int, int, bool> query) => _isChipLocked = query;
+
+    /// <summary>取得 chipIdx 所屬 VCell 的中心畫布像素座標。供 SmartTouch 在 VCell 模式廣播 Canvas 事件用。</summary>
+    public bool TryGetVCellCenter(int faceIdx, int chipIdx, out float cx, out float cy, out float cw, out float ch)
+    {
+        cx = cy = 0f;
+        cw = _canvasW;
+        ch = _canvasH;
+        if (!Enabled || faceIdx >= _faceData.Count) return false;
+        var fv   = _faceData[faceIdx];
+        int col  = chipIdx % fv.config.colCount;
+        int row  = chipIdx / fv.config.colCount;
+        int vcol = col / fv.chipsPerVCellX;
+        int vrow = row / fv.chipsPerVCellY;
+        var c    = VCellCenter(fv, vcol, vrow);
+        cx = c.x;
+        cy = c.y;
+        return true;
+    }
 
     /// <summary>
     /// 在 controlGridParent 內建立每個 VCell 的半透明鎖定覆蓋 Image。

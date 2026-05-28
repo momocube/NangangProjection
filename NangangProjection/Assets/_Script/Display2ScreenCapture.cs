@@ -82,6 +82,16 @@ public class Display2ScreenCapture : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
+    /// <summary>場域切換時由 SensorTestManager 呼叫，同步截圖尺寸與畫布。</summary>
+    public void Resize(int w, int h)
+    {
+        if (display2Width == w && display2Height == h) return;
+        display2Width  = w;
+        display2Height = h;
+        CaptureTexture = new Texture2D(w, h, TextureFormat.RGB24, false);
+        _pixels        = new byte[w * h * 3];
+    }
+
     // ── 截圖核心 ──────────────────────────────────────────────────────────────
 
     void Capture()

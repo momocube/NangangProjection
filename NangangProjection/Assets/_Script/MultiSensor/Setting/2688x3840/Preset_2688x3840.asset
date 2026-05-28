@@ -29,3 +29,4 @@ MonoBehaviour:
   canvasRawMaxY: 0
   sensorAreaWidth: 0
   sensorAreaHeight: 0
+  virtualCellMode: 2

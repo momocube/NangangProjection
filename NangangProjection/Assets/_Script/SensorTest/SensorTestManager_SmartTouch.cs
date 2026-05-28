@@ -238,8 +238,16 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.Tap);
-        SensorBus.Tap(col, row);
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+                SensorBus.CanvasTap(cx, cy, cw, ch);
+        }
+        else
+        {
+            BroadcastCanvasCell(fd, col, row, TouchKind.Tap);
+            SensorBus.Tap(col, row);
+        }
     }
 
     void FirePressStart(int faceIdx, int cellIdx)
@@ -252,8 +260,16 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
-        SensorBus.PressStart(col, row);
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+                SensorBus.CanvasPressStart(cx, cy, cw, ch);
+        }
+        else
+        {
+            BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
+            SensorBus.PressStart(col, row);
+        }
     }
 
     void FirePressEnd(int faceIdx, int cellIdx)
@@ -265,8 +281,16 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
-        SensorBus.PressEnd(col, row);
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+                SensorBus.CanvasPressEnd(cx, cy, cw, ch);
+        }
+        else
+        {
+            BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
+            SensorBus.PressEnd(col, row);
+        }
 
         // 清除同面所有殘留的拖曳格，防止按壓結束後橘燈永不熄滅
         ClearDragCells(faceIdx);
@@ -298,8 +322,16 @@ public partial class SensorTestManager
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
-        BroadcastCanvasCell(fd, col, row, TouchKind.Drag);
-        SensorBus.Drag(col, row);
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+                SensorBus.CanvasDrag(cx, cy, cw, ch);
+        }
+        else
+        {
+            BroadcastCanvasCell(fd, col, row, TouchKind.Drag);
+            SensorBus.Drag(col, row);
+        }
     }
 
     // ── UI 建立 ───────────────────────────────────────────────────────────────
