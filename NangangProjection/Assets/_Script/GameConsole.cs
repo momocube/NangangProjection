@@ -15,6 +15,7 @@ public class GameConsole : MonoBehaviour
     [DllImport("kernel32.dll")] static extern bool SetConsoleTitle(string title);
 #endif
 
+    [Header("▶ 外部除錯視窗 ─ 另開黑色命令列視窗顯示程式訊息。停用此元件 → 不彈出命令列視窗")]
     [Tooltip("視窗標題")]
     public string windowTitle = "UDP Debug Console";
 

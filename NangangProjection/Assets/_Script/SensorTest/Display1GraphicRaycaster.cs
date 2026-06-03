@@ -6,6 +6,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
+/// ▶ 防誤觸保護（光域704場景）─ 辨識地板踩踏注入的滑鼠事件，防止誤觸控制台按鈕。
+/// 停用此元件 → 踩踏可能誤觸控制台按鈕。
+///
 /// Display 1 raycaster that ignores held left-click input only when it is
 /// explicitly identified as Windows injected input.
 /// </summary>

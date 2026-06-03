@@ -263,7 +263,7 @@ GameObject:
   - component: {fileID: 2106411719}
   - component: {fileID: 2106411722}
   m_Layer: 0
-  m_Name: SensorTestManager
+  m_Name: "感應系統"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -280,7 +280,7 @@ GameObject:
   - component: {fileID: 400500}
   - component: {fileID: 114500}
   m_Layer: 0
-  m_Name: Display2ScreenCapture
+  m_Name: "截圖備援"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -406,7 +406,7 @@ MonoBehaviour:
   display2WindowOffsetX: 1920
   activeDuration: 0.5
   _gameTileVisible: 0
-  showClickLogPanel: 0
+  showClickLogPanel: 1
   clickLogMaxLines: 6
   clickLogCollapseWindow: 0.3
   ghostTouchMode: 0
@@ -917,7 +917,7 @@ GameObject:
   - component: {fileID: 2106411718}
   - component: {fileID: 2106411717}
   m_Layer: 0
-  m_Name: Log
+  m_Name: "除錯工具"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

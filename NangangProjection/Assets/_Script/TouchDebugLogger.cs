@@ -10,6 +10,7 @@ using UnityEngine;
 /// </summary>
 public class TouchDebugLogger : MonoBehaviour
 {
+    [Header("▶ 觸碰紀錄視窗 ─ 按 F9 開啟踩踏記錄。停用此元件 → 記錄視窗無法開啟")]
     [Header("訂閱來源")]
     [Tooltip("直接訂閱 UDP raw 座標，校準用")]
     public bool listenRawUdp    = true;

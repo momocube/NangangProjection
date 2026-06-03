@@ -14,6 +14,7 @@ using UnityEngine.UI;
 /// </summary>
 public class VirtualCellManager : MonoBehaviour
 {
+    [Header("▶ 虛擬大格模式 ─ 將多個晶片格合併為一個大格。停用此元件 → 回到原本的小晶片格模式")]
     [Header("硬體設定")]
     [Tooltip("感應器每輪偵測間隔（ms）。超過 2 倍此值視為離手。")]
     public int pollingIntervalMs = SensorHardwareConst.PollingIntervalMs;
@@ -286,6 +287,14 @@ public class VirtualCellManager : MonoBehaviour
 
     /// <summary>設定晶片鎖定查詢委派，用於自動偵測「全格晶片都被晶片鎖」。</summary>
     public void SetChipLockedQuery(System.Func<int, int, bool> query) => _isChipLocked = query;
+
+    /// <summary>取得晶片所屬 VCell 的索引（faceIdx 內部編號）。未啟用或超出範圍時回傳 -1。</summary>
+    public int GetVCellIdx(int faceIdx, int chipIdx)
+    {
+        if (!Enabled || faceIdx >= _faceData.Count) return -1;
+        ChipToVCellIdx(_faceData[faceIdx], chipIdx, out int vcellIdx);
+        return vcellIdx;
+    }
 
     /// <summary>取得 chipIdx 所屬 VCell 的中心畫布像素座標。供 SmartTouch 在 VCell 模式廣播 Canvas 事件用。</summary>
     public bool TryGetVCellCenter(int faceIdx, int chipIdx, out float cx, out float cy, out float cw, out float ch)

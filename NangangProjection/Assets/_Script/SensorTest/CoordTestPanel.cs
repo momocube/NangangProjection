@@ -13,6 +13,7 @@ using TMPro;
 /// </summary>
 public class CoordTestPanel : MonoBehaviour
 {
+    [Header("▶ 座標校準工具 ─ 輸入原始座標，測試對應到哪個格子。停用此元件 → 右上角座標輸入框消失")]
     // Inspector 可選填；留空時自動 FindObjectOfType
     public SensorTestManager sensorTestManager;
 

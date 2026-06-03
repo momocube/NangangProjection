@@ -265,7 +265,7 @@ GameObject:
   - component: {fileID: 1595614133}
   - component: {fileID: 114411}
   m_Layer: 0
-  m_Name: SensorTestManager
+  m_Name: "感應系統"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -282,7 +282,7 @@ GameObject:
   - component: {fileID: 400500}
   - component: {fileID: 114500}
   m_Layer: 0
-  m_Name: Display2ScreenCapture
+  m_Name: "截圖備援"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -967,7 +967,7 @@ GameObject:
   - component: {fileID: 1595614132}
   - component: {fileID: 1595614131}
   m_Layer: 0
-  m_Name: Log
+  m_Name: "除錯工具"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
