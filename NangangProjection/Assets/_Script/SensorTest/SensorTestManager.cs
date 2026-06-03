@@ -22,7 +22,8 @@ public partial class SensorTestManager : MonoBehaviour
 {
     // ── Inspector ─────────────────────────────────────────────────────────────
 
-    [Header("▶ 感應系統主控 ─ 管理所有感應格子、場域切換與鎖定功能。停用此元件 → 控制台所有功能失效")]
+    [Header("感應系統主控")]
+    [Header("停用此元件 → 所有感應格子失效")]
     [Header("場域預設（Inspector 設定，至少一個）")]
     public VenuePresetConfig[] presets;
 

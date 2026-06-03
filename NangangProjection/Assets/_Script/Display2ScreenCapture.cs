@@ -8,7 +8,8 @@ using UnityEngine;
 /// </summary>
 public class Display2ScreenCapture : MonoBehaviour
 {
-    [Header("▶ 地板畫面截圖備援 ─ 擷取地板螢幕做備援預覽（光域704場景使用）。停用此元件 → 截圖預覽功能失效")]
+    [Header("地板截圖備援（光域704場景）")]
+    [Header("停用此元件 → 截圖預覽功能失效")]
     [Header("Display 2 螢幕座標（Windows 虛擬桌面）")]
     [Tooltip("Display 2 左上角 X（通常 = Display 1 寬度，預設 1920）")]
     public int display2X = 1920;

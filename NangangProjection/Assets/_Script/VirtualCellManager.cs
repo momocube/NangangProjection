@@ -14,7 +14,8 @@ using UnityEngine.UI;
 /// </summary>
 public class VirtualCellManager : MonoBehaviour
 {
-    [Header("▶ 虛擬大格模式 ─ 將多個晶片格合併為一個大格。停用此元件 → 回到原本的小晶片格模式")]
+    [Header("虛擬大格模式")]
+    [Header("停用此元件 → 回到小晶片格模式")]
     [Header("硬體設定")]
     [Tooltip("感應器每輪偵測間隔（ms）。超過 2 倍此值視為離手。")]
     public int pollingIntervalMs = SensorHardwareConst.PollingIntervalMs;

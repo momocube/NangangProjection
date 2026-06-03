@@ -17,7 +17,8 @@ public class SensorClickSimulator : MonoBehaviour
     public enum ClickMode    { Listen, PostMessage, Mouse }
     public enum MouseBehavior { Click, Press, Drag }
 
-    [Header("▶ 踩踏→滑鼠點擊 ─ 將地板踩踏轉換為電腦滑鼠點擊。停用此元件 → 踩踏不會觸發外部程式點擊")]
+    [Header("踩踏→滑鼠點擊")]
+    [Header("停用此元件 → 踩踏不觸發外部程式點擊")]
     [Header("Display 2 在 Windows 桌面的起始位置")]
     public int display2OffsetX = 1920;
     public int display2OffsetY = 0;

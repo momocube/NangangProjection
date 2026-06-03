@@ -13,7 +13,8 @@ public class MiniWindowController : MonoBehaviour
 {
     public static MiniWindowController Instance { get; private set; }
 
-    [Header("▶ 控制台縮小視窗 ─ 提供右下角迷你視窗縮小按鈕。停用此元件 → 縮小按鈕消失")]
+    [Header("控制台縮小視窗")]
+    [Header("停用此元件 → 縮小按鈕消失")]
     [Tooltip("Display 2 的 X 起始像素（需與 SensorTestManager.display2WindowOffsetX 一致）。")]
     public int display2WindowOffsetX = 1920;
 

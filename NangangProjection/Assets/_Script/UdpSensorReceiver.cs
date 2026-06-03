@@ -16,7 +16,8 @@ using UnityEngine;
 /// </summary>
 public class UdpSensorReceiver : MonoBehaviour
 {
-    [Header("▶ 地板感應接收 ─ 接收地板感應器的觸碰訊號。停用此元件 → 踩踏完全無反應")]
+    [Header("地板感應接收")]
+    [Header("停用此元件 → 踩踏完全無反應")]
     [Header("網路設定")]
     [Tooltip("監聽 Port，預設 20001")]
     public int listenPort = 20001;

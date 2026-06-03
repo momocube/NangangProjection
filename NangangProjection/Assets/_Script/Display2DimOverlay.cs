@@ -12,7 +12,8 @@ public class Display2DimOverlay : MonoBehaviour
 {
     public static Display2DimOverlay Instance { get; private set; }
 
-    [Header("▶ 地板畫面調暗 ─ 調整地板投影亮度（0=不調暗，1=全黑）。停用此元件 → 無法從這裡調整地板亮度")]
+    [Header("地板畫面調暗")]
+    [Header("停用此元件 → 無法調整地板亮度")]
     [Range(0f, 1f)]
     public float dimAlpha = 0f;
 

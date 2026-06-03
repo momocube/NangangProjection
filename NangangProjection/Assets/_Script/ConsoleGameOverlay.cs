@@ -17,7 +17,8 @@ using UnityEngine.UI;
 /// </summary>
 public class ConsoleGameOverlay : MonoBehaviour
 {
-    [Header("▶ 控制台畫面預覽 ─ 在控制台格子後方顯示地板畫面。停用此元件 → 預覽畫面消失")]
+    [Header("控制台畫面預覽")]
+    [Header("停用此元件 → 預覽畫面消失")]
     [Header("引用")]
     [Tooltip("主控台 Canvas 內的控制格容器（controlGridParent）")]
     public RectTransform controlGridParent;
