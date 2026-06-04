@@ -7,6 +7,11 @@ using UnityEngine;
 /// </summary>
 public class SensorFaceRouter : MonoBehaviour
 {
+    [Header("UDP 封包 → 面分類 → 路由到 SensorTestManager")]
+    [Header("停用此元件 → 踩踏封包不再更新格子 / 不廣播事件")]
+    [Tooltip("開啟後每次路由結果都寫入 Console（熱路徑，演出時請關閉）")]
+    public bool debugLog = false;
+
     SensorTestManager  _manager;
     SensorFaceConfig[] _faceConfigs;
 
@@ -45,6 +50,9 @@ public class SensorFaceRouter : MonoBehaviour
 
             // 鎖定過濾：背景執行緒已用 snapshot 過濾，此處在主執行緒再確認（捕捉 snapshot 延遲窗口）
             if (_manager.IsRawPixelLocked(rawX, rawY)) return;
+
+            if (debugLog)
+                Debug.Log($"[SensorFaceRouter] raw({rawX},{rawY}) → face{fi} cell{cellIdx} ({col},{row})");
 
             _manager.DispatchSensorCell(rawX, rawY, fi, cellIdx);
             return;
