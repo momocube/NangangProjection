@@ -139,14 +139,26 @@ public partial class SensorTestManager
         _tileGrid?.SetPressing(faceIdx, fromState.cellIdx, false);
 
         // 從舊 key 遷移到新 key，保留 pressStarted / startTime，更新 cellIdx 與 lastTouchTime
+        int oldCellIdx = fromState.cellIdx;   // 保存舊 cellIdx，供 VCell 跨格判斷使用
         _smartTouches.Remove(fromKey);
         fromState.cellIdx       = cellIdx;
         fromState.lastTouchTime = Time.time;
         _smartTouches[faceIdx * 100000 + cellIdx] = fromState;
 
         // 廣播拖曳，讓 SensorBridgeToPassPosition 把水流位置更新到新格子
-        BroadcastCanvasCell(_faces[faceIdx], col, row, TouchKind.Drag);
-        SensorBus.Drag(col, row);
+        if (_vcellManager != null && _vcellManager.Enabled)
+        {
+            int fromVCell = _vcellManager.GetVCellIdx(faceIdx, oldCellIdx);
+            int toVCell   = _vcellManager.GetVCellIdx(faceIdx, cellIdx);
+            if (fromVCell != toVCell &&
+                _vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+                SensorBus.CanvasDrag(cx, cy, cw, ch);
+        }
+        else
+        {
+            BroadcastCanvasCell(_faces[faceIdx], col, row, TouchKind.Drag);
+            SensorBus.Drag(col, row);
+        }
         return true;
     }
 
@@ -233,13 +245,15 @@ public partial class SensorTestManager
             _chipLastTouchTimes[debounceKey] = nowR;
         }
 
-        // 輕觸：解算時閃一次紅燈
+        // 輕觸：解算時閃一次紅燈（視覺永遠執行）
         _tileGrid?.SetActive(faceIdx, cellIdx);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         if (_vcellManager != null && _vcellManager.Enabled)
         {
+            // VCell 去重：同 VCell 還有其他晶片在追蹤 → 跳過，等最後一顆廣播
+            if (VCellHasSiblingTouch(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
                 SensorBus.CanvasTap(cx, cy, cw, ch);
         }
@@ -255,13 +269,15 @@ public partial class SensorTestManager
         var fd = _faces[faceIdx];
         if (fd.locked[cellIdx]) return;
 
-        // 按壓開始：橘燈亮（常亮）
+        // 按壓開始：橘燈亮（常亮）（視覺永遠執行）
         _tileGrid?.SetPressing(faceIdx, cellIdx, true);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         if (_vcellManager != null && _vcellManager.Enabled)
         {
+            // VCell 去重：同 VCell 已有其他晶片 pressStarted → 跳過，只讓第一顆廣播
+            if (VCellHasSiblingPress(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
                 SensorBus.CanvasPressStart(cx, cy, cw, ch);
         }
@@ -276,13 +292,15 @@ public partial class SensorTestManager
     {
         var fd = _faces[faceIdx];
 
-        // 按壓結束：熄滅橘燈
+        // 按壓結束：熄滅橘燈（視覺永遠執行）
         _tileGrid?.SetPressing(faceIdx, cellIdx, false);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         if (_vcellManager != null && _vcellManager.Enabled)
         {
+            // VCell 去重：同 VCell 還有其他晶片未離手 → 跳過，等最後一顆廣播 PressEnd
+            if (VCellHasSiblingTouch(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
                 SensorBus.CanvasPressEnd(cx, cy, cw, ch);
         }
@@ -317,13 +335,16 @@ public partial class SensorTestManager
         var fd = _faces[faceIdx];
         if (fd.locked[cellIdx]) return;
 
-        // 拖曳格：橘燈亮起（與按壓視覺相同，表示手滑過）
+        // 拖曳格：橘燈亮起（視覺永遠執行）
         _tileGrid?.SetPressing(faceIdx, cellIdx, true);
 
         int col = cellIdx % fd.config.colCount;
         int row = cellIdx / fd.config.colCount;
         if (_vcellManager != null && _vcellManager.Enabled)
         {
+            // VCell 去重：同 VCell 已有錨點晶片 → 跳過（足部內部移動不重複廣播）
+            // 若跨 VCell（錨點在不同 VCell），兄弟檢查 = false，正常廣播新 VCell 位置
+            if (VCellHasSiblingTouch(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
                 SensorBus.CanvasDrag(cx, cy, cw, ch);
         }
@@ -332,6 +353,46 @@ public partial class SensorTestManager
             BroadcastCanvasCell(fd, col, row, TouchKind.Drag);
             SensorBus.Drag(col, row);
         }
+    }
+
+    // ── VCell 廣播去重 helper ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// VCell 模式：_smartTouches 中是否還有同 VCell 的「其他」晶片。
+    /// 用於 FireTap / FirePressEnd / FireDrag 的廣播去重——只讓最後一顆晶片廣播。
+    /// 注意：呼叫前當前晶片已從 _smartTouches 移除（FlushExpiredSmartTouches 路徑）。
+    /// FireDrag 路徑中當前晶片仍在 _smartTouches，故用 cellIdx == 自己 過濾。
+    /// </summary>
+    bool VCellHasSiblingTouch(int faceIdx, int cellIdx)
+    {
+        if (_vcellManager == null || !_vcellManager.Enabled) return false;
+        int myVCell = _vcellManager.GetVCellIdx(faceIdx, cellIdx);
+        if (myVCell < 0) return false;
+        foreach (var kv in _smartTouches)
+        {
+            var st = kv.Value;
+            if (st.faceIdx != faceIdx || st.cellIdx == cellIdx) continue;
+            if (_vcellManager.GetVCellIdx(faceIdx, st.cellIdx) == myVCell) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// VCell 模式：_smartTouches 中是否有同 VCell 的「其他」晶片已 pressStarted=true。
+    /// 用於 FirePressStart 去重——只讓第一顆達到 Press 門檻的晶片廣播。
+    /// </summary>
+    bool VCellHasSiblingPress(int faceIdx, int cellIdx)
+    {
+        if (_vcellManager == null || !_vcellManager.Enabled) return false;
+        int myVCell = _vcellManager.GetVCellIdx(faceIdx, cellIdx);
+        if (myVCell < 0) return false;
+        foreach (var kv in _smartTouches)
+        {
+            var st = kv.Value;
+            if (st.faceIdx != faceIdx || st.cellIdx == cellIdx || !st.pressStarted) continue;
+            if (_vcellManager.GetVCellIdx(faceIdx, st.cellIdx) == myVCell) return true;
+        }
+        return false;
     }
 
     // ── UI 建立 ───────────────────────────────────────────────────────────────

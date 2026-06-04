@@ -17,11 +17,11 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `MultiSensor/SensorHardwareConst.cs` | 硬體物理常數：CellPixelWidth=16、CellPixelHeight=32、PollingIntervalMs=100 |
-| `MultiSensor/SensorFaceConfig.cs` | 單一感應面配置＋座標轉換：ContainsRaw / RawToPixel / PixelToCell / CellToPixel |
-| `MultiSensor/VenuePresetConfig.cs` | 場域預設：場域名稱 + DisplayCanvasConfig + SensorFaceConfig[] + VCell 模式 |
-| `MultiSensor/DisplayCanvasConfig.cs` | 投影畫布解析度（canvasWidth × canvasHeight）|
-| `SceneInitialSettingsProfile.cs` | 場景初始設定 Profile（UDP port、格子解析度、點擊模式、各功能開關） |
+| `Core/SensorHardwareConst.cs` | 硬體物理常數：CellPixelWidth=16、CellPixelHeight=32、PollingIntervalMs=100 |
+| `Core/SensorFaceConfig.cs` | 單一感應面配置＋座標轉換：ContainsRaw / RawToPixel / PixelToCell / CellToPixel |
+| `Core/VenuePresetConfig.cs` | 場域預設：場域名稱 + DisplayCanvasConfig + SensorFaceConfig[] + VCell 模式 |
+| `Core/DisplayCanvasConfig.cs` | 投影畫布解析度（canvasWidth × canvasHeight）|
+| `Core/SceneInitialSettingsProfile.cs` | 場景初始設定 Profile（UDP port、格子解析度、點擊模式、各功能開關） |
 
 ---
 
@@ -29,7 +29,7 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `UdpSensorReceiver.cs` | UDP 背景執行緒接收 + 協議解析（checksum）+ 主執行緒佇列派送，觸發 OnPacketReceived(rawX, rawY) |
+| `Input/UdpSensorReceiver.cs` | UDP 背景執行緒接收 + 協議解析（checksum）+ 主執行緒佇列派送，觸發 OnPacketReceived(rawX, rawY) |
 
 ---
 
@@ -39,13 +39,13 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `SensorTest/SensorTestManager.cs` | 主調度：初始化、場域切換、ActivateCell、鎖定管理、Display 2 Window 控制 |
-| `SensorTest/SensorTestManager_UIBuilder.cs` | Display 1 UI 骨架建立：標題列、按鈕列、感應冷卻列、疊加透明列 |
-| `SensorTest/SensorTestManager_GridBuilder.cs` | 格子建立與縮放：Texture2D 格子、D2 顯示、控制格 Pointer 事件注入 |
-| `SensorTest/SensorTestManager_SmartTouch.cs` | 智慧觸碰辨識：Tap / PressStart / PressEnd / Drag 狀態機，含 VCell 路由 |
-| `SensorTest/SensorTestManager_GhostTouch.cs` | 孤點過濾：pending 狀態機，需鄰居確認才放行 |
-| `SensorTest/SensorTestManager_Logger.cs` | 訊號記錄：訂閱所有 Bus 事件，寫入 .csv 日誌檔案 |
-| `SensorTest/SensorTestManager_ClickLog.cs` | 互動記錄面板：Display 1 上方即時顯示事件記錄（HPS 統計） |
+| `Sensor/SensorTestManager.cs` | 主調度：初始化、場域切換、ActivateCell、鎖定管理、Display 2 Window 控制 |
+| `Sensor/SensorTestManager_UIBuilder.cs` | Display 1 UI 骨架建立：標題列、按鈕列、感應冷卻列、疊加透明列 |
+| `Sensor/SensorTestManager_GridBuilder.cs` | 格子建立與縮放：Texture2D 格子、D2 顯示、控制格 Pointer 事件注入 |
+| `Sensor/SensorTestManager_SmartTouch.cs` | 智慧觸碰辨識：Tap / PressStart / PressEnd / Drag 狀態機，含 VCell 路由 |
+| `Sensor/SensorTestManager_GhostTouch.cs` | 孤點過濾：pending 狀態機，需鄰居確認才放行 |
+| `Sensor/SensorTestManager_Logger.cs` | 訊號記錄：訂閱所有 Bus 事件，寫入 .csv 日誌檔案 |
+| `Sensor/SensorTestManager_ClickLog.cs` | 互動記錄面板：Display 1 上方即時顯示事件記錄（HPS 統計） |
 
 ---
 
@@ -53,10 +53,10 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `SensorTest/TileGridTexture.cs` | 所有格子的 Texture2D 視覺管理：SetActive / SetLocked / SetPressing / SetPending / LateUpdate 批量 Apply |
-| `ConsoleGameOverlay.cs` | Display 1 控制格後方疊加：GameDisplayRT（遊戲）或 TileGridTexture.SensorTex（感應）預覽 |
-| `Display2DimOverlay.cs` | Display 2 上方可調暗化覆蓋層（0%～100%） |
-| `VirtualCellManager.cs` | VCell 管理：格子→VCell 映射、鎖定狀態、觸碰追蹤、覆蓋 Texture 繪製 |
+| `Visual/TileGridTexture.cs` | 所有格子的 Texture2D 視覺管理：SetActive / SetLocked / SetPressing / SetPending / LateUpdate 批量 Apply |
+| `Visual/ConsoleGameOverlay.cs` | Display 1 控制格後方疊加：GameDisplayRT（遊戲）或 TileGridTexture.SensorTex（感應）預覽 |
+| `Visual/Display2DimOverlay.cs` | Display 2 上方可調暗化覆蓋層（0%～100%） |
+| `Visual/VirtualCellManager.cs` | VCell 管理：格子→VCell 映射、鎖定狀態、觸碰追蹤、覆蓋 Texture 繪製 |
 
 ---
 
@@ -64,9 +64,9 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `SensorTest/SensorClickSimulator.cs` | 感應觸碰 → OS 點擊事件轉換：Listen / PostMessage / SendInput 三種模式 |
-| `SensorTest/Display1GraphicRaycaster.cs` | Display 1 Raycaster 覆寫：WH_MOUSE_LL hook 偵測感應點擊，壓制 D1 的感應誤觸 |
-| `SensorTest/ControlGridPointerHandler.cs` | Display 1 控制格滑鼠事件（Down / Up / Hover / Hold）→ callback 轉換 |
+| `Simulator/SensorClickSimulator.cs` | 感應觸碰 → OS 點擊事件轉換：Listen / PostMessage / SendInput 三種模式 |
+| `Simulator/Display1GraphicRaycaster.cs` | Display 1 Raycaster 覆寫：WH_MOUSE_LL hook 偵測感應點擊，壓制 D1 的感應誤觸 |
+| `Simulator/ControlGridPointerHandler.cs` | Display 1 控制格滑鼠事件（Down / Up / Hover / Hold）→ callback 轉換 |
 
 ---
 
@@ -74,11 +74,11 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `GameSceneSetup.cs` | 遊戲場景相機設定 + Mirror Camera RT（512×192，frame skip=2） |
-| `GameDisplayRT.cs` | 靜態遊戲畫面 RenderTexture 管理（GetOrCreate / Release） |
-| `SensorBridgeToPassPosition.cs` | SensorBus 觸碰事件 → 水波效果座標轉換與平滑（訂閱 OnTouch + OnCanvasTouch） |
-| `GameConsole.cs` | 獨立執行檔彈出 Windows Console 視窗，轉導 Unity Debug.Log |
-| `MiniWindowController.cs` | Display 1 主視窗縮小成右下角無邊框迷你面板，支援拖移 |
+| `Visual/GameSceneSetup.cs` | 遊戲場景相機設定 + Mirror Camera RT（512×192，frame skip=2） |
+| `Visual/GameDisplayRT.cs` | 靜態遊戲畫面 RenderTexture 管理（GetOrCreate / Release） |
+| `Sensor/SensorBridgeToPassPosition.cs` | SensorBus 觸碰事件 → 水波效果座標轉換與平滑（訂閱 OnTouch + OnCanvasTouch） |
+| `Debug/GameConsole.cs` | 獨立執行檔彈出 Windows Console 視窗，轉導 Unity Debug.Log |
+| `Visual/MiniWindowController.cs` | Display 1 主視窗縮小成右下角無邊框迷你面板，支援拖移 |
 
 ---
 
@@ -86,10 +86,10 @@
 
 | 腳本 | 職責 |
 |------|------|
-| `TouchDebugLogger.cs` | IMGUI 觸碰日誌視窗（F9 開關）：訂閱 UDP 原始座標或 SensorBus 格子事件 |
-| `UdpDebugOverlay.cs` | 右上角 UDP 接收狀態覆蓋：封包數、最後座標、接收時間 |
-| `SensorTest/CoordTestPanel.cs` | Display 0 右上角座標測試面板：rawX/rawY 輸入 → 顯示命中面與格子 |
-| `Display2ScreenCapture.cs` | GDI BitBlt 截取 Display 2 整個螢幕（30fps），用於 ConsoleGameOverlay 備援 |
+| `Debug/TouchDebugLogger.cs` | IMGUI 觸碰日誌視窗（F9 開關）：訂閱 UDP 原始座標或 SensorBus 格子事件 |
+| `Debug/UdpDebugOverlay.cs` | 右上角 UDP 接收狀態覆蓋：封包數、最後座標、接收時間 |
+| `Debug/CoordTestPanel.cs` | Display 0 右上角座標測試面板：rawX/rawY 輸入 → 顯示命中面與格子 |
+| `Visual/Display2ScreenCapture.cs` | GDI BitBlt 截取 Display 2 整個螢幕（30fps），用於 ConsoleGameOverlay 備援 |
 
 ---
 
@@ -109,9 +109,9 @@
 
 | 腳本 | 功能說明 |
 |------|---------|
-| `TileManager.cs` | 舊版格子管理：32×12 小格 + 大格覆蓋，訂閱 UdpSensorReceiver.OnPacketReceived，有自己的 round timer。**若場景有掛，感應訊號會同時流向 TileManager 和 SensorTestManager。** |
-| `SensorTile.cs` | TileManager 用的單格 UI 元件（TMP 標籤顯示 ID、時間、點擊數），實作 IPointerEnterHandler |
-| `LargeTileOverlay.cs` | TileManager 用的多格合一邊框覆蓋（純邊框，無內容） |
+| `Legacy/TileManager.cs` | 舊版格子管理：32×12 小格 + 大格覆蓋，訂閱 UdpSensorReceiver.OnPacketReceived，有自己的 round timer。**若場景有掛，感應訊號會同時流向 TileManager 和 SensorTestManager。** |
+| `Legacy/SensorTile.cs` | TileManager 用的單格 UI 元件（TMP 標籤顯示 ID、時間、點擊數），實作 IPointerEnterHandler |
+| `Legacy/LargeTileOverlay.cs` | TileManager 用的多格合一邊框覆蓋（純邊框，無內容） |
 
 ---
 

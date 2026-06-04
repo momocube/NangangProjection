@@ -5,7 +5,7 @@ Unity 互動地板投影裝置。硬體感應模組透過 UDP 傳送觸碰座標
 
 ## 重要路徑
 - **主專案**：`C:\CyberCube\Unity\NangangProjection\NangangProjection\NangangProjection\`
-- **腳本**：`Assets/_Script/`
+- **腳本**：`Assets/_Script/`（子目錄：`Core/` `Input/` `Sensor/` `Visual/` `Simulator/` `Debug/` `Legacy/` `Editor/`）
 - **場景**：`Assets/Scenes/`
 - ⚠️ 若 Claude 在 worktree 環境，編輯檔案時務必使用**主專案路徑**，不要編輯 worktree 副本
 
@@ -53,7 +53,7 @@ Unity 互動地板投影裝置。硬體感應模組透過 UDP 傳送觸碰座標
 rawMinX = 1928  rawMaxX = 3960
 rawMinY = 16    rawMaxY = 752
 ```
-> 校準值已寫入 `Assets/_Script/MultiSensor/Setting/2048x768/Face_ALL.asset`
+> 校準值已寫入 `Assets/_Script/Core/Setting/2048x768/Face_ALL.asset`
 
 ## SensorClickSimulator 三種模式
 | 模式 | 按鈕顏色 | 說明 |
