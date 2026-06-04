@@ -124,6 +124,8 @@ public partial class SensorTestManager : MonoBehaviour
     TextMeshProUGUI  _screenOverlayBtnText;
     Image _screenOverlayBtnImage;
 
+    SensorFaceRouter     _sensorFaceRouter;
+
     ConsoleGameOverlay _overlay;
     TextMeshProUGUI    _overlayAlphaText;
 
@@ -282,8 +284,9 @@ public partial class SensorTestManager : MonoBehaviour
             _vcellManager.SetChipLockedQuery((fi, ci) =>
                 fi < _faces.Count && ci < _faces[fi].locked.Length && _faces[fi].locked[ci]);
         }
-        _overlay    = GetComponent<ConsoleGameOverlay>();
-        _dimOverlay = GetComponent<Display2DimOverlay>();
+        _overlay          = GetComponent<ConsoleGameOverlay>();
+        _dimOverlay       = GetComponent<Display2DimOverlay>();
+        _sensorFaceRouter = GetComponent<SensorFaceRouter>();
         if (_overlay == null)
             Debug.LogError("[SensorTestManager] ConsoleGameOverlay 元件不在此 GameObject 上，格點疊加層不會顯示。請將元件移到 SensorTestManager 同一個 GO。");
         NotifyOverlay();
@@ -304,7 +307,7 @@ public partial class SensorTestManager : MonoBehaviour
             StartCoroutine(FindDisplay2WindowCoroutine());
 #endif
 
-        UdpSensorReceiver.OnPacketReceived += OnUdpPacket;
+        NotifyFaceRouter();
         SetStatusIdle();
 
         if (!string.IsNullOrEmpty(gameSceneName))
@@ -329,7 +332,6 @@ public partial class SensorTestManager : MonoBehaviour
     void OnDestroy()
     {
         if (Instance == this) Instance = null;
-        UdpSensorReceiver.OnPacketReceived -= OnUdpPacket;
         DestroyClickLog();
     }
 
@@ -423,6 +425,7 @@ public partial class SensorTestManager : MonoBehaviour
         DestroyGridTiles();
 
         InitPresetData(idx);
+        NotifyFaceRouter();
         _vcellManager?.Initialize(presets[idx], _canvasConfig);
         SetLoadingProgress(0.1f);
         yield return null;
@@ -449,32 +452,23 @@ public partial class SensorTestManager : MonoBehaviour
         Debug.Log($"[SensorTest] 切換場域 → {presets[idx].presetName}");
     }
 
-    // ── UDP 解析 ──────────────────────────────────────────────────────────────
+    // ── SensorFaceRouter 路由入口 ─────────────────────────────────────────────────
 
-    void OnUdpPacket(int rawX, int rawY)
+    void NotifyFaceRouter()
     {
-        // 硬體輸出 raw sensor 值，用 ContainsRaw 找面後 RawToPixel 轉畫布像素
-        int bestFace = -1;
-        int pixelX = rawX, pixelY = rawY;
-        for (int fi = 0; fi < _faces.Count; fi++)
-        {
-            var cfg = _faces[fi].config;
-            if (!cfg.ContainsRaw(rawX, rawY)) continue;
-            (pixelX, pixelY) = cfg.RawToPixel(rawX, rawY);
-            bestFace = fi;
-            break;
-        }
+        if (_sensorFaceRouter == null) return;
+        var configs = new SensorFaceConfig[_faces.Count];
+        for (int i = 0; i < _faces.Count; i++)
+            configs[i] = _faces[i].config;
+        _sensorFaceRouter.SetFaceConfigs(configs);
+    }
 
-        if (bestFace < 0)
-        {
-            if (!_smartLockActive)
-                SetStatusText($"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）");
-            return;
-        }
-
-        var cfg2 = _faces[bestFace].config;
-        var (col, row) = cfg2.PixelToCell(pixelX, pixelY);
-        int cellIdx = row * cfg2.colCount + col;
+    /// <summary>SensorFaceRouter 面分類完成後呼叫：執行孤點過濾、格子觸發與智慧觸碰更新。</summary>
+    public void DispatchSensorCell(int rawX, int rawY, int faceIdx, int cellIdx)
+    {
+        var cfg = _faces[faceIdx].config;
+        int col = cellIdx % cfg.colCount;
+        int row = cellIdx / cfg.colCount;
 
         if (!_smartLockActive)
         {
@@ -482,14 +476,21 @@ public partial class SensorTestManager : MonoBehaviour
             if (nowT - _lastStatusUpdateTime >= 0.1f)
             {
                 _lastStatusUpdateTime = nowT;
-                SetStatusText($"raw({rawX},{rawY})  →  {cfg2.faceName} 面  欄{col} 列{row}" +
+                SetStatusText($"raw({rawX},{rawY})  →  {cfg.faceName} 面  欄{col} 列{row}" +
                     $"  [{_lastHitPerSec} 次/秒]");
             }
         }
 
-        if (!ProcessGhostTouch(bestFace, cellIdx)) return;
-        ActivateCell(bestFace, cellIdx, skipVisual: true);
-        UpdateSmartTouch(bestFace, cellIdx);
+        if (!ProcessGhostTouch(faceIdx, cellIdx)) return;
+        ActivateCell(faceIdx, cellIdx, skipVisual: true);
+        UpdateSmartTouch(faceIdx, cellIdx);
+    }
+
+    /// <summary>SensorFaceRouter 呼叫：rawX/rawY 超出所有感應面的範圍。</summary>
+    public void OnRawOutOfRange(int rawX, int rawY)
+    {
+        if (!_smartLockActive)
+            SetStatusText($"raw({rawX},{rawY})  →  超出所有面的範圍（未觸發）");
     }
 
     // ── 鎖定快照（執行緒安全，供 UDP 背景執行緒過濾）────────────────────────
@@ -697,7 +698,10 @@ public partial class SensorTestManager : MonoBehaviour
     }
 
     /// <summary>CoordTestPanel 呼叫：以原始感應座標觸發（與真實 UDP 封包路徑相同）。</summary>
-    public void TriggerRawCoord(int rawX, int rawY) => OnUdpPacket(rawX, rawY);
+    public void TriggerRawCoord(int rawX, int rawY)
+    {
+        _sensorFaceRouter?.RoutePacket(rawX, rawY);
+    }
 
     /// <summary>
     /// 遊戲程式碼呼叫：以 raw sensor 座標亮起對應格子並廣播 CanvasTouch。

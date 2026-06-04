@@ -257,6 +257,7 @@ GameObject:
   - component: {fileID: 400400}
   - component: {fileID: 114400}
   - component: {fileID: 114401}
+  - component: {fileID: 114402}
   - component: {fileID: 114404}
   - component: {fileID: 400403}
   - component: {fileID: 400404}
@@ -436,6 +437,18 @@ MonoBehaviour:
   debugLog: 0
   maxPointsPerFrame: 64
   maxQueueSize: 256
+--- !u!114 &114402
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100400}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 365051850eeac9647805452aabc549e5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!114 &114404
 MonoBehaviour:
   m_ObjectHideFlags: 0

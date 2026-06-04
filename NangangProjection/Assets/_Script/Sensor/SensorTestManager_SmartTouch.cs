@@ -43,7 +43,7 @@ public partial class SensorTestManager
     readonly List<int> _expiredBuffer = new List<int>();
     readonly List<int> _dragKeyBuffer = new List<int>();
 
-    // ── 核心邏輯（由 OnUdpPacket 呼叫）───────────────────────────────────────
+    // ── 核心邏輯（由 SensorTestManager.DispatchSensorCell 呼叫）──────────────
 
     /// <summary>每次 UDP 封包觸發一次，追蹤觸碰持續時間。</summary>
     void UpdateSmartTouch(int faceIdx, int cellIdx)
