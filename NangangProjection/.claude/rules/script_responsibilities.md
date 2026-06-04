@@ -118,7 +118,8 @@
 ## 查閱索引
 
 | 我想了解… | 讀哪個檔案 |
-|-----------|----------|
+|-----------|---------|
+| 新腳本應放到哪個子目錄 | `.claude/rules/script_directory_convention.md` |
 | UDP 到視覺的完整流程 | `.claude/rules/signal_flow.md` |
 | 繞過條件（鎖定、skipVisual、冷卻） | `.claude/rules/signal_flow.md` + `.claude/rules/activatecell_skipvisual.md` |
 | 冷卻 debounce 的 gate 位置 | `.claude/rules/sensor_debounce_coverage.md` |
