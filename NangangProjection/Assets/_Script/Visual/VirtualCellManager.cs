@@ -20,6 +20,10 @@ public class VirtualCellManager : MonoBehaviour
     [Tooltip("感應器每輪偵測間隔（ms）。超過 2 倍此值視為離手。")]
     public int pollingIntervalMs = SensorHardwareConst.PollingIntervalMs;
 
+    [Header("視覺設定")]
+    [Tooltip("VCell 模式啟用時，落腳的個別晶片是否在 TileGridTexture 上亮紅。關閉後只顯示 VCell amber 色塊，晶片格不閃燈。")]
+    [SerializeField] bool showChipVisualInVCellMode = true;
+
     // ── 執行期狀態 ────────────────────────────────────────────────────────────
 
     VirtualCellMode _mode = VirtualCellMode.None;
@@ -168,7 +172,8 @@ public class VirtualCellManager : MonoBehaviour
         if (fv.vcellLocked[vcellIdx]) return;
 
         // 個別晶片視覺：TileGridTexture 已有防重繪（Active 時只更新 timer），100Hz 呼叫安全
-        _tileGrid?.SetActive(faceIdx, chipIdx);
+        if (showChipVisualInVCellMode)
+            _tileGrid?.SetActive(faceIdx, chipIdx);
 
         // 每次 chip touch 都廣播 VCell 中心座標，維持連續更新（驅動 SensorClickSimulator / 遊戲效果）
         var center = VCellCenter(fv, vcol, vrow);
