@@ -192,6 +192,7 @@ public class VirtualCellManager : MonoBehaviour
     {
         if (!Enabled) return;
 
+        LatencyProbe.Mark(LatencyProbe.EventType.VCellUpdateStart, 0, 0);
         float now = Time.realtimeSinceStartup;
 
         for (int fi = 0; fi < _faceData.Count; fi++)
@@ -233,6 +234,7 @@ public class VirtualCellManager : MonoBehaviour
                 }
             }
         }
+        LatencyProbe.Mark(LatencyProbe.EventType.VCellUpdateEnd, 0, 0);
     }
 
     // ── 廣播 ──────────────────────────────────────────────────────────────────

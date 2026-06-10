@@ -270,14 +270,18 @@ public class TileGridTexture : MonoBehaviour
 
         if (_sensorDirty)
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.ApplyStart, 0, 0);
             SensorTex.SetPixels32(_sensorPx);
             SensorTex.Apply(false);
+            LatencyProbe.Mark(LatencyProbe.EventType.ApplyEnd, 0, 0);
             _sensorDirty = false;
         }
         if (_controlDirty)
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.ApplyStart, 1, 0);
             ControlTex.SetPixels32(_controlPx);
             ControlTex.Apply(false);
+            LatencyProbe.Mark(LatencyProbe.EventType.ApplyEnd, 1, 0);
             _controlDirty = false;
         }
     }

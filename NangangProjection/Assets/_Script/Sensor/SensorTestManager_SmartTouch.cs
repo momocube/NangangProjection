@@ -74,6 +74,7 @@ public partial class SensorTestManager
             }
 
             // 第一次踩到：立刻亮燈，不等手勢解算
+            LatencyProbe.Mark(LatencyProbe.EventType.SetActive, faceIdx, cellIdx);
             _tileGrid?.SetActive(faceIdx, cellIdx);
             _smartTouches[key] = new SmartTouchState
             {
@@ -257,12 +258,18 @@ public partial class SensorTestManager
             // VCell 去重：同 VCell 還有其他晶片在追蹤 → 跳過，等最後一顆廣播
             if (VCellHasSiblingTouch(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+            {
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
                 SensorBus.CanvasTap(cx, cy, cw, ch);
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
+            }
         }
         else
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
             BroadcastCanvasCell(fd, col, row, TouchKind.Tap);
             SensorBus.Tap(col, row);
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
         }
     }
 
@@ -281,12 +288,18 @@ public partial class SensorTestManager
             // VCell 去重：同 VCell 已有其他晶片 pressStarted → 跳過，只讓第一顆廣播
             if (VCellHasSiblingPress(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+            {
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
                 SensorBus.CanvasPressStart(cx, cy, cw, ch);
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
+            }
         }
         else
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
             BroadcastCanvasCell(fd, col, row, TouchKind.PressStart);
             SensorBus.PressStart(col, row);
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
         }
     }
 
@@ -304,12 +317,18 @@ public partial class SensorTestManager
             // VCell 去重：同 VCell 還有其他晶片未離手 → 跳過，等最後一顆廣播 PressEnd
             if (VCellHasSiblingTouch(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+            {
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
                 SensorBus.CanvasPressEnd(cx, cy, cw, ch);
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
+            }
         }
         else
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
             BroadcastCanvasCell(fd, col, row, TouchKind.PressEnd);
             SensorBus.PressEnd(col, row);
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
         }
 
         // 清除同面所有殘留的拖曳格，防止按壓結束後橘燈永不熄滅
@@ -348,12 +367,18 @@ public partial class SensorTestManager
             // 若跨 VCell（錨點在不同 VCell），兄弟檢查 = false，正常廣播新 VCell 位置
             if (VCellHasSiblingTouch(faceIdx, cellIdx)) return;
             if (_vcellManager.TryGetVCellCenter(faceIdx, cellIdx, out float cx, out float cy, out float cw, out float ch))
+            {
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
                 SensorBus.CanvasDrag(cx, cy, cw, ch);
+                LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
+            }
         }
         else
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeStart, faceIdx, cellIdx);
             BroadcastCanvasCell(fd, col, row, TouchKind.Drag);
             SensorBus.Drag(col, row);
+            LatencyProbe.Mark(LatencyProbe.EventType.BusInvokeEnd, faceIdx, cellIdx);
         }
     }
 

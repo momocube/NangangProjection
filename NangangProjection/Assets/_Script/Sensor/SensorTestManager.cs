@@ -770,7 +770,9 @@ public partial class SensorTestManager : MonoBehaviour
 
         HandleDragInteract();
         UpdateClickLogPanel();
+        LatencyProbe.Mark(LatencyProbe.EventType.FlushStart, 0, 0);
         FlushExpiredSmartTouches();
+        LatencyProbe.Mark(LatencyProbe.EventType.FlushEnd, 0, 0);
         CleanExpiredPendingCells();
 
         // 每 30 秒清一次長期不再觸碰的 _cellHitTimes entry
