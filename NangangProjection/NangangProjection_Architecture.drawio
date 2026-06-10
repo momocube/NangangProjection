@@ -1,0 +1,368 @@
+<mxfile host="app.diagrams.net" version="24.0.0" type="device">
+  <!-- ================================================================== -->
+  <!-- Page 1: 分層架構圖                                                   -->
+  <!-- ================================================================== -->
+  <diagram id="pg1_arch" name="分層架構圖">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1160" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ── LAYER 0: Hardware ── -->
+        <mxCell id="bg0" value="Layer 0：硬體 / 外部" style="text;html=1;strokeColor=#666666;fillColor=#f5f5f5;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;fontColor=#333333;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1600" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="hw" value="感應地板 UDP 封包（Port 20001）&#xa;55 55 [frame:1B] [size H+L:2B] [X_H X_L Y_H Y_L]×N [checksum H+L:2B]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="37" width="640" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ── LAYER 1: Input ── -->
+        <mxCell id="bg1" value="Layer 1：輸入接收層  Input/" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="148" width="1600" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="udprecv" value="UdpSensorReceiver&#xa;背景執行緒接收 + checksum 驗證&#xa;→ Queue.Enqueue(rawX, rawY)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="168" width="340" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="facerouter" value="SensorFaceRouter&#xa;面分類 + 座標轉換 + 鎖定過濾&#xa;→ DispatchSensorCell(faceIdx, col, row)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="740" y="168" width="360" height="72" as="geometry" />
+        </mxCell>
+
+        <!-- ── LAYER 2: Sensor Logic ── -->
+        <mxCell id="bg2" value="Layer 2：感應邏輯層  Sensor/" style="text;html=1;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="305" width="1600" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="stm" value="SensorTestManager&#xa;主控：場域切換、格子管理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontColor=#000000;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="65" y="338" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="partials_lbl" value="SensorTestManager partial class 子模組" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="310" y="312" width="780" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="p_ui"    value="_UIBuilder&#xa;D1 UI 骨架"       style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="310" y="332" width="120" height="45" as="geometry" /></mxCell>
+        <mxCell id="p_grid"  value="_GridBuilder&#xa;格子建立、RT"    style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="440" y="332" width="120" height="45" as="geometry" /></mxCell>
+        <mxCell id="p_touch" value="_SmartTouch&#xa;Tap/Press/Drag"  style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="570" y="332" width="120" height="45" as="geometry" /></mxCell>
+        <mxCell id="p_ghost" value="_GhostTouch&#xa;孤點過濾"         style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="700" y="332" width="120" height="45" as="geometry" /></mxCell>
+        <mxCell id="p_log"   value="_Logger&#xa;CSV 紀錄"            style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="830" y="332" width="120" height="45" as="geometry" /></mxCell>
+        <mxCell id="p_clog"  value="_ClickLog&#xa;D1 事件面板"        style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="960" y="332" width="120" height="45" as="geometry" /></mxCell>
+        <mxCell id="vcm" value="VirtualCellManager&#xa;多格合一 VCell 模式（選用）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1390" y="338" width="230" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ── LAYER 3: Event Bus ── -->
+        <mxCell id="bg3" value="Layer 3：事件 Bus 層  Core/" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="550" width="1600" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="sensorbus" value="SensorBus&#xa;Touch / Tap / PressStart / PressEnd / Drag&#xa;+ Canvas* 系列（全畫布像素 x / y）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="200" y="572" width="400" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="vcellbus" value="VirtualCellBus&#xa;VirtualCellTouch / VirtualCellRelease" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="576" width="360" height="62" as="geometry" />
+        </mxCell>
+
+        <!-- ── LAYER 4a: Visual ── -->
+        <mxCell id="bg4a" value="Layer 4a：視覺輸出層  Visual/" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="715" width="780" height="205" as="geometry" />
+        </mxCell>
+        <mxCell id="v_tile"     value="TileGridTexture&#xa;格子貼圖（128×48）"          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="65"  y="748" width="168" height="50" as="geometry" /></mxCell>
+        <mxCell id="v_overlay"  value="ConsoleGameOverlay&#xa;D1 遊戲/感應預覽"          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="250" y="748" width="158" height="50" as="geometry" /></mxCell>
+        <mxCell id="v_dim"      value="Display2DimOverlay&#xa;地板亮度調暗"              style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="425" y="748" width="155" height="50" as="geometry" /></mxCell>
+        <mxCell id="v_mini"     value="MiniWindowController&#xa;D1 縮小迷你視窗"         style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="597" y="748" width="195" height="50" as="geometry" /></mxCell>
+        <mxCell id="v_gamert"   value="GameDisplayRT&#xa;靜態 RT 管理"                   style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="65"  y="820" width="168" height="50" as="geometry" /></mxCell>
+        <mxCell id="v_setup"    value="GameSceneSetup&#xa;Mirror Camera RT（512×192）"  style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="250" y="820" width="220" height="50" as="geometry" /></mxCell>
+        <mxCell id="v_d2cap"    value="Display2ScreenCapture&#xa;GDI 截圖備援（704）"   style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=2;" vertex="1" parent="1"><mxGeometry x="490" y="820" width="200" height="50" as="geometry" /></mxCell>
+
+        <!-- ── LAYER 4b: Simulator ── -->
+        <mxCell id="bg4b" value="Layer 4b：點擊模擬層  Simulator/" style="text;html=1;strokeColor=#9673a6;fillColor=#e1d5e7;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="860" y="715" width="780" height="205" as="geometry" />
+        </mxCell>
+        <mxCell id="s_click" value="SensorClickSimulator&#xa;Listen / PostMessage / SendInput" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="885" y="755" width="230" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="s_ray" value="Display1GraphicRaycaster&#xa;D1 誤觸壓制（WH_MOUSE_LL）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1135" y="755" width="240" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="s_ctrl" value="ControlGridPointerHandler&#xa;控制格滑鼠事件轉換" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1398" y="755" width="220" height="62" as="geometry" />
+        </mxCell>
+
+        <!-- ── LAYER 5: Game Integration ── -->
+        <mxCell id="bg5" value="Layer 5：遊戲整合層" style="text;html=1;strokeColor=#006EAF;fillColor=#dae8fc;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=13;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="970" width="1600" height="108" as="geometry" />
+        </mxCell>
+        <mxCell id="g_bridge" value="SensorBridgeToPassPosition&#xa;SensorBus 觸碰 → 水波座標平滑" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="995" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="g_scene" value="GameSceneSetup&#xa;遊戲場景相機管理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="650" y="995" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="g_rt" value="GameDisplayRT&#xa;靜態 RT 管理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="990" y="995" width="260" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ── ARROWS ── -->
+        <!-- L0 → L1 -->
+        <mxCell id="a_hw_recv" value="rawX / rawY（格子中心像素座標）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;fontStyle=2;" edge="1" source="hw" target="udprecv" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L1 internal -->
+        <mxCell id="a_recv_router" value="OnPacketReceived(rawX, rawY)" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="udprecv" target="facerouter" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L1 → L2 -->
+        <mxCell id="a_router_stm" value="faceIdx / cellIdx（格子索引）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;fontStyle=2;" edge="1" source="facerouter" target="stm" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- STM → partials (dashed symbolic) -->
+        <mxCell id="a_stm_partial" value="組成 (partial class)" style="edgeStyle=elbowEdgeStyle;html=1;fontSize=9;dashed=1;endArrow=block;endFill=0;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="stm" target="p_ui" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- STM ↔ VCM -->
+        <mxCell id="a_stm_vcm" value="持有參考（同 GO）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;dashed=1;endArrow=open;endFill=0;" edge="1" source="stm" target="vcm" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L2 → L3 SensorBus -->
+        <mxCell id="a_stm_sbus" value="SensorBus 事件廣播" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;fontStyle=2;" edge="1" source="stm" target="sensorbus" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L2 → L3 VirtualCellBus -->
+        <mxCell id="a_vcm_vbus" value="VirtualCellBus 事件廣播" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;fontStyle=2;" edge="1" source="vcm" target="vcellbus" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L3 → L4a -->
+        <mxCell id="a_sbus_visual" value="訂閱" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sensorbus" target="v_tile" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L3 → L4b -->
+        <mxCell id="a_sbus_sim" value="訂閱" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sensorbus" target="s_click" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- L3 → L5 -->
+        <mxCell id="a_sbus_game" value="訂閱" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sensorbus" target="g_bridge" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- VCellBus → Simulator -->
+        <mxCell id="a_vbus_sim" value="訂閱" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="vcellbus" target="s_click" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── DEPENDENCY RULE NOTE ── -->
+        <mxCell id="dep_note" value="⚠️ 依賴方向（禁止反向）：Core ← Input ← Sensor ← Bus ← { Visual / Simulator / Game }&#xa;Visual 不可直接呼叫 Simulator，Simulator 不可直接呼叫 Visual — 跨層通訊一律透過 SensorBus / VirtualCellBus" style="text;html=1;strokeColor=#b85450;fillColor=#f8cecc;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1090" width="1600" height="48" as="geometry" />
+        </mxCell>
+
+        <!-- ── DATA LAYER (ScriptableObjects sidebar) ── -->
+        <mxCell id="data_bg" value="資料定義層 Core/ — ScriptableObject（各層共享，不含邏輯）" style="text;html=1;strokeColor=#23445d;fillColor=#647687;fontColor=#ffffff;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;overflow=hidden;rotatable=0;fontSize=11;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1660" y="148" width="360" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="d_hw"    value="SensorHardwareConst&#xa;CellPxW=16, CellPxH=32, Polling=100ms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#23445d;fontColor=#ffffff;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1680" y="185" width="320" height="50" as="geometry" /></mxCell>
+        <mxCell id="d_face"  value="SensorFaceConfig&#xa;origin, colCount/rowCount, flip, rawMin/Max&#xa;ContainsRaw / RawToPixel / PixelToCell" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#23445d;fontColor=#ffffff;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1680" y="248" width="320" height="60" as="geometry" /></mxCell>
+        <mxCell id="d_canvas" value="DisplayCanvasConfig&#xa;canvasWidth × canvasHeight" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#23445d;fontColor=#ffffff;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1680" y="322" width="320" height="46" as="geometry" /></mxCell>
+        <mxCell id="d_venue" value="VenuePresetConfig&#xa;DisplayCanvasConfig + SensorFaceConfig[] + VCellMode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#23445d;fontColor=#ffffff;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1680" y="382" width="320" height="50" as="geometry" /></mxCell>
+        <mxCell id="d_profile" value="SceneInitialSettingsProfile&#xa;UDP port、點擊模式、各功能開關" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#23445d;fontColor=#ffffff;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1680" y="446" width="320" height="50" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- ================================================================== -->
+  <!-- Page 2: 訊號流程圖                                                   -->
+  <!-- ================================================================== -->
+  <diagram id="pg2_signal" name="訊號流程圖">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="2480" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ── START ── -->
+        <mxCell id="sf0" value="硬體感應器 UDP 封包" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="20" width="400" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ── ReceiveLoop (background thread) ── -->
+        <mxCell id="sf1" value="UdpSensorReceiver.ReceiveLoop()&#xa;【背景執行緒 — 禁止呼叫 Unity API】&#xa;① Header 驗證（55 55）&#xa;② checksum 驗證&#xa;③ 提取 (rawX, rawY)&#xa;④ Queue.Enqueue(rawX, rawY)（滿則丟最舊）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="320" y="110" width="500" height="105" as="geometry" />
+        </mxCell>
+
+        <!-- ── Update (main thread) ── -->
+        <mxCell id="sf2" value="UdpSensorReceiver.Update()  【主執行緒，每幀】&#xa;Queue.Dequeue → 觸發 OnPacketReceived(rawX, rawY)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="320" y="260" width="500" height="62" as="geometry" />
+        </mxCell>
+
+        <!-- ── SensorFaceRouter.OnPacket ── -->
+        <mxCell id="sf3" value="SensorFaceRouter.OnPacket(rawX, rawY)&#xa;① ContainsRaw() → 找到負責的感應面&#xa;② RawToPixel() → 畫布像素座標 (px, py)&#xa;③ PixelToCell() → 格子索引 (col, row)&#xa;④ IsRawPixelLocked() 查鎖定快照" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="320" y="367" width="500" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ── IsLocked diamond ── -->
+        <mxCell id="sf4_q" value="IsRawPixelLocked()?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="510" width="300" height="72" as="geometry" />
+        </mxCell>
+
+        <!-- Locked → skip -->
+        <mxCell id="sf4_skip" value="此座標已鎖定&#xa;→ 整筆封包跳過" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="520" width="220" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="a4_yes" value="是（鎖定中）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf4_q" target="sf4_skip" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── ActivateCell ── -->
+        <mxCell id="sf5" value="SensorTestManager.ActivateCell(faceIdx, col, row, skipVisual: true)&#xa;UDP 路徑固定 skipVisual=true → 跳過 SetActive 視覺更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontColor=#000000;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="295" y="628" width="550" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="a4_no" value="否（未鎖定）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf4_q" target="sf5" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── GhostTouch diamond ── -->
+        <mxCell id="sf6_q" value="GhostTouchMode&#xa;!= None?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="738" width="300" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="a5_6" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf5" target="sf6_q" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GhostTouch process -->
+        <mxCell id="sf6_proc" value="ProcessGhostTouch(faceIdx, cellIdx)&#xa;• 孤立點 → pending，等待鄰居確認&#xa;• 有鄰居 → 解除 pending，繼續" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="850" y="726" width="270" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="a6_yes" value="是" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf6_q" target="sf6_proc" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── UpdateSmartTouch ── -->
+        <mxCell id="sf7" value="UpdateSmartTouch(faceIdx, cellIdx)  【SmartTouch.cs】&#xa;記錄每格接觸時間戳記、位移累計" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="295" y="862" width="550" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="a6_no"    value="否"  style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf6_q"    target="sf7" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a6g_rej"  value="通過" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf6_proc" target="sf7" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ── PressStart branch (during ongoing contact) ── -->
+        <mxCell id="sf7b_q" value="持續接觸期間&#xa;duration ≥ tapBoundaryMs&#xa;（首次）?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="420" y="972" width="300" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="a7_7b" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf7" target="sf7b_q" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sf_pressstart" value="FirePressStart()&#xa;→ TileGridTexture.SetPressing&#xa;→ SensorBus.PressStart(col, row)&#xa;→ SensorBus.CanvasPressStart(x, y, …)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="860" y="960" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="a7b_yes" value="是（一次）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf7b_q" target="sf_pressstart" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── FlushExpiredSmartTouches ── -->
+        <mxCell id="sf8" value="100ms 未再收到同格訊號&#xa;→ FlushExpiredSmartTouches()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="295" y="1096" width="550" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="a7b_no" value="否（繼續等待）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf7b_q" target="sf8" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── Duration decision ── -->
+        <mxCell id="sf9_q" value="持續時間 / 位移判斷" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1200" width="300" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="a8_9" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf8" target="sf9_q" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Three Fire* branches -->
+        <mxCell id="sf_tap"   value="FireTap()&#xa;短按（&lt; tapBoundaryMs）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1"><mxGeometry x="60"  y="1332" width="210" height="58" as="geometry" /></mxCell>
+        <mxCell id="sf_pend"  value="FirePressEnd()&#xa;長按結束（已廣播 PressStart）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1"><mxGeometry x="350" y="1332" width="240" height="58" as="geometry" /></mxCell>
+        <mxCell id="sf_drag"  value="FireDrag()&#xa;有位移（滑動）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1"><mxGeometry x="700" y="1332" width="210" height="58" as="geometry" /></mxCell>
+        <mxCell id="a9_tap"  value="&lt; tapBoundaryMs" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf9_q" target="sf_tap"  parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a9_pend" value="≥ tapBoundaryMs" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf9_q" target="sf_pend" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a9_drag" value="有位移"           style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf9_q" target="sf_drag" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ── Debounce gate ── -->
+        <mxCell id="sf10_q" value="冷卻 debounce 攔截?&#xa;_chipLastTouchTimes" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1448" width="300" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="a_tap_deb"  value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf_tap"  target="sf10_q" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a_pend_deb" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf_pend" target="sf10_q" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a_drag_deb" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf_drag" target="sf10_q" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Debounce hit → discard -->
+        <mxCell id="sf10_discard" value="攔截丟棄&#xa;（冷卻期未過）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="1456" width="200" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="a10_yes" value="是（冷卻中）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf10_q" target="sf10_discard" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── TileGridTexture update ── -->
+        <mxCell id="sf11" value="TileGridTexture.SetActive / SetPressing&#xa;格子亮燈（LateUpdate 批量 Apply — 貼圖尺寸 canvas/16）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="295" y="1572" width="550" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="a10_no" value="否（通過）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf10_q" target="sf11" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── VCell mode diamond ── -->
+        <mxCell id="sf12_q" value="VCell 模式&#xa;ON?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1684" width="300" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="a11_12" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf11" target="sf12_q" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- VCell OFF → BroadcastCanvasCell -->
+        <mxCell id="sf12_off" value="BroadcastCanvasCell(faceIdx, col, row, kind)&#xa;SensorBus.Tap/PressStart/PressEnd/Drag(col, row)&#xa;SensorBus.CanvasTap/CanvasPressStart/…(x, y, cw, ch)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1822" width="370" height="68" as="geometry" />
+        </mxCell>
+        <!-- VCell ON → TryGetVCellCenter -->
+        <mxCell id="sf12_on" value="TryGetVCellCenter() → (cx, cy, cw, ch)&#xa;SensorBus.CanvasTap/…(cx, cy, cw, ch)  ← VCell 中心座標&#xa;VirtualCellBus.VirtualCellTouch/Release(cx, cy, …)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="700" y="1822" width="380" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="a12_off" value="否（原格座標）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf12_q" target="sf12_off" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a12_on"  value="是（VCell 中心）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="sf12_q" target="sf12_on"  parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ── Subscribers ── -->
+        <mxCell id="sf13_bg" value="SensorBus 訂閱者（並行觸發，主執行緒同步）" style="text;html=1;strokeColor=#666666;fillColor=#f5f5f5;align=center;verticalAlign=top;spacingTop=6;overflow=hidden;rotatable=0;fontSize=12;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1955" width="1100" height="195" as="geometry" />
+        </mxCell>
+        <mxCell id="sub1" value="SensorClickSimulator&#xa;OS 點擊&#xa;PostMessage / SendInput" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1"><mxGeometry x="65"  y="1990" width="200" height="60" as="geometry" /></mxCell>
+        <mxCell id="sub2" value="SensorBridgeToPassPosition&#xa;水波效果座標傳遞" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="285" y="1990" width="220" height="60" as="geometry" /></mxCell>
+        <mxCell id="sub3" value="TouchDebugLogger&#xa;IMGUI 觸碰日誌（F9）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="525" y="1990" width="200" height="60" as="geometry" /></mxCell>
+        <mxCell id="sub4" value="TileManager.OnSensorPoint&#xa;舊格子系統（若場景有掛）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" vertex="1" parent="1"><mxGeometry x="745" y="1990" width="220" height="60" as="geometry" /></mxCell>
+        <mxCell id="sub5" value="…其他 SensorBus 訂閱者&#xa;（遊戲效果等）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="985" y="1990" width="130" height="60" as="geometry" /></mxCell>
+
+        <mxCell id="a_off_subs" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf12_off" target="sf13_bg" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a_on_subs"  value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf12_on"  target="sf13_bg" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ── ARROWS top section ── -->
+        <mxCell id="a0_1" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf0" target="sf1" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a1_2" value="每幀 Dequeue（主執行緒）" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;fontStyle=2;" edge="1" source="sf1" target="sf2" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a2_3" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf2" target="sf3" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a3_4" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" source="sf3" target="sf4_q" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- ── BYPASS TABLE (side note) ── -->
+        <mxCell id="bypass_bg" value="繞過條件速查" style="text;html=1;strokeColor=#d79b00;fillColor=#ffe6cc;align=center;verticalAlign=top;spacingTop=4;overflow=hidden;rotatable=0;fontSize=11;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="400" width="650" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="bp1" value="鎖定過濾" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="430" width="120" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp1v" value="IsRawPixelLocked() = true → 整筆跳過" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="450" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp2" value="skipVisual=true" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="480" width="130" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp2v" value="UDP 路徑跳過 SetActive，但廣播仍執行（重要！）" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="500" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp3" value="GhostTouch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="530" width="130" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp3v" value="ghostTouchMode == None → 直接進 SmartTouch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="550" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp4" value="冷卻 debounce" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="580" width="130" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp4v" value="cooldownEnabled = false → Fire* 不攔截" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="600" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp5" value="VCell 廣播" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="630" width="130" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp5v" value="VCell ON → 改用 VCell 中心座標（不抑制事件）" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="650" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp6" value="OS 點擊" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="680" width="130" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp6v" value="ClickMode == Listen → 只走 SensorBus，不發 OS 事件" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="700" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp7" value="D1 Raycast Suppression" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="730" width="200" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp7v" value="SendInput 前必須主動呼叫 NotifySensorClick()（不能只靠 WH_MOUSE_LL hook）" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="750" width="615" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp8" value="VCell 觸碰廣播" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1145" y="780" width="200" height="20" as="geometry" /></mxCell>
+        <mxCell id="bp8v" value="IsVCellLocked() = true → HandleChipTouch 不廣播，不發 VirtualCellBus" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1145" y="800" width="615" height="20" as="geometry" /></mxCell>
+
+        <!-- ── SmartTouch State Machine note ── -->
+        <mxCell id="sm_note" value="SmartTouch 狀態機（per 格子）&#xa;[無接觸] → 收到訊號 → [接觸中] _touchStartTime 記錄&#xa;[接觸中] 持續收到同格 → 重設計時器&#xa;          duration ≥ tapBoundaryMs（首次）→ FirePressStart → [按壓中]&#xa;[接觸中] 100ms 超時 → FlushExpiredSmartTouches()&#xa;          &lt; tapBoundaryMs → FireTap → [無接觸]&#xa;          ≥ tapBoundaryMs, 未移動 → FirePressEnd → [無接觸]&#xa;          有位移 ≥ tapBoundaryMs → FireDrag → [無接觸]" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=10;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="860" width="650" height="175" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
