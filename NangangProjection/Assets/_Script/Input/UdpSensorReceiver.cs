@@ -74,6 +74,7 @@ public class UdpSensorReceiver : MonoBehaviour
 
         foreach (var pt in _batchBuffer)
         {
+            LatencyProbe.Mark(LatencyProbe.EventType.UdpDequeue, pt.x, pt.y);
             if (debugLog)
                 Debug.Log($"[UDP] pixel ({pt.x}, {pt.y})");
 
@@ -179,6 +180,7 @@ public class UdpSensorReceiver : MonoBehaviour
                 // 佇列上限：丟棄最舊的點，保留最新觸碰（觸碰輸入永遠以最新狀態為準）
                 while (_pending.Count >= maxQueueSize) _pending.Dequeue();
                 _pending.Enqueue(new Vector2Int(x, y));
+                LatencyProbe.Mark(LatencyProbe.EventType.UdpRecv, x, y);
 
                 if (debugLog) Debug.Log($"[UDP] 點[{i}] X={x} Y={y}");
             }
