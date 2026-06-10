@@ -27,6 +27,8 @@ Unity 互動地板投影裝置。硬體感應模組透過 UDP 傳送觸碰座標
 | `sensor_2688x3840` | 光域 704 場景 |
 
 ## 腳本職責 / 訊號流程
+- **整體架構總覽（新人必讀）** → `.claude/rules/architecture_overview.md`
+- VCell CanvasTouch 去重規則 → `.claude/rules/vcell_canvas_touch_dedup.md`
 - 每個腳本一句話職責 → `.claude/rules/script_responsibilities.md`
 - UDP 到視覺的完整流程 + 繞過條件 → `.claude/rules/signal_flow.md`
 - 規則索引（何時讀哪個檔案）→ `.claude/rules/script_responsibilities.md` 末尾
