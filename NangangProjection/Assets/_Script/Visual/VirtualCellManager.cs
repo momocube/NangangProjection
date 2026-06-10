@@ -175,9 +175,8 @@ public class VirtualCellManager : MonoBehaviour
         if (showChipVisualInVCellMode)
             _tileGrid?.SetActive(faceIdx, chipIdx);
 
-        // 每次 chip touch 都廣播 VCell 中心座標，維持連續更新（驅動 SensorClickSimulator / 遊戲效果）
-        var center = VCellCenter(fv, vcol, vrow);
-        SensorBus.CanvasTouch(center.x, center.y, _canvasW, _canvasH);
+        // CanvasTouch 移至 Update() 每幀發一次（per VCell），不再 per-chip 廣播
+        // → 3 晶片在同一 VCell 時，不會產生 3 個訊號給下游
 
         if (!fv.vcellActive[vcellIdx])
         {
@@ -223,6 +222,14 @@ public class VirtualCellManager : MonoBehaviour
                     if (!fv.vcellLocked[vcellIdx])
                         BroadcastRelease(fv, vcol, vrow);
                     RefreshLockOverlaysForVCell(fi, vcellIdx);
+                }
+                else
+                {
+                    // 每幀對每個活躍 VCell 廣播一次 CanvasTouch
+                    // （供 SensorClickSimulator Drag 模式 / SensorBridgeToPassPosition 使用）
+                    // 替代原本 per-chip 廣播：N 晶片 → 1 VCell = 1 次，不再 × N
+                    var c = VCellCenter(fv, vcol, vrow);
+                    SensorBus.CanvasTouch(c.x, c.y, _canvasW, _canvasH);
                 }
             }
         }
