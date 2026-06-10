@@ -239,11 +239,72 @@ event=FrameTick frame=12347 dt_us=50000   ← drop 到 20Hz
 | 檔案 | 改動 |
 |---|---|
 | `Assets/_Script/Debug/LatencyProbe.cs` | **新增**（單一 MonoBehaviour）|
+| `Assets/_Script/Debug/RuntimeToggle.cs` | **新增**（runtime F1-F7 切換各元件、F12 顯示狀態）|
 | `Assets/_Script/Input/UdpSensorReceiver.cs` | +2 處 Mark（UdpRecv, UdpDequeue）|
 | `Assets/_Script/Sensor/SensorTestManager_SmartTouch.cs` | +1 處 SetActive + 4 處 Bus 包夾（FireTap/PressStart/PressEnd/Drag）|
 | `Assets/_Script/Sensor/SensorTestManager.cs` | Flush 包夾 |
 | `Assets/_Script/Visual/TileGridTexture.cs` | Apply 包夾 ×2 |
 | `Assets/_Script/Visual/VirtualCellManager.cs` | Update 整段包夾 |
+
+---
+
+## 2026-06-10 16:00 第一輪量測結果（baseline）
+
+CSV: `latency-probe-20260610-160153.csv`（3999 events, 20s）
+
+### 關鍵發現
+
+**主執行緒在 15Hz 跑（不是 60Hz）**
+- deltaTime p50 = 66.64ms（= 4 × vSync 週期、視訊號要等 4 個 vSync 才 swap buffer）
+- 53.2% 的幀 > 20ms
+
+**所有 hook 點都正常**
+- SensorBus listener chain: p50=0us, max=1.59ms ← **不是兇手**
+- VCellManager.Update: p50=10us, max=1.14ms ← 不是
+- TileGridTexture Apply: p50=15.5us, max=144us ← 不是
+- FlushExpiredSmartTouches: p50=1us, max=1ms ← 不是
+
+**UDP 行為**
+- UDP gap p50 = 40.4ms（Mooncell cycle、不是之前說的 80ms）
+- UDP queue 等待 p50 = 39.2ms（因 15Hz 跑、UDP 等下一幀很久）
+
+### 結論
+- 軟體層真兇在 **hook 沒覆蓋的「每幀渲染/其他工作」吃 ~65ms**
+- 嫌疑：ConsoleGameOverlay Mirror Camera 渲染、Display2ScreenCapture GDI 截圖、Display2DimOverlay、MiniWindowController、VCellManager component overhead、URP rendering pipeline
+- 320ms 延遲拆解修正：硬體 40ms + UDP 等 39ms + 每幀 66.7ms × 多幀延遲 + LED ~60ms
+
+---
+
+## 2026-06-10 16:08 加入 RuntimeToggle 進階驗證
+
+**用途**：現場熱鍵切換各嫌疑元件、不需多次 build。
+
+### 鍵位
+
+| 鍵 | 功能 |
+|---|---|
+| F1 | 切換 ConsoleGameOverlay component |
+| F2 | 切換 Display2DimOverlay component |
+| F3 | 切換 Display2ScreenCapture GameObject |
+| F4 | 切換 MiniWindowController component |
+| F5 | 切換 VirtualCellManager component |
+| F6 | 一鍵全關 |
+| F7 | 一鍵全開（回復原狀）|
+| F8 | LatencyProbe dump（既有）|
+| F12 | 顯示 / 隱藏 OnGUI 狀態 panel |
+
+### 量測流程
+
+1. F7 全開、跑 10 秒、F8 dump → baseline
+2. F6 全關、跑 10 秒、F8 dump → all-off（看 deltaTime 降到多少）
+3. F7 全開、F1 關 → 跑 10 秒、F8 dump → no-overlay
+4. F1 開回、F2 關 → 跑 10 秒、F8 dump → no-dim
+5. ... 依序測 F3、F4、F5 各一份
+6. 把 6 個 CSV 給 Luna 比對 deltaTime 分布
+
+### 結果判讀
+- 哪一組關掉後 deltaTime p50 從 66.6ms 降到 16.6ms → 兇手找到
+- 都關了還是 60ms+ → 兇手在 URP rendering pipeline / camera 設定本身、要進階 narrow
 
 ---
 
