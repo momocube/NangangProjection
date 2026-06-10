@@ -419,8 +419,8 @@ MonoBehaviour:
   ghostConfirmCount: 2
   showLogButton: 0
   logRecordDuration: 5
-  tapBoundaryMs: 160
-  touchEndTimeoutMs: 180
+  tapBoundaryMs: 120
+  touchEndTimeoutMs: 120
 --- !u!114 &114401
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -14,10 +14,10 @@ public partial class SensorTestManager
 
     [Header("輕觸 / 按壓辨識")]
     [Tooltip("持續觸碰超過此值（ms）視為按壓，否則視為輕觸。")]
-    public float tapBoundaryMs = 160f;
+    public float tapBoundaryMs = 120f;
 
-    [Tooltip("超過此值（ms）未收到新封包視為手指離開（硬體 100ms 輪詢，需留 jitter 緩衝，建議 160~220ms）。")]
-    public float touchEndTimeoutMs = 180f;
+    [Tooltip("超過此值（ms）未收到新封包視為手指離開（硬體 80ms 輪詢，建議 120ms = 1.5× 輪詢間隔）。")]
+    public float touchEndTimeoutMs = 120f;
 
     // ── UI 狀態 ───────────────────────────────────────────────────────────────
 
@@ -73,6 +73,8 @@ public partial class SensorTestManager
                 return;
             }
 
+            // 第一次踩到：立刻亮燈，不等手勢解算
+            _tileGrid?.SetActive(faceIdx, cellIdx);
             _smartTouches[key] = new SmartTouchState
             {
                 startTime     = now,

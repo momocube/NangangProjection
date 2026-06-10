@@ -264,7 +264,7 @@ GameObject:
   - component: {fileID: 2106411719}
   - component: {fileID: 2106411722}
   m_Layer: 0
-  m_Name: "感應系統"
+  m_Name: "\u611F\u61C9\u7CFB\u7D71"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -281,7 +281,7 @@ GameObject:
   - component: {fileID: 400500}
   - component: {fileID: 114500}
   m_Layer: 0
-  m_Name: "截圖備援"
+  m_Name: "\u622A\u5716\u5099\u63F4"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -417,8 +417,8 @@ MonoBehaviour:
   ghostConfirmCount: 2
   showLogButton: 0
   logRecordDuration: 5
-  tapBoundaryMs: 160
-  touchEndTimeoutMs: 180
+  tapBoundaryMs: 120
+  touchEndTimeoutMs: 120
 --- !u!114 &114401
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -445,8 +445,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 365051850eeac9647805452aabc549e5, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
+  debugLog: 0
 --- !u!114 &114404
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -930,7 +931,7 @@ GameObject:
   - component: {fileID: 2106411718}
   - component: {fileID: 2106411717}
   m_Layer: 0
-  m_Name: "除錯工具"
+  m_Name: "\u9664\u932F\u5DE5\u5177"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
