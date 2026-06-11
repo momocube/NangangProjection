@@ -102,8 +102,10 @@ public sealed class MouseModeConfig
 }
 
 /// <summary>
-/// 啟動自檢窗（自動鎖噪訊晶片）：服務啟動後 windowSeconds 內被觸發 ≥ minPackets 包的格子
+/// 啟動自檢窗（自動鎖噪訊晶片）：服務啟動後 windowSeconds 內命中任一判準（OR）的格子
 /// 自動加入 runtime 黑名單（依據：開機時場上理應無人）。窗期間不發布任何觸控事件。
+///   判準 A：窗內封包數 ≥ minPackets（快速重送型噪訊）
+///   判準 B：窗內分離 episode 數 ≥ minEpisodes（慢速頻閃型噪訊：單包間隔秒級）
 /// 全欄位有預設值、缺欄位 / null 容錯。詳見 docs/DEPLOY.md。
 /// </summary>
 public sealed class AutoLockConfig
@@ -113,8 +115,16 @@ public sealed class AutoLockConfig
     /// <summary>自檢窗長度（秒）。≤ 0 視為停用。</summary>
     public int WindowSeconds { get; set; } = 10;
 
-    /// <summary>窗內封包數達此值才鎖（噪訊晶片 ~80ms 重送，10 秒約 125 包；低於門檻不鎖）。</summary>
+    /// <summary>窗內封包數達此值即鎖（噪訊晶片 ~80ms 重送，10 秒約 125 包；判準 A）。</summary>
     public int MinPackets { get; set; } = 10;
+
+    /// <summary>
+    /// 窗內分離 episode 數達此值即鎖（判準 B，與判準 A 為 OR）。0 = 停用此判準。
+    /// episode = 同 cell 封包流以「間隔 &gt; releaseTimeout」切分的一次連續觸發。
+    /// 依據：開機時場上沒人，真人誤踩是一次連續事件，不會在同一格分離地觸發 3 次；
+    /// 慢速頻閃型噪訊（單包間隔秒級、湊不滿 minPackets）靠這個抓。
+    /// </summary>
+    public int MinEpisodes { get; set; } = 3;
 }
 
 /// <summary>

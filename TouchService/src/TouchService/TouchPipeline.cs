@@ -25,9 +25,9 @@ public interface ITouchEventObserver
 /// timer 執行緒走 Tick()：release timeout 掃描（up）+ keepalive snapshot。
 /// 兩條路徑用同一把鎖序列化。
 ///
-/// 啟動自檢窗（autoLock 非 null 時）：窗內路由成功的點只做 per-cell 計數、
-/// 不進 tracker、不發事件（keepalive 照發）；窗結束時達門檻的格子加入 _lockedCells
-/// （LockSource.Auto），之後行為完全恢復正常。
+/// 啟動自檢窗（autoLock 非 null 時）：窗內路由成功的點只做 per-cell 計數 + episode 切分、
+/// 不進 tracker、不發事件（keepalive 照發）；窗結束時命中任一判準（packets ≥ minPackets
+/// OR episodes ≥ minEpisodes）的格子加入 _lockedCells（LockSource.Auto），之後行為完全恢復正常。
 ///
 /// 觸發歷史（history 非 null 時）：down/up 事件與自檢窗內被抑制的觸發都餵進
 /// TriggerHistory（per-cell 聚合 + 疑似噪訊評分；GET /history、stdin `history`）。
@@ -168,7 +168,7 @@ public sealed class TouchPipeline : IDisposable
                 {
                     for (int i = 0; i < routed; i++)
                     {
-                        _autoLock.Record(in _routedBuf[i]);
+                        _autoLock.Record(in _routedBuf[i], nowMs);
                         // 窗內被抑制的觸發也計入觸發歷史（最重要的噪訊證據；
                         // 已被鎖定過濾掉的點到不了這裡——鎖定後歷史自然停止累積）
                         _history?.RecordSuppressed(in _routedBuf[i], nowMs);
@@ -254,22 +254,25 @@ public sealed class TouchPipeline : IDisposable
         foreach (var r in toLock)
             _lockedCells.TryAdd(r.Face, r.Col, r.Row, LockSource.Auto, r.Packets);
 
+        string thresholds = _autoLock.MinEpisodes > 0
+            ? $"≥{_autoLock.MinPackets} 包 或 ≥{_autoLock.MinEpisodes} 段分離 episode"
+            : $"≥{_autoLock.MinPackets} 包";
         if (toLock.Count == 0)
         {
             _log.Info("[AutoLock] ══════════ 自檢通過 ══════════");
-            _log.Info($"[AutoLock] 自檢窗結束：沒有格子達到鎖定門檻（≥{_autoLock.MinPackets} 包），未自動鎖定任何晶片。");
+            _log.Info($"[AutoLock] 自檢窗結束：沒有格子達到鎖定門檻（{thresholds}），未自動鎖定任何晶片。");
         }
         else
         {
             _log.Warn("[AutoLock] ══════════ 自檢結果：發現噪訊晶片 ══════════");
-            _log.Warn($"[AutoLock] 自動鎖定 {toLock.Count} 顆（窗內 ≥{_autoLock.MinPackets} 包；與 config lockedCells 同一過濾生效）：");
+            _log.Warn($"[AutoLock] 自動鎖定 {toLock.Count} 顆（窗內 {thresholds}；與 config lockedCells 同一過濾生效）：");
             foreach (var r in toLock)
-                _log.Warn($"[AutoLock]   face={r.Face} cell=({r.Col},{r.Row}) 封包 {r.Packets}");
+                _log.Warn($"[AutoLock]   face={r.Face} cell=({r.Col},{r.Row}) 封包 {r.Packets} / {r.Episodes} 段 — 命中 {r.Reason}");
             _log.Warn("[AutoLock] 誤鎖（重啟時有人站在場上）用 stdin `unlock <face> <col> <row>` 解；`savelocks` 可寫回 config。");
         }
         if (below.Count > 0)
         {
-            var list = string.Join("、", below.Select(r => $"face={r.Face} cell=({r.Col},{r.Row}) {r.Packets} 包"));
+            var list = string.Join("、", below.Select(r => $"face={r.Face} cell=({r.Col},{r.Row}) {r.Packets} 包 / {r.Episodes} 段"));
             _log.Info($"[AutoLock] 另觀察到 {below.Count} 格未達門檻、不鎖：{list}");
         }
         _log.Info("[AutoLock] 自檢窗結束，觸控事件發布恢復正常。");

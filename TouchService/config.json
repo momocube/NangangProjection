@@ -11,7 +11,8 @@
   "autoLock": {
     "enabled": true,
     "windowSeconds": 10,
-    "minPackets": 10
+    "minPackets": 10,
+    "minEpisodes": 3
   },
   "touchMode": "grid",
   "mouseMode": {

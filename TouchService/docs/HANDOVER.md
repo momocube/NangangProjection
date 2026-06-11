@@ -28,7 +28,7 @@ TouchService/
 ├── tools/SensorSimulator/       ← 離場驗證核心工具（replay + scenario 兩模式）
 │   └── scenarios/               ← single-stomp / two-feet-cross / stress-60
 ├── tools/TestClient/            ← raw UDP 訂閱範例 / 端到端驗證 client
-├── tests/                       ← 212 個測試（xunit）+ 真實 Wireshark capture fixtures
+├── tests/                       ← 219 個測試（xunit）+ 真實 Wireshark capture fixtures
 ├── testpage/index.html          ← 瀏覽器測試/校調頁（零依賴單檔）
 └── docs/                        ← PROTOCOL / DEPLOY / CALIBRATION / HANDOVER
 ```
@@ -37,7 +37,7 @@ TouchService/
 
 ```bash
 dotnet build TouchService.sln          # 建置
-dotnet test  TouchService.sln          # 跑 212 個測試（含 60 點併發端到端）
+dotnet test  TouchService.sln          # 跑 219 個測試（含 60 點併發端到端）
 
 # 跑起來看看（三個終端）
 dotnet run --project src/TouchService                       # 服務

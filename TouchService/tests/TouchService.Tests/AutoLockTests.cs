@@ -13,7 +13,8 @@ namespace TouchService.Tests;
 
 /// <summary>
 /// 啟動自檢窗（autoLock）：服務啟動後 windowSeconds 內被觸發的格子只計數不發布，
-/// 窗結束時計數 ≥ minPackets 的格子自動加入 runtime 黑名單（LockSource.Auto）。
+/// 窗結束時命中任一判準（packets ≥ minPackets OR 分離 episodes ≥ minEpisodes）的格子
+/// 自動加入 runtime 黑名單（LockSource.Auto）。episode = 同 cell 間隔 &gt; releaseTimeout 切段。
 /// 加 runtime 鎖定管理（lock / unlock / locks / savelocks）與 WS hello / locks push。
 /// 時間全部注入（nowMs），無 sleep、確定性。
 /// </summary>
@@ -33,6 +34,7 @@ public class AutoLockTests
         public readonly StatsCollector Stats = new();
         public readonly SensorFaceRouter Router;
         public readonly LockedCellFilter Locks;
+        public readonly string LogDir;
         readonly FileLogger _log;
 
         public Harness(AutoLockSelfCheck? autoLock, LockedCellFilter? locks = null,
@@ -42,12 +44,16 @@ public class AutoLockTests
             Router = new SensorFaceRouter(venue);
             Locks = locks ?? new LockedCellFilter(new List<LockedCellConfig>());
             var tracker = new TouchTracker(128, 96f, 170);
-            _log = new FileLogger(
-                Directory.CreateTempSubdirectory("touchservice-autolock").FullName, LogLevel.Warn, console: false);
+            LogDir = Directory.CreateTempSubdirectory("touchservice-autolock").FullName;
+            _log = new FileLogger(LogDir, LogLevel.Warn, console: false);
             Pipeline = new TouchPipeline(
                 Router, tracker, new FrameSerializer(venue), new List<ITouchSink> { Sink },
                 Stats, _log, keepaliveIntervalMs, Locks, autoLock);
         }
+
+        /// <summary>讀出 harness log 全文（FileLogger 每筆 flush，Finish 後即可讀）。</summary>
+        public string ReadLog() =>
+            string.Concat(Directory.GetFiles(LogDir, "touchservice-*.log").Select(File.ReadAllText));
 
         public void Send(RawPoint p, long nowMs) =>
             Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { p }), nowMs);
@@ -71,7 +77,9 @@ public class AutoLockTests
     static readonly RawPoint NoisyRaw = new(3264, 1664);
     static readonly RawPoint LegitRaw = new(2800, 2400);
 
-    static AutoLockSelfCheck Window10s(int minPackets = 10) => new(0, 10, minPackets);
+    // 預設值對齊 config 預設：minPackets=10、minEpisodes=3、releaseTimeout=170
+    static AutoLockSelfCheck Window10s(int minPackets = 10, int minEpisodes = 3, int releaseTimeoutMs = 170)
+        => new(0, 10, minPackets, minEpisodes, releaseTimeoutMs);
 
     (int Face, int Col, int Row) RouteOf(Harness h, RawPoint p)
     {
@@ -129,6 +137,149 @@ public class AutoLockTests
         h.Send(NoisyRaw, 10_100);
         Assert.Equal(1, h.Pipeline.ActiveTouches);
         Assert.Equal(1, h.CountEvents("down"));
+    }
+
+    // ── episode 判準（v7：慢速頻閃型噪訊）─────────────────────────────────
+    // 現場實證 2026-06-11：face2 cell(37,14) 每次只發 1 包、間隔 0.5~1.5s，
+    // 連續 #1~#84 個 down/up 循環——10s 窗內湊不滿 minPackets=10，躲過 packets 判準。
+    // 鐵判準：開機時場上沒人，真人誤踩是一次連續事件，不會在同一格分離地觸發 3 次。
+
+    [Fact]
+    public void 慢速頻閃_窗內單包x3段_未達包數門檻也鎖()
+    {
+        using var h = new Harness(Window10s(minPackets: 10, minEpisodes: 3));
+        var noisy = RouteOf(h, NoisyRaw);
+
+        // 每次 1 包、間隔 1s（> releaseTimeout 170ms → 各自成段）
+        h.Send(NoisyRaw, 0);
+        h.Send(NoisyRaw, 1000);
+        h.Send(NoisyRaw, 2000);
+
+        IReadOnlyList<AutoLockSelfCheck.Result>? completed = null;
+        h.Pipeline.AutoLockCompleted += r => completed = r;
+        h.Pipeline.Tick(10_001);
+
+        Assert.True(h.Locks.IsLocked(noisy.Face, noisy.Col, noisy.Row));
+        var entry = h.Locks.Find(noisy.Face, noisy.Col, noisy.Row)!;
+        Assert.Equal(LockSource.Auto, entry.Source);
+        Assert.Equal(3, entry.Packets);   // packets=3 < minPackets=10 仍鎖（episodes 命中）
+
+        var r = Assert.Single(completed!);
+        Assert.Equal(3, r.Episodes);
+        Assert.True(r.HitEpisodes);
+        Assert.False(r.HitPackets);
+        Assert.Equal("episodes", r.Reason);
+
+        // 窗後永久沉默
+        h.Send(NoisyRaw, 11_000);
+        Assert.Equal(0, h.Pipeline.ActiveTouches);
+        Assert.Equal(0, h.CountEvents("down"));
+    }
+
+    [Fact]
+    public void 連續一長串1段_達包數門檻照鎖_既有路徑不退化()
+    {
+        using var h = new Harness(Window10s(minPackets: 10, minEpisodes: 3));
+        var noisy = RouteOf(h, NoisyRaw);
+
+        // 80ms 重送 12 包 = 1 episode（< minEpisodes），但 packets ≥ 10 → 照鎖
+        for (int i = 0; i < 12; i++)
+            h.Send(NoisyRaw, i * 80);
+
+        IReadOnlyList<AutoLockSelfCheck.Result>? completed = null;
+        h.Pipeline.AutoLockCompleted += r => completed = r;
+        h.Pipeline.Tick(10_001);
+
+        Assert.True(h.Locks.IsLocked(noisy.Face, noisy.Col, noisy.Row));
+        var r = Assert.Single(completed!);
+        Assert.Equal(1, r.Episodes);
+        Assert.True(r.HitPackets);
+        Assert.False(r.HitEpisodes);
+        Assert.Equal("packets", r.Reason);
+    }
+
+    [Fact]
+    public void 真人模擬_一次連續5包1段_不鎖()
+    {
+        using var h = new Harness(Window10s(minPackets: 10, minEpisodes: 3));
+        var cell = RouteOf(h, LegitRaw);
+
+        // 真人誤踩：一次連續事件（80ms 重送 5 包 = 1 episode、packets < 10）
+        for (int i = 0; i < 5; i++)
+            h.Send(LegitRaw, i * 80);
+
+        h.Pipeline.Tick(10_001);
+        Assert.False(h.Locks.IsLocked(cell.Face, cell.Col, cell.Row));
+        Assert.Equal(0, h.Locks.Count);
+
+        // 窗後正常 down
+        h.Send(LegitRaw, 10_100);
+        Assert.Equal(1, h.CountEvents("down"));
+    }
+
+    [Fact]
+    public void 窗內2段_未達段數門檻_不鎖_且gap等於timeout視為同段()
+    {
+        using var h = new Harness(Window10s(minPackets: 10, minEpisodes: 3));
+        var cell = RouteOf(h, NoisyRaw);
+
+        // 第 1 段：0ms、170ms（gap == releaseTimeout → 延續，不切段）
+        h.Send(NoisyRaw, 0);
+        h.Send(NoisyRaw, 170);
+        // 第 2 段：1000ms（gap 830 > 170 → 新段）
+        h.Send(NoisyRaw, 1000);
+
+        IReadOnlyList<AutoLockSelfCheck.Result>? completed = null;
+        h.Pipeline.AutoLockCompleted += r => completed = r;
+        h.Pipeline.Tick(10_001);
+
+        Assert.False(h.Locks.IsLocked(cell.Face, cell.Col, cell.Row));
+        Assert.NotNull(completed);
+        Assert.Empty(completed!);   // 2 段 < 3、3 包 < 10：兩判準皆未命中
+    }
+
+    [Fact]
+    public void minEpisodes為0_episode判準停用()
+    {
+        using var h = new Harness(Window10s(minPackets: 10, minEpisodes: 0));
+        var cell = RouteOf(h, NoisyRaw);
+
+        // 5 段分離單包（minEpisodes=3 時必鎖）——判準停用後不鎖（packets 5 < 10）
+        for (int i = 0; i < 5; i++)
+            h.Send(NoisyRaw, i * 1000);
+
+        h.Pipeline.Tick(10_001);
+        Assert.False(h.Locks.IsLocked(cell.Face, cell.Col, cell.Row));
+        Assert.Equal(0, h.Locks.Count);
+    }
+
+    [Fact]
+    public void 鎖定log標明每顆命中原因()
+    {
+        using var h = new Harness(Window10s(minPackets: 10, minEpisodes: 3));
+        var slowRaw = NoisyRaw;                  // 慢速頻閃：episodes 命中
+        var fastRaw = LegitRaw;                  // 快速重送：packets 命中
+        var bothRaw = new RawPoint(3600, 1000);  // 兩者皆命中（Floor 面第三格）
+        var slow = RouteOf(h, slowRaw);
+        var fast = RouteOf(h, fastRaw);
+        var both = RouteOf(h, bothRaw);
+
+        // slow：3 段 × 1 包；fast：1 段 × 12 包；both：4 段 × 5 包 = 20 包
+        for (int i = 0; i < 3; i++) h.Send(slowRaw, i * 1000);
+        for (int i = 0; i < 12; i++) h.Send(fastRaw, i * 80);
+        for (int ep = 0; ep < 4; ep++)
+            for (int i = 0; i < 5; i++)
+                h.Send(bothRaw, ep * 2000 + i * 80);
+
+        h.Pipeline.Tick(10_001);
+        Assert.True(h.Locks.IsLocked(slow.Face, slow.Col, slow.Row));
+        Assert.True(h.Locks.IsLocked(fast.Face, fast.Col, fast.Row));
+        Assert.True(h.Locks.IsLocked(both.Face, both.Col, both.Row));
+
+        var log = h.ReadLog();
+        Assert.Contains($"face={slow.Face} cell=({slow.Col},{slow.Row}) 封包 3 / 3 段 — 命中 episodes", log);
+        Assert.Contains($"face={fast.Face} cell=({fast.Col},{fast.Row}) 封包 12 / 1 段 — 命中 packets", log);
+        Assert.Contains($"face={both.Face} cell=({both.Col},{both.Row}) 封包 20 / 4 段 — 命中 packets+episodes", log);
     }
 
     [Fact]
@@ -273,17 +424,23 @@ public class AutoLockTests
         Assert.True(cfg.AutoLock.Enabled);
         Assert.Equal(10, cfg.AutoLock.WindowSeconds);
         Assert.Equal(10, cfg.AutoLock.MinPackets);
+        Assert.Equal(3, cfg.AutoLock.MinEpisodes);
 
         // 顯式 null 也容錯
         File.WriteAllText(path, """{ "autoLock": null }""");
         Assert.True(ServiceConfig.LoadOrCreate(path).AutoLock.Enabled);
 
-        // 部分欄位
+        // 部分欄位（v6 以前的 config 沒有 minEpisodes → 預設 3）
         File.WriteAllText(path, """{ "autoLock": { "windowSeconds": 5 } }""");
         var partial = ServiceConfig.LoadOrCreate(path).AutoLock;
         Assert.True(partial.Enabled);
         Assert.Equal(5, partial.WindowSeconds);
         Assert.Equal(10, partial.MinPackets);
+        Assert.Equal(3, partial.MinEpisodes);
+
+        // minEpisodes 顯式 0 = 停用 episode 判準
+        File.WriteAllText(path, """{ "autoLock": { "minEpisodes": 0 } }""");
+        Assert.Equal(0, ServiceConfig.LoadOrCreate(path).AutoLock.MinEpisodes);
 
         // 顯式停用
         File.WriteAllText(path, """{ "autoLock": { "enabled": false } }""");

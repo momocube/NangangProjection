@@ -124,7 +124,7 @@ public class ConfigApiTests
                     "smoothing": 0.5,
                     "moveMinPx": 3
                   },
-                  "autoLock": { "enabled": true, "windowSeconds": 8, "minPackets": 12 }
+                  "autoLock": { "enabled": true, "windowSeconds": 8, "minPackets": 12, "minEpisodes": 5 }
                 }
                 """);
             Assert.Equal(HttpStatusCode.OK, status);
@@ -157,6 +157,8 @@ public class ConfigApiTests
             Assert.Equal(-8, reloaded.MouseMode.Content.OffsetY, 3);
             Assert.True(reloaded.AutoLock.Enabled);
             Assert.Equal(8, reloaded.AutoLock.WindowSeconds);
+            Assert.Equal(12, reloaded.AutoLock.MinPackets);
+            Assert.Equal(5, reloaded.AutoLock.MinEpisodes);
             Assert.Equal(30001, reloaded.ListenPort);
             Assert.Contains("customFutureField", File.ReadAllText(configPath));
         }
@@ -223,6 +225,7 @@ public class ConfigApiTests
     [InlineData("""{ "mouseMode": { "content": { "scaleY": -1 } } }""")]
     [InlineData("""{ "mouseMode": { "content": "full" } }""")]
     [InlineData("""{ "autoLock": { "minPackets": 0 } }""")]
+    [InlineData("""{ "autoLock": { "minEpisodes": -1 } }""")]
     [InlineData("not json at all")]
     public async Task PostConfig_非法值_400且現值不變(string badBody)
     {

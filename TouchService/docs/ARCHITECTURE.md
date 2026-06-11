@@ -37,7 +37,8 @@ LockedCellFilter（Core/LockedCellFilter.cs）— 噪訊晶片黑名單（config
   │   auto/manual 鎖定共用，來源以 LockSource 區分；熱路徑 O(1) volatile snapshot HashSet）
   ▼
 AutoLockSelfCheck（Core/AutoLockSelfCheck.cs）— 啟動自檢窗（預設 10s）：窗內的點只做
-  │   per-cell 計數、不進 tracker、不發布（keepalive 照發）；窗結束時 ≥ minPackets 的
+  │   per-cell 計數 + episode 切分（間隔 > releaseTimeout = 新段）、不進 tracker、不發布
+  │   （keepalive 照發）；窗結束時命中任一判準（≥ minPackets 包 OR ≥ minEpisodes 段）的
   │   格子加入上面的 filter（auto 來源）。窗結束後此節點變 no-op，行為完全恢復正常
   ▼
 TouchTracker（Tracking/TouchTracker.cs）— 最近鄰貪婪配對 → touch ID 生命週期（down/move/up）
@@ -102,7 +103,7 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 | WS server 自寫 RFC6455 | 不用 HttpListener/Kestrel | Windows 部署免 netsh urlacl、單 port 兼營 /venue 與 testpage、零依賴 | 不支援壓縮擴充；場館內網用，勿直接暴露公網 |
 | checksum 不含 frame byte | 對等 Unity 解析 | 實測 448 真實封包全數通過 | frame byte 目前沒人用，可未來做硬體丟包偵測 |
 | 鎖晶片 | config lockedCells（face+cell），路由後、追蹤前丟棄 | 現場有噪訊晶片持續發訊（Unity 版有同功能但 runtime 手動、無持久化） | 這是遮瑕不是修復；座標要回報硬體商 |
-| autoLock 自檢窗 | 啟動後 10s 內被觸發 ≥10 包的格子自動鎖（enabled 預設 true） | **開機重啟時場上理應無人**——此時還在發訊的格子幾乎必然是故障晶片；噪訊 ~80ms 重送 10s 約 125 包，門檻 10 遠低於噪訊、高於誤踩 | 窗期間不發布任何事件（keepalive 照發）；重啟時有人站場上會誤鎖（stdin `unlock` 救，DEPLOY.md 有 SOP）；`savelocks` 才會持久化到 config |
+| autoLock 自檢窗 | 啟動後 10s 內命中**任一判準（OR）**的格子自動鎖（enabled 預設 true）：**判準 A** 封包 ≥ minPackets（預設 10）；**判準 B** 分離 episode ≥ minEpisodes（預設 3、0 = 停用）。episode = 同格封包流以「間隔 > releaseTimeout」切段——與 TriggerHistory 偽生命週期同一條 gap 邏輯，單位與正常 touch 生命週期一致 | **開機重啟時場上理應無人**——此時還在發訊的格子幾乎必然是故障晶片。判準 A 抓快速重送型（~80ms 重送 10s 約 125 包，門檻 10 遠低於噪訊、高於誤踩）；判準 B 抓**慢速頻閃型**（2026-06-11 現場 face2 cell(37,14)：每次只發 1 包、間隔 0.5~1.5s 反覆 down/up，包數永遠湊不滿判準 A）。**episode 判準對開機場景是鐵的：場上沒人時真人誤踩是一次連續事件（1 段），不會在同一格分離地觸發 3 次**——分離觸發 ≥3 段只剩故障晶片一種解釋 | 窗期間不發布任何事件（keepalive 照發）；重啟時有人站場上會誤鎖（stdin `unlock` 救，DEPLOY.md 有 SOP）；`savelocks` 才會持久化到 config；鎖定 log 標明每顆命中原因（packets / episodes / packets+episodes）。minEpisodes 別降到 2——「踩了又回頭再踩一次」就是 2 段 |
 | touchMode 滑鼠 = 額外 sink | mouse 模式只在 pipeline 掛 typed 事件觀察者（MouseDriver），WS/UDP 發布照常全量 | Unity 時代「滑鼠模擬**取代**發布」正是這個服務要逃離的架構（單點限制、全場冷卻的根源） | 把滑鼠模式做成取代發布會回到老路；監控頁/訂閱端必須在任何模式下照常收事件 |
 | 滑鼠單點所有權 | **跨所有啟用面**：任一啟用面（mouseMode.faces）第一個 down 的 touch 是 owner，它 up 前其他觸點（含其他啟用面）全忽略；未勾選面（預設地板）滑鼠 sink 完全無視 | OS 游標只有一顆——多點搶游標會抖動亂跳；地板不過濾的話腳步會亂點 | 要多點手勢去訂閱端做；owner 生命週期由 release timeout 橋接，80ms 重送不會中斷。模式/faces 熱切時若 owner 還按著會先 LEFTUP（不留卡死按鍵） |
 | canvas 十字映射 | 滑鼠落點 = canvas norm（px ÷ canvas 尺寸）→ 螢幕 rect 等比 + content offset/scale 校正，**不是單一面拉伸到全螢幕** | 投影螢幕顯示的是整個場域 canvas 的十字展開圖——v4 面內拉伸映射讓「摸右牆游標跑到螢幕中央地板區」（2026-06 現場 bug）；canvas 座標系才跟投影畫面一一對應 | content 預設 0/0/1/1 = 滿版；投影 letterbox 時用 content 校正（DEPLOY.md 有流程）。落點 clamp 回螢幕 rect，校正填錯不會飛出目標螢幕。改映射公式同步改 `MouseDriver.MapCanvasToScreen` 與其測試 |
@@ -119,7 +120,7 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（212 個，必須全綠才能交付）
+## 5. 測試結構（219 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -128,11 +129,11 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 | TouchTrackerTests | 80ms 重送不假離手、160ms gap@170 不假離手、>170 up、丟包注入 |
 | TouchIdContinuityTests | 移動不換 ID、兩點交錯/交叉不互換 |
 | LockedCellsTests | 鎖定格不產生事件、相鄰格不受影響、config 容錯 |
-| AutoLockTests | 自檢窗：達門檻鎖/未達不鎖、窗內零發布、keepalive 照發、停用=現狀、lock/unlock/locks/savelocks 指令、savelocks roundtrip、WS hello lockedCells + locks push（時間注入，無 sleep） |
+| AutoLockTests | 自檢窗：達門檻鎖/未達不鎖、窗內零發布、keepalive 照發、停用=現狀、**episode 判準**（慢速頻閃 3 段×1 包鎖 / 長串 1 段走 packets 不退化 / 真人連續 1 段不鎖 / 2 段不鎖 + gap==timeout 算同段 / minEpisodes=0 停用 / 鎖定 log 命中原因三態）、minEpisodes config 容錯、lock/unlock/locks/savelocks 指令、savelocks roundtrip、WS hello lockedCells + locks push（時間注入，無 sleep） |
 | FrameSerializerTests | schema 欄位、alive、seq |
 | WebSocketHubTests | RFC6455 對打（.NET ClientWebSocket）、三種 frame 長度編碼 |
 | WiresharkReaderTests | capture 解析（630 點全 checksum 通過全可路由） |
-| EndToEndTests | 真 socket 全鏈路：60 點併發、down<5ms、無假 up（timing 斷言偶發 flake，重跑即可） |
+| EndToEndTests | 真 socket 全鏈路：60 點併發、down 延遲 **p95<5ms 且 max<25ms**、無假 up。timing 斷言前先送 warm-up 觸發（不計入）暖 JIT——首 touch 冷啟在高 load 機實測 7~13ms，逐點 <5ms 斷言曾因此 flake，v7 起改 p95/max 後連跑穩定 |
 | ServiceConfigTests | config 預設值/缺欄位容錯（含 touchMode/mouseMode/ui.trayEnabled）、舊 config `face` 單數 → `faces` 相容轉換 + 旗標 |
 | MouseDriverTests | down 先到位再 LEFTDOWN、平滑收斂、**canvas 十字映射**（純函式對拍：content offset/scale、負座標 rect、clamp）、faces 過濾（勾選面注入 / 地板與空清單零注入）、跨面單點所有權、熱切強制放鍵、SendInput 正規化、UpdateTuning 熱套用 |
 | ConfigApiTests | GET/POST /config roundtrip（faces 陣列 + content）+ 寫回保留其他欄位、舊欄位 `face` API 相容、非法值 400 全拒（不留半套）、非 loopback 403、/monitors 非 Windows 空陣列、locks API、按住中 mouse→grid 熱切自動 LEFTUP |
@@ -161,8 +162,10 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
    視覺端用黏滯判定處理（見 `testpage/colorpad.html` 的 HYST 實作）。
 5. 噪訊晶片三層工作流（完整 SOP 見 DEPLOY.md）：**開機自檢自動鎖（autoLock）→
    營運中看診斷排行一鍵鎖（UI 診斷 tab / GET /history）→ savelocks 持久化**；
-   console 指令（touches/history/lock）為備援。自檢的盲點：間歇性發作的晶片若窗內
-   剛好沒發訊就抓不到——觸發歷史 + 評分就是為此而生（窗內被抑制的觸發也計入歷史）。
+   console 指令（touches/history/lock）為備援。自檢兩判準（OR）：包數抓快速重送型、
+   分離 episode 數抓慢速頻閃型（v7 起，見 §3 表）。剩餘盲點：間歇性發作的晶片若窗內
+   剛好沒發訊（或發訊 <3 段）就抓不到——觸發歷史 + 評分就是為此而生
+   （窗內被抑制的觸發也計入歷史）。
    反向風險：重啟時有人站場上會被誤鎖（`unlock` 救）。`stats` 的 dropped by lock /
    auto-locked cells 可驗證過濾生效。
 6. **滑鼠模式是單點**（OS 游標只有一顆，結構限制不是 bug）——v6 起所有權跨所有
@@ -198,7 +201,7 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
 ## 8. 接手修改 SOP
 
 1. 讀這份 + `PROTOCOL.md`，動協議欄位前先看 §3 的表
-2. 改 code → `dotnet test` 212 全綠（timing flake 重跑一次）
+2. 改 code → `dotnet test` 219 全綠（E2E timing 斷言 v7 起為 p95/max + warm-up，連跑穩定；若仍偶發 flake 重跑一次）
 3. 協議有變 → 同步改 `PROTOCOL.md` + `MIGRATION-ART-APP.md`，新增欄位 OK、
    改名/移除 = 升 v2
 4. 發布：見 §5 結尾的 publish 參數紅字

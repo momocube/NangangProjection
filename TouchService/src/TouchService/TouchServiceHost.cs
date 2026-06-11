@@ -97,13 +97,18 @@ public sealed class TouchServiceHost : IDisposable
         var serializer = new FrameSerializer(Venue);
         Locks = BuildLockedCellFilter();
 
-        // 啟動自檢窗（autoLock）：窗內被觸發 ≥ minPackets 的格子自動鎖（依據：開機時場上理應無人）
+        // 啟動自檢窗（autoLock）：窗內命中任一判準（packets ≥ minPackets OR 分離 episodes ≥ minEpisodes）
+        // 的格子自動鎖（依據：開機時場上理應無人）。episode 切分取 releaseTimeout 啟動值。
         AutoLockSelfCheck? autoLock = null;
         if (_config.AutoLock.Enabled && _config.AutoLock.WindowSeconds > 0)
         {
             autoLock = new AutoLockSelfCheck(
-                _clock.ElapsedMilliseconds, _config.AutoLock.WindowSeconds, _config.AutoLock.MinPackets);
-            _log.Info($"[AutoLock] 自檢窗開始：{_config.AutoLock.WindowSeconds}s 內被觸發 ≥{autoLock.MinPackets} 包的格子" +
+                _clock.ElapsedMilliseconds, _config.AutoLock.WindowSeconds, _config.AutoLock.MinPackets,
+                _config.AutoLock.MinEpisodes, _config.ReleaseTimeoutMs);
+            string criteria = autoLock.MinEpisodes > 0
+                ? $"被觸發 ≥{autoLock.MinPackets} 包、或分離觸發 ≥{autoLock.MinEpisodes} 段（間隔 >{_config.ReleaseTimeoutMs}ms 切段）"
+                : $"被觸發 ≥{autoLock.MinPackets} 包";
+            _log.Info($"[AutoLock] 自檢窗開始：{_config.AutoLock.WindowSeconds}s 內{criteria}的格子" +
                       "將自動鎖定（此期間不發布觸控事件；keepalive 照發）");
         }
         else
@@ -438,6 +443,7 @@ public sealed class TouchServiceHost : IDisposable
                     enabled = _config.AutoLock.Enabled,
                     windowSeconds = _config.AutoLock.WindowSeconds,
                     minPackets = _config.AutoLock.MinPackets,
+                    minEpisodes = _config.AutoLock.MinEpisodes,
                 },
                 ui = new { autoLaunch = _config.Ui.AutoLaunch, trayEnabled = _config.Ui.TrayEnabled },
                 venue = Venue.Venue,
@@ -560,12 +566,13 @@ public sealed class TouchServiceHost : IDisposable
 
             var al = _config.AutoLock;
             bool alEnabled = al.Enabled;
-            int alWindow = al.WindowSeconds, alMin = al.MinPackets;
+            int alWindow = al.WindowSeconds, alMin = al.MinPackets, alMinEp = al.MinEpisodes;
             if (patch["autoLock"] is JsonObject pa)
             {
                 alEnabled = ReadBool(pa, "enabled", alEnabled, errors);
                 alWindow = ReadInt(pa, "windowSeconds", alWindow, 0, 86_400, errors);
                 alMin = ReadInt(pa, "minPackets", alMin, 1, 1_000_000, errors);
+                alMinEp = ReadInt(pa, "minEpisodes", alMinEp, 0, 1_000_000, errors);   // 0 = 停用 episode 判準
             }
             else if (patch.ContainsKey("autoLock"))
             {
@@ -589,7 +596,7 @@ public sealed class TouchServiceHost : IDisposable
             };
             _config.AutoLock = new AutoLockConfig
             {
-                Enabled = alEnabled, WindowSeconds = alWindow, MinPackets = alMin,
+                Enabled = alEnabled, WindowSeconds = alWindow, MinPackets = alMin, MinEpisodes = alMinEp,
             };
 
             Pipeline.UpdateTuning(_config.MatchRadiusPx, _config.ReleaseTimeoutMs);   // 下個 touch / flush 生效
@@ -660,6 +667,7 @@ public sealed class TouchServiceHost : IDisposable
                 ["enabled"] = _config.AutoLock.Enabled,
                 ["windowSeconds"] = _config.AutoLock.WindowSeconds,
                 ["minPackets"] = _config.AutoLock.MinPackets,
+                ["minEpisodes"] = _config.AutoLock.MinEpisodes,
             };
 
             File.WriteAllText(_configPath,

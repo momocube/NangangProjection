@@ -45,7 +45,7 @@ TouchService/
   "keepaliveIntervalMs": 1000,
   "moveMinDistancePx": 0,
   "lockedCells":      [],
-  "autoLock":        { "enabled": true,  "windowSeconds": 10, "minPackets": 10 },
+  "autoLock":        { "enabled": true,  "windowSeconds": 10, "minPackets": 10, "minEpisodes": 3 },
   "touchMode":        "grid",
   "mouseMode":       { "faces": [0, 1, 3, 4, 5, 6],
                        "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
@@ -72,7 +72,8 @@ TouchService/
 | `lockedCells` | `[]` | 鎖定晶片清單（噪訊晶片過濾）：`[{"face":2,"cell":[7,13]}]`，face = 面 index、cell = [col,row]（晶片格）。命中的點在進 touch tracker 前丟棄。鎖定 SOP 見下方「現場發現噪訊晶片怎麼辦」 |
 | `autoLock.enabled` | true | 啟動自檢窗（自動鎖噪訊晶片）。**開機時場上理應無人**——窗內還在發訊號的格子幾乎必然是故障晶片 |
 | `autoLock.windowSeconds` | 10 | 自檢窗長度（秒）。窗期間**不發布任何觸控事件**（keepalive 照發）；≤ 0 視為停用 |
-| `autoLock.minPackets` | 10 | 窗內封包數達此值才鎖。噪訊晶片 ~80ms 重送、10 秒約 125 包，門檻 10 遠低於噪訊、又高於短暫誤踩 |
+| `autoLock.minPackets` | 10 | 窗內封包數達此值即鎖（判準 A，與 minEpisodes 為 **OR**）。快速重送型噪訊 ~80ms 重送、10 秒約 125 包，門檻 10 遠低於噪訊、又高於短暫誤踩 |
+| `autoLock.minEpisodes` | 3 | 窗內**分離觸發段數**達此值即鎖（判準 B，與 minPackets 為 **OR**；0 = 停用此判準）。一段（episode）= 同格封包流以「間隔 > releaseTimeoutMs」切分的一次連續觸發。抓**慢速頻閃型**噪訊：2026-06-11 現場 face2 cell(37,14) 每次只發 1 包、間隔 0.5~1.5 秒反覆 down/up，10 秒窗內湊不滿 minPackets 而躲過判準 A。依據：開機時場上沒人，真人誤踩是**一次連續事件（1 段）**，不會在同一格分離地觸發 3 次 |
 | `touchMode` | grid | `grid`（純發布）/ `mouse`（額外掛 OS 滑鼠 sink——**發布照常**，監控頁/訂閱端不受影響）。可由設定頁熱切 |
 | `mouseMode.faces` | 缺欄位 = 排除 Floor | **啟用滑鼠觸控的面清單**（venue faces index 陣列）。缺欄位/null = 預設「全部面但排除名稱含 Floor 的面」（704 = 地板關、六個牆面開）；空陣列 = 全部停用。**舊 config 的 `face`（單數 int）讀到時自動轉成 `faces:[該值]` 並在 log 提示**，設定頁套用後以新 schema 寫回 |
 | `mouseMode.screen` | 0,0,1920×1080 | 映射目標螢幕矩形（virtual desktop 座標，非主螢幕可為負）。設定頁可從螢幕下拉直接帶入 |
@@ -304,8 +305,18 @@ SensorSimulator.exe replay capture-multitouch-floor.txt --target 127.0.0.1:20001
 
 ### 第 1 層：開機自檢自動鎖（autoLock，預設開）
 
-服務啟動後前 `windowSeconds`（預設 10 秒）是**自檢窗**：窗內被觸發 ≥ `minPackets`
-（預設 10）包的格子自動鎖定。持續發訊的噪訊晶片重啟一次就會被抓到。
+服務啟動後前 `windowSeconds`（預設 10 秒）是**自檢窗**：窗內命中**任一判準（OR）**
+的格子自動鎖定，重啟一次就會被抓到——
+
+- **判準 A（包數）**：窗內被觸發 ≥ `minPackets`（預設 10）包。抓**快速重送型**
+  （~80ms 持續重送，10 秒約 125 包）。
+- **判準 B（段數）**：窗內**分離觸發** ≥ `minEpisodes`（預設 3）段
+  （間隔 > `releaseTimeoutMs` 即切段；0 = 停用）。抓**慢速頻閃型**：每次只發
+  1~2 包、間隔秒級反覆 down/up（現場實例 face2 cell(37,14)，間隔 0.5~1.5 秒），
+  包數湊不滿判準 A。開機時場上沒人，真人誤踩是一次連續事件（1 段），
+  不會在同一格分離地觸發 3 次——對開機場景這個判準是鐵的。
+
+鎖定 log 會標明每顆命中哪個判準（`命中 packets / episodes / packets+episodes`）。
 
 1. **確認場上沒人**（重要！窗內站在場上的人會被當成噪訊晶片誤鎖）
 2. 重啟 TouchService，等倒數結束（UI 監控 tab 有「自檢中 N 秒」、console 也有倒數）

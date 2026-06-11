@@ -253,6 +253,7 @@
         <label><input type="checkbox" id="cfgAutoLockEnabled"> 啟用</label>
         <label style="min-width:auto">窗長(s)</label><input type="number" id="cfgAutoLockWindow" min="0" max="86400" style="width:80px">
         <label style="min-width:auto">門檻(包)</label><input type="number" id="cfgAutoLockMin" min="1" style="width:80px">
+        <label style="min-width:auto" title="窗內分離觸發段數達此值即鎖（慢速頻閃型噪訊）；0 = 停用此判準">門檻(段)</label><input type="number" id="cfgAutoLockEpisodes" min="0" style="width:80px">
       </div>
       <div class="hint">autoLock 欄位只寫回 config.json，<b>下次啟動生效</b>；其餘欄位即時生效（下個 touch）。</div>
     </fieldset>
@@ -747,6 +748,7 @@ function fillForm() {
   $("cfgAutoLockEnabled").checked = c.autoLock.enabled;
   $("cfgAutoLockWindow").value = c.autoLock.windowSeconds;
   $("cfgAutoLockMin").value = c.autoLock.minPackets;
+  $("cfgAutoLockEpisodes").value = c.autoLock.minEpisodes ?? 3;
 
   $("roListenPort").value = c.restartOnly.listenPort;
   $("roWsPort").value = c.restartOnly.webSocketPort;
@@ -783,6 +785,7 @@ $("btnApply").onclick = async () => {
       enabled: $("cfgAutoLockEnabled").checked,
       windowSeconds: +$("cfgAutoLockWindow").value,
       minPackets: +$("cfgAutoLockMin").value,
+      minEpisodes: +$("cfgAutoLockEpisodes").value,
     },
   };
   $("btnApply").disabled = true;

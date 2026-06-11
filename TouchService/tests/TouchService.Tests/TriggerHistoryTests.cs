@@ -372,7 +372,7 @@ public class TriggerHistoryTests
     [Fact]
     public void pipeline_自檢窗內被抑制的觸發計入歷史_鎖定後停止累積但保留()
     {
-        using var h = new Harness(new AutoLockSelfCheck(0, 10, 10));
+        using var h = new Harness(new AutoLockSelfCheck(0, 10, 10, minEpisodes: 3, releaseTimeoutMs: 170));
         var noisy = h.RouteOf(NoisyRaw);
         var legit = h.RouteOf(LegitRaw);
 
