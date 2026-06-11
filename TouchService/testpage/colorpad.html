@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<title>704 踩格變色（延遲測試）</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
+  canvas{display:block;position:fixed;inset:0}
+  #hud{position:fixed;top:10px;left:10px;color:#0f0;font:16px/1.5 monospace;
+       background:rgba(0,0,0,.55);padding:6px 10px;border-radius:4px;z-index:2;white-space:pre}
+</style>
+<div id="hud">connecting…</div>
+<canvas id="cv"></canvas>
+<script>
+// ── 704 踩格變色測試頁 ──
+// 用法：放在跑 TouchService 的機器上直接雙擊開啟（file:// 即可），
+//       視窗拖到地磚顯示器、按 F11 全螢幕。踩下 → 該地磚（64px 格）立即亮色。
+// 參數：colorpad.html?ws=192.168.x.x:20111 可指定遠端服務（預設 127.0.0.1:20111）
+// 快捷鍵：H 隱藏/顯示左上角資訊、點擊畫面 = 進全螢幕
+const TILE = 64; // 一塊地磚 = canvas 座標 64px（2×4 顆感應晶片）
+const COLORS = ['#ff3b30','#ffd60a','#34c759','#0a84ff','#bf5af2','#ff9f0a','#64d2ff','#ff2d55'];
+const qs = new URLSearchParams(location.search);
+const WS_URL = 'ws://' + (qs.get('ws') || '127.0.0.1:20111') + '/';
+
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const hud = document.getElementById('hud');
+let canvasW = 2688, canvasH = 3840;        // hello 進來後更新
+const touches = new Map();                  // id -> {px, color}
+let lastMsgAt = 0, lastLatency = '-', msgCount = 0, msgRate = 0, status = 'connecting';
+
+function resize(){ cv.width = innerWidth; cv.height = innerHeight; draw(); }
+addEventListener('resize', resize);
+
+function draw(){
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const sx = cv.width / canvasW, sy = cv.height / canvasH;
+  for (const t of touches.values()){
+    const tx = Math.floor(t.px[0] / TILE) * TILE, ty = Math.floor(t.px[1] / TILE) * TILE;
+    ctx.fillStyle = t.color;
+    ctx.fillRect(tx * sx, ty * sy, TILE * sx, TILE * sy);
+  }
+}
+
+function hudText(){
+  hud.textContent =
+    `WS: ${status}\n` +
+    `觸點: ${touches.size}  訊息: ${msgRate}/s\n` +
+    `down→畫面送出延遲: ${lastLatency} ms\n` +
+    `(H 隱藏本欄  點擊=全螢幕)`;
+}
+setInterval(() => { msgRate = msgCount; msgCount = 0; hudText(); }, 1000);
+
+let ws;
+function connect(){
+  status = 'connecting'; hudText();
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { status = 'connected'; hudText(); };
+  ws.onmessage = (ev) => {
+    lastMsgAt = Date.now(); msgCount++;
+    let m; try { m = JSON.parse(ev.data); } catch(e){ return; }
+    if (m.type === 'hello'){ canvasW = m.canvas.w; canvasH = m.canvas.h; return; }
+    let dirty = false;
+    for (const e of (m.events || [])){
+      if (e.phase === 'up'){ touches.delete(e.id); dirty = true; }
+      else {
+        touches.set(e.id, { px: e.px, color: COLORS[e.id % COLORS.length] });
+        dirty = true;
+        if (e.phase === 'down') lastLatency = Math.max(0, Date.now() - m.t);
+      }
+    }
+    if (Array.isArray(m.alive)){
+      const alive = new Set(m.alive);
+      for (const id of [...touches.keys()])
+        if (!alive.has(id)){ touches.delete(id); dirty = true; }
+    }
+    if (dirty) draw();   // 收到事件當下立即重繪，不等下一個動畫幀
+  };
+  ws.onclose = () => {
+    status = 'disconnected (2s 後重連)';
+    touches.clear(); draw(); hudText();
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => { try { ws.close(); } catch(e){} };
+}
+// watchdog：3.5 秒沒任何訊息（keepalive 是 1 秒一包）就強制重連
+setInterval(() => {
+  if (lastMsgAt && Date.now() - lastMsgAt > 3500){ try { ws.close(); } catch(e){} }
+}, 1000);
+
+addEventListener('keydown', (e) => {
+  if (e.key === 'h' || e.key === 'H') hud.style.display = hud.style.display === 'none' ? '' : 'none';
+});
+addEventListener('click', () => document.documentElement.requestFullscreen?.());
+
+resize(); connect();
+</script>
+</html>
