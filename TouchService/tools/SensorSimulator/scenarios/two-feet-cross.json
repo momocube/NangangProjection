@@ -1,0 +1,13 @@
+{
+  // 兩腳在 Floor 面交錯走過（不同列、左右互換）：驗證 touch ID 不互換
+  // 加 5% 丟包 + jitter，模擬現場惡劣狀況
+  "name": "two-feet-cross",
+  "resendIntervalMs": 80,
+  "jitterMs": 15,
+  "dropRate": 0.05,
+  "seed": 42,
+  "touches": [
+    { "module": 0, "rawX": 2800, "rawY": 1400, "moveToRawX": 3700, "moveToRawY": 1400, "downMs": 0,  "upMs": 3000 },
+    { "module": 1, "rawX": 3700, "rawY": 1720, "moveToRawX": 2800, "moveToRawY": 1720, "downMs": 50, "upMs": 3000 }
+  ]
+}

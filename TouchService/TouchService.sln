@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{6BD38978-A837-41E1-B9FE-B22A7B39A3DF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TouchService", "src\TouchService\TouchService.csproj", "{E42CB1F5-4084-4CE3-B02B-0CCF94F2CB8A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{8D21BF61-39A5-422D-A74C-6C765B977CF5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SensorSimulator", "tools\SensorSimulator\SensorSimulator.csproj", "{FA5B158F-E5C5-4CD0-971E-35B85B92034D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestClient", "tools\TestClient\TestClient.csproj", "{DFADDF2E-EB9B-4E75-9693-FE412B2F109E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{6EFDC0CE-A1DA-4E61-B7E4-C4104B11B2B3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TouchService.Tests", "tests\TouchService.Tests\TouchService.Tests.csproj", "{EDE3BF8F-394A-4E32-AA6C-57D1C18CB710}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E42CB1F5-4084-4CE3-B02B-0CCF94F2CB8A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E42CB1F5-4084-4CE3-B02B-0CCF94F2CB8A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E42CB1F5-4084-4CE3-B02B-0CCF94F2CB8A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E42CB1F5-4084-4CE3-B02B-0CCF94F2CB8A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FA5B158F-E5C5-4CD0-971E-35B85B92034D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FA5B158F-E5C5-4CD0-971E-35B85B92034D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FA5B158F-E5C5-4CD0-971E-35B85B92034D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FA5B158F-E5C5-4CD0-971E-35B85B92034D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DFADDF2E-EB9B-4E75-9693-FE412B2F109E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DFADDF2E-EB9B-4E75-9693-FE412B2F109E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DFADDF2E-EB9B-4E75-9693-FE412B2F109E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DFADDF2E-EB9B-4E75-9693-FE412B2F109E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EDE3BF8F-394A-4E32-AA6C-57D1C18CB710}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EDE3BF8F-394A-4E32-AA6C-57D1C18CB710}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EDE3BF8F-394A-4E32-AA6C-57D1C18CB710}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EDE3BF8F-394A-4E32-AA6C-57D1C18CB710}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E42CB1F5-4084-4CE3-B02B-0CCF94F2CB8A} = {6BD38978-A837-41E1-B9FE-B22A7B39A3DF}
+		{FA5B158F-E5C5-4CD0-971E-35B85B92034D} = {8D21BF61-39A5-422D-A74C-6C765B977CF5}
+		{DFADDF2E-EB9B-4E75-9693-FE412B2F109E} = {8D21BF61-39A5-422D-A74C-6C765B977CF5}
+		{EDE3BF8F-394A-4E32-AA6C-57D1C18CB710} = {6EFDC0CE-A1DA-4E61-B7E4-C4104B11B2B3}
+	EndGlobalSection
+EndGlobal

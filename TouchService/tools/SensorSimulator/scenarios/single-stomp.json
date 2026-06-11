@@ -1,0 +1,11 @@
+{
+  // 單腳踩在 Floor 面中央：80ms 重送、按住 2 秒、注入 ±20ms jitter（模擬實測 gap 長尾）
+  "name": "single-stomp-floor",
+  "resendIntervalMs": 80,
+  "jitterMs": 20,
+  "dropRate": 0.0,
+  "seed": 7,
+  "touches": [
+    { "module": 0, "rawX": 3264, "rawY": 1664, "downMs": 100, "upMs": 2100 }
+  ]
+}
