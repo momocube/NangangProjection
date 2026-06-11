@@ -29,8 +29,12 @@ public sealed class WebSocketHub : ITouchSink
 {
     const string WsMagicGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-    /// <summary>本機管理 API 的請求（HandleClient → apiHandler）。IsLoopback 供寫入類端點做來源限制。</summary>
-    public readonly record struct ApiRequest(string Method, string Path, string Body, bool IsLoopback);
+    /// <summary>
+    /// 本機管理 API 的請求（HandleClient → apiHandler）。IsLoopback 供寫入類端點做來源限制；
+    /// Query = '?' 後的原始字串（無 query 為空字串；GET /history 的 top 參數用）。
+    /// </summary>
+    public readonly record struct ApiRequest(string Method, string Path, string Body, bool IsLoopback,
+                                             string Query = "");
 
     /// <summary>apiHandler 的回應；回 null = 此 path 不歸 API 管（落到 404）。</summary>
     public sealed record ApiResponse(string Status, string ContentType, byte[] Body)
@@ -138,7 +142,8 @@ public sealed class WebSocketHub : ITouchSink
                 WriteHttpResponse(stream, "200 OK", "text/html; charset=utf-8", File.ReadAllBytes(_testPagePath));
             }
             else if (_apiHandler != null &&
-                     _apiHandler(new ApiRequest(method, StripQuery(path), body, IsLoopback(tcp))) is { } apiResp)
+                     _apiHandler(new ApiRequest(method, StripQuery(path), body, IsLoopback(tcp),
+                                                QueryOf(path))) is { } apiResp)
             {
                 WriteHttpResponse(stream, apiResp.Status, apiResp.ContentType, apiResp.Body);
             }
@@ -162,6 +167,12 @@ public sealed class WebSocketHub : ITouchSink
     {
         int q = path.IndexOf('?');
         return q < 0 ? path : path[..q];
+    }
+
+    static string QueryOf(string path)
+    {
+        int q = path.IndexOf('?');
+        return q < 0 ? "" : path[(q + 1)..];
     }
 
     /// <summary>連線來源是否 loopback（寫入類 API / monitors 的來源限制依據）。</summary>

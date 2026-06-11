@@ -8,7 +8,7 @@ namespace TouchService;
 /// <summary>
 /// TouchService 進入點：headless console。
 /// 啟動讀 config → 自檢窗（autoLock）→ 收 UDP → 發布（raw UDP JSON + WebSocket）。
-/// stdin 指令：stats / touches / locks / lock / unlock / savelocks / probe / quit。
+/// stdin 指令：stats / touches / history / locks / lock / unlock / savelocks / probe / quit。
 /// </summary>
 public static class Program
 {
@@ -52,9 +52,9 @@ public static class Program
         var quit = new ManualResetEventSlim(false);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; quit.Set(); };
 
-        Console.WriteLine("指令：stats（統計）/ touches（活躍 touch）/ locks（鎖定清單）/ " +
-                          "lock|unlock <face> <col> <row>（手動鎖/解鎖）/ savelocks（鎖定寫回 config）/ " +
-                          "probe（dump latency CSV）/ quit（離開）");
+        Console.WriteLine("指令：stats（統計）/ touches（活躍 touch）/ history [n]（疑似噪訊排行，預設 top 20）/ " +
+                          "locks（鎖定清單）/ lock|unlock <face> <col> <row>（手動鎖/解鎖）/ " +
+                          "savelocks（鎖定寫回 config）/ probe（dump latency CSV）/ quit（離開）");
 
         // stdin 指令迴圈（stdin 關閉時改等 Ctrl+C / SIGTERM）
         var stdinThread = new Thread(() =>
@@ -70,6 +70,16 @@ public static class Program
                         break;
                     case "touches":
                         Console.WriteLine(host.TouchesSnapshot());
+                        break;
+                    case "history":
+                        // history [n]：疑似噪訊排行（預設 top 20）
+                        int top = 20;
+                        if (parts.Length >= 2 && (!int.TryParse(parts[1], out top) || top <= 0))
+                        {
+                            Console.WriteLine("用法：history [n]（n 為正整數，預設 20；例：history 50）");
+                            break;
+                        }
+                        Console.WriteLine(host.HistorySnapshot(top));
                         break;
                     case "locks":
                         Console.WriteLine(host.LocksSnapshot());
@@ -100,7 +110,7 @@ public static class Program
                     case "":
                         break;
                     default:
-                        Console.WriteLine("未知指令。可用：stats / touches / locks / lock / unlock / savelocks / probe / quit");
+                        Console.WriteLine("未知指令。可用：stats / touches / history [n] / locks / lock / unlock / savelocks / probe / quit");
                         break;
                 }
             }

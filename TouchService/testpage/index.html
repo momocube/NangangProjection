@@ -94,6 +94,17 @@
   table.locks { border-collapse: collapse; width: 100%; margin: 6px 0; }
   table.locks th, table.locks td { border-bottom: 1px solid var(--line); padding: 3px 8px; text-align: left; }
   table.locks th { color: var(--dim); font-weight: 600; }
+
+  /* ── 監控 tab：活躍觸點側欄 ─────────────────────────────────────────────── */
+  #aliveList { max-height: 170px; overflow-y: auto; font-size: 12px; margin-top: 4px; }
+  #aliveList div { white-space: nowrap; }
+  #aliveList .age { color: var(--move); }
+
+  /* ── 診斷 tab ───────────────────────────────────────────────────────────── */
+  #tab-diag { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
+  .score-hi  { color: var(--down); font-weight: 700; }
+  .score-mid { color: var(--move); font-weight: 700; }
+  td.lockedMark { color: var(--down); }
 </style>
 </head>
 <body>
@@ -102,6 +113,7 @@
   <nav class="tabs">
     <button id="tabBtnMonitor" class="active">監控</button>
     <button id="tabBtnSettings">設定</button>
+    <button id="tabBtnDiag">診斷</button>
   </nav>
   <label>WS 位址 <input id="wsUrl" value=""></label>
   <button id="btnConn" class="conn">連線</button>
@@ -133,6 +145,10 @@
       <div class="stat"><span>seq</span><b id="stSeq">-</b></div>
       <div class="stat"><span>鎖定晶片</span><b id="stLocks">0</b></div>
       <div class="stat"><span>啟動自檢</span><b id="stAutoLock">-</b></div>
+    </section>
+    <section>
+      <h2>活躍觸點（id / face / cell / px / 存活）</h2>
+      <div id="aliveList"><span class="hint">（無）</span></div>
     </section>
     <h2 style="padding:10px 14px 0">事件流</h2>
     <ul id="eventLog"></ul>
@@ -229,6 +245,48 @@
   </div>
 </div>
 
+<!-- ── 診斷 tab（觸發歷史 / 疑似噪訊排行 / 手動鎖定）──────────────────────── -->
+<div id="tab-diag">
+  <div class="settings" style="max-width:980px">
+    <fieldset>
+      <legend>疑似噪訊排行（GET /history，每 5 秒刷新）</legend>
+      <div class="hint" style="margin-bottom:6px">
+        score 0–100 = 三個可解釋因子加權：<b>30 分鐘觸發頻率（40）＋ 孤立觸發比率（35）＋ 活躍時長佔比（25）</b>。
+        <b class="score-mid">score ≥ 60 建議看一眼</b>、<b class="score-hi">≥ 80 高度可疑</b>
+        （同格反覆觸發、無鄰近連動、長時間常駐叫——間歇型噪訊晶片的典型樣貌）。
+        分數只用來排序，<b>不會自動鎖</b>：營運中有真人在踩，誤鎖比漏鎖傷，鎖定請人工確認後按「鎖定」。
+        歷史為運行期統計、重啟歸零（刻意設計——可疑晶片會很快重新冒上排行）。
+      </div>
+      <div id="histStatus" class="hint">（尚未載入）</div>
+      <table class="locks" id="histTable" style="display:none">
+        <thead><tr>
+          <th>score</th><th>face</th><th>cell</th><th>30 分鐘</th><th>總次</th>
+          <th>孤立%</th><th>佔用%</th><th>最後觸發</th><th>最後存活</th><th>狀態</th><th></th>
+        </tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </fieldset>
+
+    <fieldset>
+      <legend>手動鎖定</legend>
+      <div class="row">
+        <label style="min-width:auto">face</label>
+        <input type="number" id="mlFace" min="0" style="width:70px">
+        <label style="min-width:auto">col</label>
+        <input type="number" id="mlCol" min="0" style="width:70px">
+        <label style="min-width:auto">row</label>
+        <input type="number" id="mlRow" min="0" style="width:70px">
+        <button class="btn minor lockBtn" id="btnManualLock">鎖定</button>
+        <span id="mlResult" class="hint"></span>
+      </div>
+      <div class="hint">
+        語意同 console `lock` 指令（manual 來源，runtime 即時生效）。確認沒問題後到「設定」tab 按
+        「鎖定寫回 config（savelocks）」持久化；解鎖也在「設定」tab 的鎖定清單。
+      </div>
+    </fieldset>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -273,16 +331,19 @@ function setConn(text, cls) {
 
 // ── tab 切換（純 display 切換，WS 不斷）─────────────────────────────────────
 function showTab(name) {
-  const monitor = name === "monitor";
-  $("tab-monitor").style.display = monitor ? "flex" : "none";
-  $("tab-settings").style.display = monitor ? "none" : "block";
-  $("tabBtnMonitor").classList.toggle("active", monitor);
-  $("tabBtnSettings").classList.toggle("active", !monitor);
-  if (monitor) resize();          // canvas 在 hidden 期間量不到尺寸，回來重算
-  else loadSettings();            // 進設定頁刷新目前生效值
+  $("tab-monitor").style.display = name === "monitor" ? "flex" : "none";
+  $("tab-settings").style.display = name === "settings" ? "block" : "none";
+  $("tab-diag").style.display = name === "diag" ? "block" : "none";
+  $("tabBtnMonitor").classList.toggle("active", name === "monitor");
+  $("tabBtnSettings").classList.toggle("active", name === "settings");
+  $("tabBtnDiag").classList.toggle("active", name === "diag");
+  if (name === "monitor") resize();         // canvas 在 hidden 期間量不到尺寸，回來重算
+  if (name === "settings") loadSettings();  // 進設定頁刷新目前生效值
+  if (name === "diag") refreshHistory();    // 進診斷頁立即抓排行（之後每 5 秒）
 }
 $("tabBtnMonitor").onclick = () => showTab("monitor");
 $("tabBtnSettings").onclick = () => showTab("settings");
+$("tabBtnDiag").onclick = () => showTab("diag");
 
 // ── WebSocket ───────────────────────────────────────────────────────────────
 function connect() {
@@ -344,7 +405,9 @@ function onMessage(msg) {
       const t = state.touches.get(e.id);
       if (t) { t.phase = "up"; t.fadeStart = now; t.px = e.px; }
     } else {
-      state.touches.set(e.id, { px: e.px, face: e.face, cell: e.cell, phase: e.phase, lastSeen: now, fadeStart: 0 });
+      const prev = state.touches.get(e.id);   // 活躍觸點側欄要算存活秒數：保留 down 時刻
+      state.touches.set(e.id, { px: e.px, face: e.face, cell: e.cell, phase: e.phase,
+                                lastSeen: now, fadeStart: 0, downAt: prev?.downAt ?? now });
     }
   }
 
@@ -469,7 +532,7 @@ function draw() {
 }
 requestAnimationFrame(draw);
 
-// ── 統計面板（250ms 更新）───────────────────────────────────────────────────
+// ── 統計面板 + 活躍觸點側欄（250ms 更新）────────────────────────────────────
 setInterval(() => {
   const now = Date.now();
   state.msgTimes = state.msgTimes.filter(t => now - t < 1000);
@@ -477,6 +540,17 @@ setInterval(() => {
   let alive = 0;
   for (const t of state.touches.values()) if (t.phase !== "up") alive++;
   $("stAlive").textContent = alive;
+
+  // 活躍觸點側欄：存活久的在上（噪訊晶片特徵：存活持續累加、cell 固定不動）
+  const rows = [...state.touches.entries()]
+    .filter(([, t]) => t.phase !== "up")
+    .sort((a, b) => (a[1].downAt ?? now) - (b[1].downAt ?? now))
+    .slice(0, 40);
+  $("aliveList").innerHTML = rows.length === 0
+    ? '<span class="hint">（無）</span>'
+    : rows.map(([id, t]) =>
+        `<div>#${id} f${t.face} cell(${t.cell[0]},${t.cell[1]}) px(${t.px[0]},${t.px[1]}) ` +
+        `<span class="age">${((now - (t.downAt ?? now)) / 1000).toFixed(1)}s</span></div>`).join("");
   $("stCounts").textContent = `${state.counts.down || 0} / ${state.counts.move || 0} / ${state.counts.up || 0}`;
   $("stLatency").textContent = state.latencyMs === null ? "-" : state.latencyMs.toFixed(0);
   $("stSeq").textContent = state.lastSeq ?? "-";
@@ -678,6 +752,105 @@ $("btnSaveLocks").onclick = async () => {
   const r = await fetchJson("/locks/save", { method: "POST" });
   $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
 };
+
+// ── 診斷 tab：疑似噪訊排行 + 手動鎖定 ───────────────────────────────────────
+
+// 寫入類 API（/locks/lock）僅接受 loopback：非本機開頁時鎖定按鈕 disabled + tooltip
+function uiIsLoopback() {
+  const host = location.protocol.startsWith("http")
+    ? location.hostname
+    : ($("wsUrl").value.trim().match(/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/i)?.[1] || "");
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+function gateLockButton(btn) {
+  if (uiIsLoopback()) return;
+  btn.disabled = true;
+  btn.title = "僅限本機操作";
+}
+
+function fmtAgo(ms) {
+  if (ms < 1500) return "剛剛";
+  if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s 前`;
+  if (ms < 3_600_000) return `${(ms / 60_000).toFixed(0)}m 前`;
+  return `${(ms / 3_600_000).toFixed(1)}h 前`;
+}
+
+async function refreshHistory() {
+  try {
+    const r = await fetchJson("/history?top=50");
+    if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+    renderHistory(r.body);
+    $("histStatus").textContent = (r.body.cells || []).length
+      ? `更新於 ${new Date().toLocaleTimeString()}（每 5 秒刷新；服務已運行 ${(r.body.uptimeMs / 60000).toFixed(0)} 分鐘）`
+      : "（尚無觸發歷史——服務啟動後還沒有任何 cell 被觸發；每 5 秒刷新）";
+  } catch (e) {
+    $("histStatus").textContent = "讀取失敗：" + e.message + "（服務沒起來？）";
+  }
+}
+setInterval(() => {
+  if ($("tab-diag").style.display !== "none") refreshHistory();
+}, 5000);
+
+async function postLock(face, col, row) {
+  return fetchJson("/locks/lock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ face, col, row }),
+  });
+}
+
+function renderHistory(data) {
+  const cells = data.cells || [];
+  $("histTable").style.display = cells.length ? "table" : "none";
+  if (!cells.length) return;
+  const tbody = $("histBody");
+  tbody.innerHTML = "";
+  for (const c of cells) {
+    const faceName = state.faces?.find(f => f.index === c.face)?.name ?? "";
+    const tr = document.createElement("tr");
+    const scoreCls = c.score >= 80 ? "score-hi" : c.score >= 60 ? "score-mid" : "";
+    tr.innerHTML =
+      `<td class="${scoreCls}">${c.score}</td>` +
+      `<td>${c.face} ${faceName}</td><td>(${c.cell[0]},${c.cell[1]})</td>` +
+      `<td>${c.count30m}</td><td>${c.total}</td>` +
+      `<td>${(c.isolationRatio * 100).toFixed(0)}%</td>` +
+      `<td>${(c.occupancyRatio * 100).toFixed(1)}%</td>` +
+      `<td>${c.active ? "進行中" : fmtAgo(c.lastTriggerAgoMs)}</td>` +
+      `<td>${(c.lastLifetimeMs / 1000).toFixed(1)}s</td>` +
+      (c.locked ? `<td class="lockedMark">已鎖定</td>` : `<td>-</td>`);
+    const td = document.createElement("td");
+    if (!c.locked) {
+      const btn = document.createElement("button");
+      btn.className = "btn minor lockBtn";
+      btn.textContent = "鎖定";
+      gateLockButton(btn);
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const r = await postLock(c.face, c.cell[0], c.cell[1]);
+        $("histStatus").textContent = r.body?.message || `HTTP ${r.status}`;
+        // 成功：該列立即標記已鎖（設定 tab 清單由 WS locks push 自然更新）；失敗恢復按鈕
+        if (r.body?.ok) refreshHistory();
+        else btn.disabled = !uiIsLoopback();
+      };
+      td.appendChild(btn);
+    }
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+$("btnManualLock").onclick = async () => {
+  const face = +$("mlFace").value, col = +$("mlCol").value, row = +$("mlRow").value;
+  if ($("mlFace").value === "" || $("mlCol").value === "" || $("mlRow").value === "" ||
+      !Number.isInteger(face) || !Number.isInteger(col) || !Number.isInteger(row)) {
+    $("mlResult").textContent = "face / col / row 三欄都要填整數";
+    return;
+  }
+  const r = await postLock(face, col, row);
+  $("mlResult").textContent = r.body?.message || `HTTP ${r.status}`;
+  if (r.body?.ok) refreshHistory();
+};
+gateLockButton($("btnManualLock"));
 
 // ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──
 if (location.protocol.startsWith("http")) connect();

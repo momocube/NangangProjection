@@ -12,6 +12,8 @@ namespace TouchService.Api;
 ///   GET  /config        目前生效設定（去敏感：不含 log / 檔案路徑）
 ///   POST /config        套用設定 patch（驗證全過才套用；熱套用 + 寫回 config.json）
 ///   GET  /monitors      螢幕清單（Windows EnumDisplayMonitors；非 Windows 空陣列）
+///   GET  /history       疑似噪訊排行（?top=50，預設 50；唯讀、不限 loopback——場館內網監看 OK）
+///   POST /locks/lock    手動鎖定一格（body {"face":2,"col":7,"row":13}；語意同 stdin lock，來源 manual）
 ///   POST /locks/unlock  解鎖一格（body {"face":2,"col":7,"row":13}；語意同 stdin unlock）
 ///   POST /locks/save    鎖定寫回 config.json（語意同 stdin savelocks）
 ///
@@ -42,9 +44,18 @@ public sealed class ConfigApi
                     JsonSerializer.Serialize(MonitorEnumerator.Enumerate(),
                         new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
 
+            case ("GET", "/history"):
+                // 唯讀排行，不限 loopback（與 GET /config 同：場館內網監看 OK）
+                return WebSocketHub.ApiResponse.Json("200 OK",
+                    _host.HistoryJson(ParseTop(req.Query, defaultTop: 50)));
+
+            case ("POST", "/locks/lock"):
+                if (!req.IsLoopback) return Forbidden();
+                return HandleLockOp(req.Body, unlock: false);
+
             case ("POST", "/locks/unlock"):
                 if (!req.IsLoopback) return Forbidden();
-                return HandleUnlock(req.Body);
+                return HandleLockOp(req.Body, unlock: true);
 
             case ("POST", "/locks/save"):
                 if (!req.IsLoopback) return Forbidden();
@@ -56,7 +67,8 @@ public sealed class ConfigApi
         }
     }
 
-    WebSocketHub.ApiResponse HandleUnlock(string body)
+    /// <summary>POST /locks/lock 與 /locks/unlock 共用（body 同格式；語意同 stdin lock / unlock）。</summary>
+    WebSocketHub.ApiResponse HandleLockOp(string body, bool unlock)
     {
         int face, col, row;
         try
@@ -72,8 +84,20 @@ public sealed class ConfigApi
             return Result("400 Bad Request", false, $"body 需為 {{\"face\":N,\"col\":N,\"row\":N}}：{ex.Message}");
         }
 
-        var msg = _host.UnlockCell(face, col, row);
-        return Result("200 OK", msg.StartsWith("已解鎖"), msg);
+        var msg = unlock ? _host.UnlockCell(face, col, row) : _host.LockCell(face, col, row);
+        return Result("200 OK", msg.StartsWith(unlock ? "已解鎖" : "已鎖定"), msg);
+    }
+
+    /// <summary>解析 query 的 top 參數（缺省 / 非法 → defaultTop；上限 500 防整包傾倒）。</summary>
+    static int ParseTop(string query, int defaultTop)
+    {
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int eq = pair.IndexOf('=');
+            if (eq <= 0 || !pair.AsSpan(0, eq).Equals("top", StringComparison.OrdinalIgnoreCase)) continue;
+            if (int.TryParse(pair.AsSpan(eq + 1), out int v) && v > 0) return Math.Min(v, 500);
+        }
+        return defaultTop;
     }
 
     static WebSocketHub.ApiResponse Forbidden() =>

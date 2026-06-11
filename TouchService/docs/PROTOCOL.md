@@ -189,10 +189,12 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
   本機額外掛一個 OS 游標 sink，WS / raw UDP 的全量發布、schema、時序完全照常——
   訂閱端不需要也無法感知目前模式。
 - **config API 是本機管理介面、不屬於對外協議**：與 WS 同 port 另有
-  `GET /config`、`POST /config`、`GET /monitors`、`POST /locks/unlock`、`POST /locks/save`
-  五個 HTTP 端點（給內建設定頁用）。**寫入類端點與 /monitors 僅接受 loopback 來源**
-  （非 loopback 一律 403），不在 v1 承諾範圍內、欄位可能隨版本調整，
-  訂閱端不要依賴。端點細節見 `DEPLOY.md`「啟動 UI」。
+  `GET /config`、`POST /config`、`GET /monitors`、`GET /history`、
+  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/save`
+  七個 HTTP 端點（給內建設定/診斷頁用）。**寫入類端點與 /monitors 僅接受 loopback 來源**
+  （非 loopback 一律 403）；`GET /history`（疑似噪訊排行，`?top=N` 預設 50）與
+  `GET /config` 為唯讀、不限 loopback——場館內網監看 OK。皆不在 v1 承諾範圍內、
+  欄位可能隨版本調整，訂閱端不要依賴。端點細節見 `DEPLOY.md`「啟動 UI」。
 
 ## 版本策略
 

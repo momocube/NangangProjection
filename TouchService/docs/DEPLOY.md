@@ -118,7 +118,8 @@ TouchService.exe --config D:\cybercube\config.json
 | 指令 | 作用 |
 |---|---|
 | `stats` | 吐統計（pkt rate、parse errors、down/move/up、dropped by lock、auto-locked 計數、處理延遲、WS client 數） |
-| `touches` | 列出當下所有活躍 touch（id / face / cell / px / 存活秒數），找噪訊晶片用 |
+| `touches` | 列出當下所有活躍 touch（id / face / cell / px / 存活秒數），找「此刻在叫」的噪訊晶片用 |
+| `history [n]` | 疑似噪訊排行（預設 top 20）：score / 30 分鐘次數 / 總次 / 孤立% / 佔用% / 最後觸發 / 鎖定標記。**間歇型噪訊（發作一陣停一陣，`touches` 追不到）靠這個**；自檢窗內被抑制的觸發也計入。score ≥ 60 看一眼、≥ 80 高度可疑；只排序不自動鎖 |
 | `locks` | 列出目前所有鎖定（face / cell / 來源 config\|auto\|manual / auto 鎖定的封包數） |
 | `lock <face> <col> <row>` | 手動加鎖（runtime 即時生效，來源 manual；例 `lock 2 7 13`） |
 | `unlock <face> <col> <row>` | 解鎖（任何來源都可解；解 config 來源只影響本次執行、不改檔，重啟會鎖回） |
@@ -137,11 +138,14 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 2. Chrome `--app=`
 3. fallback：預設瀏覽器開該網址
 
-找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面兩個 tab：
+找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面三個 tab：
 
-- **監控**：場域圖、即時觸點、事件流、統計、鎖定格（暗紅 X）——即原測試頁
+- **監控**：場域圖、即時觸點、活躍觸點側欄（id / face / cell / px / 存活秒，
+  存活久的在上）、事件流、統計、鎖定格（暗紅 X）——即原測試頁
 - **設定**：觸控模式（採格/滑鼠）、滑鼠參數、releaseTimeoutMs / matchRadiusPx、
-  autoLock、鎖定清單（每列可解鎖 + 寫回 config）、需重啟欄位唯讀顯示。
+  autoLock、鎖定清單（每列可解鎖 + 寫回 config）、需重啟欄位唯讀顯示
+- **診斷**：疑似噪訊排行（每 5 秒刷新，每列「鎖定」按鈕一鍵鎖）+ 手動鎖定表單
+  （face / col / row）。非本機開頁時鎖定按鈕鎖灰（僅限本機操作）。
   tab 切換不斷 WS 連線。
 
 設定頁背後是本機管理 HTTP API（與 WS 同 port）：
@@ -151,6 +155,8 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 | `GET /config` | 目前生效設定（去敏感，不含 log 設定） | 無 |
 | `POST /config` | 套用設定（驗證全過才套用；熱套用 + 寫回 config.json，其他欄位保留） | **僅 loopback**，否則 403 |
 | `GET /monitors` | 螢幕清單（Windows EnumDisplayMonitors；非 Windows 空陣列） | **僅 loopback** |
+| `GET /history` | 疑似噪訊排行（`?top=N`，預設 50；score 降冪，欄位含 30 分鐘次數 / 孤立% / 佔用% / locked） | 無（唯讀，內網監看 OK） |
+| `POST /locks/lock` | 手動鎖定一格（語意同 stdin `lock`，來源 manual；body `{"face":2,"col":7,"row":13}`） | **僅 loopback** |
 | `POST /locks/unlock` | 解鎖一格（語意同 stdin `unlock`） | **僅 loopback** |
 | `POST /locks/save` | 鎖定寫回 config（語意同 stdin `savelocks`） | **僅 loopback** |
 
@@ -209,43 +215,77 @@ SensorSimulator.exe replay capture-multitouch-floor.txt --target 127.0.0.1:20001
 # 瀏覽器：開 http://127.0.0.1:20111/ → 連線 → 看觸點與事件流
 ```
 
-## 現場發現噪訊晶片怎麼辦（自動為主、手動補充）
+## 噪訊晶片處理 SOP（三層工作流，完全不需要碰 console）
 
-症狀：沒人踩卻一直有觸點、或同一格觸點反覆 up / down 換 ID 重生——通常是該格晶片故障持續發訊號。
+症狀：沒人踩卻一直有觸點、或同一格觸點反覆 up / down 換 ID 重生——通常是該格晶片
+故障持續發訊號。麻煩的是**間歇型**：發作一陣停一陣，發作結束 ~170ms 後觸點就消失，
+肉眼/手速追不上——所以工作流的核心是「歷史 + 排行」，不是「當場抓」。
 
-### 第一線：重啟服務，讓啟動自檢自動鎖（autoLock，預設開）
+```
+第 1 層（開機）   autoLock 啟動自檢窗 → 持續叫的晶片自動鎖
+第 2 層（營運中） UI 診斷 tab 疑似噪訊排行 → 人工確認 → 一鍵「鎖定」
+第 3 層（收尾）   設定 tab「鎖定寫回 config（savelocks）」→ 持久化
+```
+
+### 第 1 層：開機自檢自動鎖（autoLock，預設開）
 
 服務啟動後前 `windowSeconds`（預設 10 秒）是**自檢窗**：窗內被觸發 ≥ `minPackets`
-（預設 10）包的格子自動鎖定。噪訊晶片是持續發訊的，重啟一次就會被抓到。
+（預設 10）包的格子自動鎖定。持續發訊的噪訊晶片重啟一次就會被抓到。
 
 1. **確認場上沒人**（重要！窗內站在場上的人會被當成噪訊晶片誤鎖）
-2. 重啟 TouchService
-3. 看 console / log：每秒一行「自檢中…剩 N 秒」倒數，窗結束印醒目結果——
-   鎖了哪些 face / cell / 各自封包數；一顆都沒鎖會印「自檢通過」
-4. 打 `locks` 確認清單（auto 來源會帶封包數）
-5. 滿意的話打 **`savelocks`** 把結果寫回 config.json——下次啟動即使自檢沒抓到
-   （例如晶片間歇性發作）也會從 config 鎖住
+2. 重啟 TouchService，等倒數結束（UI 監控 tab 有「自檢中 N 秒」、console 也有倒數）
+3. 自動鎖定結果會推到 UI 設定 tab 的鎖定清單（auto 來源、帶封包數）；
+   誤鎖就在清單按「解鎖」
 
-> **誤鎖救援**：重啟時有人站在場上被誤鎖 → `unlock <face> <col> <row>` 立刻解，
-> 不用再重啟。反過來自檢漏抓（窗內剛好沒發作）→ 用下方手動流程補。
+> 自檢窗內被抑制的觸發**也會計入觸發歷史**——窗內叫過但沒達鎖定門檻的格子，
+> 會直接出現在診斷排行上，不會消失。
+
+### 第 2 層：營運中看診斷排行、一鍵鎖定（間歇型噪訊主力）
+
+開 UI（autoLaunch 自動開，或本機瀏覽器開 `http://127.0.0.1:20111/`）→「診斷」tab：
+
+1. **疑似噪訊排行**每 5 秒自動刷新。score 0–100 由三個可解釋因子加權：
+   30 分鐘觸發頻率（40）＋孤立觸發比率（35）＋活躍時長佔比（25）
+2. 判讀：**score ≥ 60 看一眼、≥ 80 高度可疑**。典型噪訊樣貌：同格 30 分鐘幾十上百次、
+   孤立 % 接近 100（觸發時周圍沒有別的觸點——真人腳掌/移動幾乎總是多格連動）、
+   佔用 % 明顯高於其他格
+3. 確認不是真人（看監控 tab 該位置有沒有人、或對照場上狀況）後，
+   按該列**「鎖定」**——立即生效，不用重啟；該列標記「已鎖定」、
+   設定 tab 鎖定清單同步出現（manual 來源）
+4. 也可用排行下方的**手動鎖定表單**直接填 face / col / row
+5. 驗證：監控 tab 該格變暗紅 X、排行該列「已鎖定」、該格不再產生觸點
+
+> **分數只是排序用，服務永遠不會自動鎖**——營運中有真人在踩，誤鎖比漏鎖傷。
+> 排行是「嫌疑清單」，鎖定永遠由人按下去。
+> 觸發歷史是運行期統計、**重啟歸零（刻意設計）**：可疑晶片會很快重新冒上排行，
+> 不會跟上次營運的舊帳混在一起。
+> 非本機開頁（場館其他機器看排行）時「鎖定」按鈕鎖灰——寫入操作僅限本機。
+
+### 第 3 層：savelocks 持久化
+
+對鎖定結果滿意後，到**設定 tab 按「鎖定寫回 config（savelocks）」**：
+目前 runtime 全部鎖定（config + auto + manual 合併去重）寫回 config.json 的
+`lockedCells`——下次啟動即使自檢沒抓到（晶片間歇性發作）也會從 config 鎖住。
+
+### 備援：console 指令（UI 不可用時）
+
+UI 壞了或遠端 ssh 進來時，stdin 指令可做完全相同的事：
+
+| 對應 UI 操作 | console 指令 |
+|---|---|
+| 診斷排行 | `history [n]`（預設 top 20） |
+| 此刻活躍觸點 | `touches`（存活久的排最上面：存活持續累加 + cell 固定不動 = 可疑） |
+| 一鍵鎖定 | `lock <face> <col> <row>` |
+| 解鎖 | `unlock <face> <col> <row>` |
+| 鎖定清單 | `locks` |
+| 寫回 config | `savelocks` |
+
+> **誤鎖救援**：重啟時有人站在場上被誤鎖 → 設定 tab 解鎖（或 `unlock`），不用再重啟。
 > 不想要自檢（例如除錯硬體時要看原始觸發）→ config `autoLock.enabled: false`。
-
-### 補充：手動鎖定（服務跑著的時候發現）
-
-1. 在服務 console（stdin）打 **`touches`** —— 列出當下所有活躍 touch
-   （id / face / cell / px / 存活秒數，存活久的排最上面）
-2. 確認場上沒人，找出可疑筆：**存活秒數持續累加、cell 固定不動**
-   （真人腳踩會移動、且離腳後 ~170ms 就 up）
-3. 打 **`lock <face> <col> <row>`** 即時鎖定（不用重啟）
-4. 打 **`savelocks`** 寫回 config.json 持久化（或手動編輯 `lockedCells`：
-   `[{ "face": 2, "cell": [7, 13] }]`，重啟生效）
-5. 驗證：`locks` 看清單；`stats` 的 `dropped by lock` 持續上升 = 過濾生效；
-   testpage 上鎖定格顯示為暗紅色 X 格
-
 > 填錯座標不會壞事：config 裡超出場域範圍的項啟動時會在 log 印警告（永遠不會命中）；
-> 格式不完整的項自動跳過、不擋啟動；`lock` 指令則直接拒絕超範圍座標。
+> 格式不完整的項自動跳過、不擋啟動；`lock` 指令/按鈕則直接拒絕超範圍座標。
 > 鎖定只影響那一格（16×32cm 地磚的一塊晶片），相鄰格踩踏不受影響。
-> 鎖定是遮瑕不是修復——座標記得回報硬體商。
+> 鎖定是遮瑕不是修復——座標（face / cell）記得回報硬體商。
 
 ## 健康檢查清單（進場後）
 
@@ -256,4 +296,5 @@ SensorSimulator.exe replay capture-multitouch-floor.txt --target 127.0.0.1:20001
    鎖定格顯示為暗紅 X，圖例有「鎖定晶片」
 4. `unrouted > 0` 持續增加 → 校正範圍沒蓋到實際 raw 值 → 走 CALIBRATION.md 四角測試
 5. 觸點閃爍（按住卻 up/down 交替）→ 重送 gap 超過 timeout → `releaseTimeoutMs` 調高 20ms 再觀察
-6. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方「自動為主、手動補充」SOP
+6. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方「噪訊晶片處理 SOP（三層工作流）」；
+   營運一陣子後順手開「診斷」tab 掃一眼排行，score ≥ 80 的格子排查

@@ -28,6 +28,9 @@ public interface ITouchEventObserver
 /// 啟動自檢窗（autoLock 非 null 時）：窗內路由成功的點只做 per-cell 計數、
 /// 不進 tracker、不發事件（keepalive 照發）；窗結束時達門檻的格子加入 _lockedCells
 /// （LockSource.Auto），之後行為完全恢復正常。
+///
+/// 觸發歷史（history 非 null 時）：down/up 事件與自檢窗內被抑制的觸發都餵進
+/// TriggerHistory（per-cell 聚合 + 疑似噪訊評分；GET /history、stdin `history`）。
 /// </summary>
 public sealed class TouchPipeline : IDisposable
 {
@@ -41,6 +44,7 @@ public sealed class TouchPipeline : IDisposable
     readonly FileLogger _log;
     readonly int _keepaliveIntervalMs;
     readonly AutoLockSelfCheck? _autoLock;
+    readonly TriggerHistory? _history;
     int _autoLockLastLoggedSec = int.MaxValue;
     ITouchEventObserver? _observer;   // 滑鼠模式 sink（null = grid，零開銷）；受 _gate 保護
 
@@ -62,7 +66,8 @@ public sealed class TouchPipeline : IDisposable
         FileLogger log,
         int keepaliveIntervalMs,
         LockedCellFilter? lockedCells = null,
-        AutoLockSelfCheck? autoLock = null)
+        AutoLockSelfCheck? autoLock = null,
+        TriggerHistory? history = null)
     {
         _router = router;
         _tracker = tracker;
@@ -73,6 +78,7 @@ public sealed class TouchPipeline : IDisposable
         _log = log;
         _keepaliveIntervalMs = keepaliveIntervalMs;
         _autoLock = autoLock;
+        _history = history;
     }
 
     /// <summary>自檢窗結束時觸發（參數 = 本次自動鎖定的格子，可為空）。host 用來推 WS locks 訊息。</summary>
@@ -161,7 +167,12 @@ public sealed class TouchPipeline : IDisposable
                 if (!_autoLock.IsExpired(nowMs))
                 {
                     for (int i = 0; i < routed; i++)
+                    {
                         _autoLock.Record(in _routedBuf[i]);
+                        // 窗內被抑制的觸發也計入觸發歷史（最重要的噪訊證據；
+                        // 已被鎖定過濾掉的點到不了這裡——鎖定後歷史自然停止累積）
+                        _history?.RecordSuppressed(in _routedBuf[i], nowMs);
+                    }
                     return;
                 }
                 FinishAutoLockLocked();
@@ -180,7 +191,10 @@ public sealed class TouchPipeline : IDisposable
             }
 
             if (_events.Count > 0)
+            {
+                _history?.OnEvents(_events, nowMs);   // 觸發歷史（down/up 入帳；非熱點，O(events)）
                 PublishLocked(nowMs);
+            }
 
             long elapsedUs = (Stopwatch.GetTimestamp() - t0) * 1_000_000 / Stopwatch.Frequency;
             _stats.OnProcessed(elapsedUs);
@@ -214,6 +228,7 @@ public sealed class TouchPipeline : IDisposable
             if (_events.Count > 0)
             {
                 for (int i = 0; i < _events.Count; i++) _stats.OnUp();
+                _history?.OnEvents(_events, nowMs);   // up：收斂存活時長進觸發歷史
                 LatencyProbe.Mark(LatencyProbe.EventType.FlushTick, _events.Count);
                 PublishLocked(nowMs);
             }

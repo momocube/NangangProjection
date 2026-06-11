@@ -41,6 +41,11 @@ AutoLockSelfCheck（Core/AutoLockSelfCheck.cs）— 啟動自檢窗（預設 10s
   │   格子加入上面的 filter（auto 來源）。窗結束後此節點變 no-op，行為完全恢復正常
   ▼
 TouchTracker（Tracking/TouchTracker.cs）— 最近鄰貪婪配對 → touch ID 生命週期（down/move/up）
+  │   └─ TriggerHistory（Diagnostics/TriggerHistory.cs）— 觸發歷史 + 疑似噪訊評分：
+  │      down/up 事件與自檢窗內被抑制的觸發都餵進 per-cell 聚合（固定大小、30 分鐘
+  │      rolling 用分鐘桶環形陣列、runtime-only 重啟歸零）。出口：GET /history、
+  │      stdin `history`、UI 診斷 tab。被鎖定 cell 的觸發在 filter 就被擋掉——
+  │      鎖定後歷史自然停止累積（鎖定前的保留顯示）
   ▼
 TouchPipeline（TouchPipeline.cs）— 串起以上全部；flush timer（5ms）驅動 release timeout
   ▼
@@ -48,7 +53,8 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
   ├─ UdpJsonPublisher（Output/UdpJsonPublisher.cs）→ config endpoints（預設 127.0.0.1:20110）
   ├─ WebSocketHub（Output/WebSocketHub.cs）→ ws://:20111/ + HTTP GET /venue + testpage
   │     └─ 同 port 本機管理 API（Api/ConfigApi.cs）：GET/POST /config、/monitors、
-  │        /locks/*——寫入類僅 loopback；給內建設定頁用，不屬於對外協議
+  │        /history（疑似噪訊排行，唯讀不限 loopback）、/locks/*（lock/unlock/save）
+  │        ——寫入類僅 loopback；給內建設定/診斷頁用，不屬於對外協議
   └─ TuioPublisher（Output/TuioPublisher.cs）→ **未實作的插槽**（啟用會明確報錯）
 
 TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序列化）：
@@ -62,8 +68,8 @@ TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序�
 處理 release timeout 與 keepalive。兩者以 `TouchPipeline` 內單一 lock 序列化。
 滑鼠模式再多一條 8ms 平滑迴圈 thread（MouseDriver 內部，自有 lock）。
 
-入口：`Program.cs` → `TouchServiceHost.cs`（config 載入、stdin 指令 stats/touches/probe/quit、
-啟動 log）→ 啟動完成後 `Ui/UiLauncher.cs` 自動開 UI（Windows + ui.autoLaunch：
+入口：`Program.cs` → `TouchServiceHost.cs`（config 載入、stdin 指令 stats/touches/history/
+locks/lock/unlock/savelocks/probe/quit、啟動 log）→ 啟動完成後 `Ui/UiLauncher.cs` 自動開 UI（Windows + ui.autoLaunch：
 Edge `--app=` → Chrome `--app=` → 預設瀏覽器；UiLauncher 在 Program.Main 呼叫而非
 host.Start 內——測試大量啟動 host，不該彈視窗）。
 
@@ -84,6 +90,7 @@ host.Start 內——測試大量啟動 host，不該彈視窗）。
 | touchMode 滑鼠 = 額外 sink | mouse 模式只在 pipeline 掛 typed 事件觀察者（MouseDriver），WS/UDP 發布照常全量 | Unity 時代「滑鼠模擬**取代**發布」正是這個服務要逃離的架構（單點限制、全場冷卻的根源） | 把滑鼠模式做成取代發布會回到老路；監控頁/訂閱端必須在任何模式下照常收事件 |
 | 滑鼠單點所有權 | mouseMode.face 上第一個 down 的 touch 是 owner，它 up 前其他觸點（含其他面、地板）全忽略 | OS 游標只有一顆——多點搶游標會抖動亂跳；非目標面不過濾的話腳步會亂點 | 要多點手勢去訂閱端做；owner 生命週期由 release timeout 橋接，80ms 重送不會中斷。模式/face 熱切時若 owner 還按著會先 LEFTUP（不留卡死按鍵） |
 | 滑鼠平滑迴圈 | 8ms timer 指數逼近（factor=mouseMode.smoothing），單步 < moveMinPx 不注入；down 第一下例外：直接跳到位**再** LEFTDOWN | 80ms 封包間隔直接設游標會肉眼跳格；位移門檻防 125Hz 微步轟炸；先到位再按下否則 click 落在舊位置 | 平滑只存在滑鼠 sink——發布座標仍是原始值（服務端不平滑、保真實，§6-4 同一原則）；收斂到位的最後一步豁免 moveMinPx（保證精確到點） |
+| 疑似噪訊評分 | 三因子加權（0~100）：**頻率 40**（30 分鐘觸發次數 / 30 飽和）＋**孤立 35**（down 當下 tracker 內無鄰近活躍 touch 的比率）＋**佔用 25**（總活躍時長占運行時間） | 為什麼這三個因子：間歇噪訊 = 同格反覆觸發（正常遊玩單格不會幾十上百次）、無鄰近連動（真人腳掌/移動幾乎總是多格連動——另一腳、上一步觸點還活著）、常駐叫（佔用比真人高一個量級）。三者皆可解釋、可單獨驗證。鄰近半徑 = 2×matchRadiusPx（≈192px）：matchRadius 內的點必被合併進同一 touch，更小的半徑（如 ±2 格）不可能有「另一個」活躍 touch | **分數只是排序用，不自動鎖——營運中有真人在踩，誤鎖比漏鎖傷**（鎖定一律人工確認：UI 診斷 tab 按鈕 / stdin lock）。改權重同步改 `TriggerHistory.cs` 常數與本表；歷史 runtime-only 重啟歸零（見 §6-8） |
 
 ## 4. 場域可攜性（venue profile）
 
@@ -93,7 +100,7 @@ host.Start 內——測試大量啟動 host，不該彈視窗）。
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（152 個，必須全綠才能交付）
+## 5. 測試結構（174 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -110,6 +117,8 @@ host.Start 內——測試大量啟動 host，不該彈視窗）。
 | ServiceConfigTests | config 預設值/缺欄位容錯（含 touchMode/mouseMode/ui） |
 | MouseDriverTests | down 先到位再 LEFTDOWN、平滑收斂、單點所有權、非目標面/grid 零注入、面內→screen rect 映射（含負座標螢幕）、熱切強制放鍵、SendInput 正規化、UpdateTuning 熱套用 |
 | ConfigApiTests | GET/POST /config roundtrip + 寫回保留其他欄位、非法值 400 全拒（不留半套）、非 loopback 403、/monitors 非 Windows 空陣列、locks API、按住中 mouse→grid 熱切自動 LEFTUP |
+| TriggerHistoryTests | 觸發歷史聚合（down/up、30 分鐘 rolling 衰減、move 不換 cell）、孤立判定（同批/追溯撤銷/遠處不算）、自檢窗 suppressed gap 邏輯、評分（噪訊 ≥80 vs 正常遊玩 ≤40 對比）、記憶體有界（聚合不隨事件數成長）、pipeline 整合（窗內計入 / 鎖定後停止累積）。時間注入，無 sleep |
+| HistoryApiTests | GET /history 排序/欄位/top/locked 旗標、空歷史、POST /locks/lock 語意同 stdin lock + 非 loopback 403（/history 唯讀可看）、stdin `history` 排行格式與 top 筆數 |
 
 fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wireshark export，
 **所有 timeout/封包格式的爭論先重放它再說**。
@@ -128,16 +137,23 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
    → 240ms）。現場改閥值設定後要重驗 releaseTimeoutMs。
 4. 踩兩磚之間時 px 在磚界抖動是物理現象（兩晶片輪流回報）——服務端不平滑（保真實），
    視覺端用黏滯判定處理（見 `testpage/colorpad.html` 的 HYST 實作）。
-5. 噪訊晶片以**啟動自檢窗（autoLock）自動鎖定為主**、stdin `lock` 手動補充；
-   `savelocks` 寫回 config 持久化。自檢的盲點：間歇性發作的晶片若窗內剛好沒發訊
-   就抓不到（用 `touches` 找、`lock` 補）；反向風險：重啟時有人站場上會被誤鎖
-   （`unlock` 救）。`stats` 的 dropped by lock / auto-locked cells 可驗證過濾生效。
+5. 噪訊晶片三層工作流（完整 SOP 見 DEPLOY.md）：**開機自檢自動鎖（autoLock）→
+   營運中看診斷排行一鍵鎖（UI 診斷 tab / GET /history）→ savelocks 持久化**；
+   console 指令（touches/history/lock）為備援。自檢的盲點：間歇性發作的晶片若窗內
+   剛好沒發訊就抓不到——觸發歷史 + 評分就是為此而生（窗內被抑制的觸發也計入歷史）。
+   反向風險：重啟時有人站場上會被誤鎖（`unlock` 救）。`stats` 的 dropped by lock /
+   auto-locked cells 可驗證過濾生效。
 6. **滑鼠模式是單點**（OS 游標只有一顆，結構限制不是 bug）；觸控板手勢 / 多點
    要走訂閱端。滑鼠模式下摸牆會搶機器的真實游標——維運先切回 grid（設定頁熱切，
    按住中切換會自動 LEFTUP）。
 7. config API 的熱套用範圍只到 touchMode / mouseMode / releaseTimeoutMs /
    matchRadiusPx；autoLock 寫回 config 下次啟動生效；listenPort / 輸出 port 需重啟
    （UI 唯讀顯示）。`maxSlots` / `flushIntervalMs` 等冷門欄位刻意不進 API——改 config.json。
+8. **觸發歷史是 runtime-only，重啟歸零——刻意的**：噪訊晶片（尤其間歇型）會很快重新
+   冒上排行，持久化歷史反而把「上次營運的舊帳」跟「現在的狀態」混在一起；要持久的是
+   鎖定結果（savelocks），不是統計。另兩個已知近似：孤立因子的鄰近判定用 down 時座標
+   （touch 後續移動不更新鄰近關係）、touch 存活時長含 releaseTimeout 尾巴（~170ms）
+   ——對排序用途無影響。歷史的 releaseTimeout / 鄰近半徑取啟動值，不跟 config 熱套用。
 
 ## 7. 歷史脈絡（考古入口）
 

@@ -42,6 +42,9 @@ public sealed class TouchServiceHost : IDisposable
     /// <summary>runtime 鎖定黑名單（config + auto + manual 共用同一個過濾器）。</summary>
     public LockedCellFilter Locks { get; private set; } = LockedCellFilter.Empty;
 
+    /// <summary>觸發歷史 + 疑似噪訊評分（GET /history、stdin `history`、UI 診斷 tab）。</summary>
+    public TriggerHistory History { get; private set; } = null!;
+
     /// <summary>實際監聽的 UDP port（config 給 0 時由 OS 配發，測試用）。</summary>
     public int ActualListenPort { get; private set; }
 
@@ -91,6 +94,11 @@ public sealed class TouchServiceHost : IDisposable
             _log.Info("[AutoLock] 自檢停用（autoLock.enabled=false 或 windowSeconds ≤ 0），啟動即正常發布");
         }
 
+        // 觸發歷史（per-cell 聚合，固定大小、runtime-only 重啟歸零——刻意的，
+        // 可疑晶片會很快重新冒上排行）。鄰近半徑 = 2×matchRadius（孤立因子，rationale 見類別註解）
+        History = new TriggerHistory(
+            _clock.ElapsedMilliseconds, _config.ReleaseTimeoutMs, _config.MatchRadiusPx * 2);
+
         var sinks = new List<ITouchSink>();
         if (_config.UdpOutput.Enabled && _config.UdpOutput.Endpoints.Count > 0)
         {
@@ -118,7 +126,8 @@ public sealed class TouchServiceHost : IDisposable
         }
 
         Pipeline = new TouchPipeline(
-            router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, Locks, autoLock);
+            router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, Locks, autoLock,
+            History);
         Pipeline.AutoLockCompleted += _ => PushLocks();   // 自檢結束 → 通知所有 WS client 最新鎖定清單
 
         // 觸控模式（grid / mouse）：mouse 時掛 MouseDriver 為 typed 事件觀察者（額外 sink，發布照常）
@@ -730,6 +739,82 @@ public sealed class TouchServiceHost : IDisposable
         var touches = new List<ActiveTouchSnapshot>();
         Pipeline.SnapshotTouches(_clock.ElapsedMilliseconds, touches);
         return FormatTouches(touches, Venue.Faces);
+    }
+
+    // ── 觸發歷史 / 疑似噪訊排行（stdin `history` + GET /history）─────────────
+
+    /// <summary>GET /history 的 JSON（依 score 降冪 top 筆；locked 旗標即時取自過濾器）。</summary>
+    public string HistoryJson(int top)
+    {
+        long nowMs = _clock.ElapsedMilliseconds;
+        var entries = History.Snapshot(nowMs, top);
+        return JsonSerializer.Serialize(new
+        {
+            uptimeMs = Math.Max(0, nowMs - History.StartMs),
+            cells = entries.Select(e => new
+            {
+                face = e.Face,
+                cell = new[] { e.Col, e.Row },
+                score = e.Score,
+                count30m = e.Count30Min,
+                total = e.TotalTouches,
+                isolationRatio = Math.Round(e.IsolationRatio, 3),
+                occupancyRatio = Math.Round(e.OccupancyRatio, 4),
+                lastTriggerAgoMs = e.LastTriggerAgoMs,
+                lastLifetimeMs = e.LastLifetimeMs,
+                totalActiveMs = e.TotalActiveMs,
+                active = e.Active,
+                locked = Locks.IsLocked(e.Face, e.Col, e.Row),
+            }).ToArray(),
+        });
+    }
+
+    /// <summary>stdin `history [n]` 指令：console 版疑似噪訊排行（預設 top 20）。</summary>
+    public string HistorySnapshot(int top = 20)
+    {
+        long nowMs = _clock.ElapsedMilliseconds;
+        var entries = History.Snapshot(nowMs, top);
+        var rows = entries.Select(e => (e, Locks.IsLocked(e.Face, e.Col, e.Row))).ToList();
+        return FormatHistory(rows, Venue.Faces, top);
+    }
+
+    /// <summary>
+    /// 格式化疑似噪訊排行（靜態純函式，可測試）。
+    /// score = 頻率(40) + 孤立(35) + 佔用(25)，依據見 docs/ARCHITECTURE.md §3；
+    /// 分數只是排序用，不自動鎖——營運中有真人在踩，誤鎖比漏鎖傷。
+    /// </summary>
+    public static string FormatHistory(
+        IReadOnlyList<(TriggerHistory.CellEntry Entry, bool Locked)> rows,
+        IReadOnlyList<SensorFaceConfig> faces, int top)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"── 疑似噪訊排行 top {top}（score ≥60 留意、≥80 高度可疑；只排序不自動鎖）──");
+
+        if (rows.Count == 0)
+        {
+            sb.AppendLine("（尚無觸發歷史——服務啟動後還沒有任何 cell 被觸發）");
+        }
+        else
+        {
+            sb.AppendLine($"{"score",5}  {"face",-20}{"cell",-11}{"30min",6}{"總次",6}  {"孤立%",5} {"佔用%",5}  {"最後觸發",-10}{"最後存活",-10}鎖定");
+            foreach (var (e, locked) in rows)
+            {
+                string face = e.Face >= 0 && e.Face < faces.Count
+                    ? $"{e.Face} {faces[e.Face].Name}"
+                    : e.Face.ToString();
+                string ago = e.Active ? "進行中" : $"{e.LastTriggerAgoMs / 1000.0:F1}s 前";
+                sb.AppendLine(
+                    $"{e.Score,5}  {face,-20}{$"({e.Col},{e.Row})",-11}" +
+                    $"{e.Count30Min,6}{e.TotalTouches,6}  " +
+                    $"{e.IsolationRatio * 100,5:F0} {e.OccupancyRatio * 100,5:F1}  " +
+                    $"{ago,-10}{$"{e.LastLifetimeMs / 1000.0:F1}s",-10}" +
+                    (locked ? "已鎖" : "-"));
+            }
+            sb.AppendLine("score = 30 分鐘頻率(40) + 孤立比率(35) + 活躍時長佔比(25)；歷史 runtime-only，重啟歸零。");
+            sb.AppendLine("鎖定：lock <face> <col> <row>；確認後 savelocks 寫回 config 持久化。");
+        }
+        sb.Append("───────────────────────────────────────────────");
+        return sb.ToString();
     }
 
     /// <summary>
