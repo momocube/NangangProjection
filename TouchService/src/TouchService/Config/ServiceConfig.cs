@@ -29,6 +29,42 @@ public sealed class LogConfig
     public bool Console { get; set; } = true;
 }
 
+/// <summary>啟動 UI（瀏覽器 app 視窗自動開啟監控/設定頁）。僅 Windows 生效，非 Windows 只 log。</summary>
+public sealed class UiConfig
+{
+    public bool AutoLaunch { get; set; } = true;
+}
+
+/// <summary>滑鼠模式的目標螢幕矩形（virtual desktop 座標，非主螢幕可為負）。</summary>
+public sealed class ScreenRectConfig
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; } = 1920;
+    public int Height { get; set; } = 1080;
+}
+
+/// <summary>
+/// 滑鼠模式（touchMode == "mouse" 時生效）：mouseMode.face 那一面的觸點映射為
+/// OS 滑鼠操作（down→LEFTDOWN / move→游標平滑移動 / up→LEFTUP）。
+/// 單點所有權：該面第一個 down 的 touch 是 owner，up 前其他觸點忽略。
+/// 詳見 docs/DEPLOY.md「滑鼠模式」。
+/// </summary>
+public sealed class MouseModeConfig
+{
+    /// <summary>來源感應面 index（venue faces 順序；704 牆面建議、地板 face 2 = Floor 不建議）。</summary>
+    public int Face { get; set; }
+
+    /// <summary>映射目標螢幕矩形（面內 0~1 座標 → 此矩形內的螢幕座標）。</summary>
+    public ScreenRectConfig Screen { get; set; } = new();
+
+    /// <summary>平滑強度：8ms 迴圈每 tick 以此比例指數逼近目標（0 &lt; s ≤ 1；1 = 不平滑直接到位）。</summary>
+    public double Smoothing { get; set; } = 0.35;
+
+    /// <summary>平滑迴圈單步位移小於此值（px）不注入，避免 125Hz 微步轟炸（到位的最後一步除外）。</summary>
+    public int MoveMinPx { get; set; } = 2;
+}
+
 /// <summary>
 /// 啟動自檢窗（自動鎖噪訊晶片）：服務啟動後 windowSeconds 內被觸發 ≥ minPackets 包的格子
 /// 自動加入 runtime 黑名單（依據：開機時場上理應無人）。窗期間不發布任何觸控事件。
@@ -103,6 +139,15 @@ public sealed class ServiceConfig
     /// <summary>啟動自檢窗（自動鎖噪訊晶片）。缺欄位 / null = 預設啟用（10s、≥10 包）。</summary>
     public AutoLockConfig AutoLock { get; set; } = new();
 
+    /// <summary>觸控模式："grid"（預設，純發布）/ "mouse"（額外掛 OS 滑鼠 sink，發布照常）。</summary>
+    public string TouchMode { get; set; } = "grid";
+
+    /// <summary>滑鼠模式參數（touchMode == "mouse" 時生效）。缺欄位 / null = 預設值。</summary>
+    public MouseModeConfig MouseMode { get; set; } = new();
+
+    /// <summary>啟動 UI（Windows 自動開瀏覽器 app 視窗）。缺欄位 / null = 預設開啟。</summary>
+    public UiConfig Ui { get; set; } = new();
+
     public UdpOutputConfig UdpOutput { get; set; } = new();
     public WebSocketOutputConfig WebSocketOutput { get; set; } = new();
     public TuioOutputConfig TuioOutput { get; set; } = new();
@@ -132,6 +177,10 @@ public sealed class ServiceConfig
         var cfg = JsonSerializer.Deserialize<ServiceConfig>(json, JsonOptions) ?? new ServiceConfig();
         cfg.LockedCells ??= new List<LockedCellConfig>();   // "lockedCells": null 容錯
         cfg.AutoLock ??= new AutoLockConfig();              // "autoLock": null 容錯
+        cfg.TouchMode = string.IsNullOrWhiteSpace(cfg.TouchMode) ? "grid" : cfg.TouchMode.Trim().ToLowerInvariant();
+        cfg.MouseMode ??= new MouseModeConfig();            // "mouseMode": null 容錯
+        cfg.MouseMode.Screen ??= new ScreenRectConfig();
+        cfg.Ui ??= new UiConfig();                          // "ui": null 容錯
         return cfg;
     }
 }

@@ -29,6 +29,16 @@ public sealed class WebSocketHub : ITouchSink
 {
     const string WsMagicGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+    /// <summary>本機管理 API 的請求（HandleClient → apiHandler）。IsLoopback 供寫入類端點做來源限制。</summary>
+    public readonly record struct ApiRequest(string Method, string Path, string Body, bool IsLoopback);
+
+    /// <summary>apiHandler 的回應；回 null = 此 path 不歸 API 管（落到 404）。</summary>
+    public sealed record ApiResponse(string Status, string ContentType, byte[] Body)
+    {
+        public static ApiResponse Json(string status, string json) =>
+            new(status, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json));
+    }
+
     sealed class Client
     {
         public required TcpClient Tcp;
@@ -42,18 +52,24 @@ public sealed class WebSocketHub : ITouchSink
     readonly byte[] _venueJson;
     readonly Func<byte[]> _helloProvider;
     readonly string? _testPagePath;
+    readonly Func<ApiRequest, ApiResponse?>? _apiHandler;
     readonly List<Client> _clients = new();
     readonly object _clientsGate = new();
     readonly CancellationTokenSource _cts = new();
     Thread? _acceptThread;
 
-    /// <summary>helloProvider：每個 client 連上時呼叫一次，產生當下的 hello（鎖定清單 / 自檢狀態是動態的）。</summary>
-    public WebSocketHub(int port, byte[] venueJson, Func<byte[]> helloProvider, string? testPagePath, FileLogger log)
+    /// <summary>
+    /// helloProvider：每個 client 連上時呼叫一次，產生當下的 hello（鎖定清單 / 自檢狀態是動態的）。
+    /// apiHandler：本機管理 HTTP API（/config、/monitors、/locks/*；ConfigApi），null = 停用。
+    /// </summary>
+    public WebSocketHub(int port, byte[] venueJson, Func<byte[]> helloProvider, string? testPagePath,
+                        FileLogger log, Func<ApiRequest, ApiResponse?>? apiHandler = null)
     {
         _log = log;
         _venueJson = venueJson;
         _helloProvider = helloProvider;
         _testPagePath = testPagePath;
+        _apiHandler = apiHandler;
         _listener = new TcpListener(IPAddress.Any, port);
     }
 
@@ -97,7 +113,7 @@ public sealed class WebSocketHub : ITouchSink
             var request = ReadHttpRequest(stream);
             if (request == null) { tcp.Close(); return; }
 
-            var (method, path, headers) = request.Value;
+            var (method, path, headers, body) = request.Value;
 
             if (headers.TryGetValue("upgrade", out var upgrade) &&
                 upgrade.Contains("websocket", StringComparison.OrdinalIgnoreCase) &&
@@ -107,7 +123,12 @@ public sealed class WebSocketHub : ITouchSink
                 return;
             }
 
-            if (method == "GET" && (path == "/venue" || path.StartsWith("/venue?")))
+            if (method == "OPTIONS")
+            {
+                // CORS preflight（file:// 開啟 testpage 對 API 發 POST 時瀏覽器會先打這個）
+                WriteHttpResponse(stream, "204 No Content", "text/plain; charset=utf-8", Array.Empty<byte>());
+            }
+            else if (method == "GET" && (path == "/venue" || path.StartsWith("/venue?")))
             {
                 WriteHttpResponse(stream, "200 OK", "application/json; charset=utf-8", _venueJson);
             }
@@ -115,6 +136,11 @@ public sealed class WebSocketHub : ITouchSink
                      _testPagePath != null && File.Exists(_testPagePath))
             {
                 WriteHttpResponse(stream, "200 OK", "text/html; charset=utf-8", File.ReadAllBytes(_testPagePath));
+            }
+            else if (_apiHandler != null &&
+                     _apiHandler(new ApiRequest(method, StripQuery(path), body, IsLoopback(tcp))) is { } apiResp)
+            {
+                WriteHttpResponse(stream, apiResp.Status, apiResp.ContentType, apiResp.Body);
             }
             else
             {
@@ -132,20 +158,38 @@ public sealed class WebSocketHub : ITouchSink
 
     // ── HTTP ────────────────────────────────────────────────────────────────
 
-    static (string Method, string Path, Dictionary<string, string> Headers)? ReadHttpRequest(NetworkStream stream)
+    static string StripQuery(string path)
     {
-        var buf = new byte[8192];
+        int q = path.IndexOf('?');
+        return q < 0 ? path : path[..q];
+    }
+
+    /// <summary>連線來源是否 loopback（寫入類 API / monitors 的來源限制依據）。</summary>
+    static bool IsLoopback(TcpClient tcp)
+    {
+        if (tcp.Client.RemoteEndPoint is not IPEndPoint ep) return false;
+        var addr = ep.Address;
+        if (addr.IsIPv4MappedToIPv6) addr = addr.MapToIPv4();
+        return IPAddress.IsLoopback(addr);
+    }
+
+    static (string Method, string Path, Dictionary<string, string> Headers, string Body)? ReadHttpRequest(
+        NetworkStream stream)
+    {
+        var buf = new byte[64 * 1024];   // headers + body 上限 64KB（config patch 遠小於此）
         int len = 0;
+        int headerEnd = -1;
         while (len < buf.Length)
         {
             int n = stream.Read(buf, len, buf.Length - len);
             if (n <= 0) return null;
             len += n;
-            // headers 結束
-            if (len >= 4 && IndexOfCrlfCrlf(buf, len) >= 0) break;
+            headerEnd = IndexOfCrlfCrlf(buf, len);
+            if (headerEnd >= 0) break;
         }
+        if (headerEnd < 0) return null;   // headers 超過 buffer：拒收
 
-        var text = Encoding.ASCII.GetString(buf, 0, len);
+        var text = Encoding.ASCII.GetString(buf, 0, headerEnd);
         var lines = text.Split("\r\n");
         var reqParts = lines[0].Split(' ');
         if (reqParts.Length < 3) return null;
@@ -157,7 +201,24 @@ public sealed class WebSocketHub : ITouchSink
             if (idx <= 0) continue;
             headers[lines[i][..idx].Trim().ToLowerInvariant()] = lines[i][(idx + 1)..].Trim();
         }
-        return (reqParts[0], reqParts[1], headers);
+
+        // body（Content-Length；WS upgrade / GET 沒有 body）
+        int bodyStart = headerEnd + 4;
+        int contentLength = 0;
+        if (headers.TryGetValue("content-length", out var clStr) &&
+            (!int.TryParse(clStr, out contentLength) || contentLength < 0 ||
+             bodyStart + contentLength > buf.Length))
+            return null;   // 格式錯 / 超過上限：拒收
+
+        while (len < bodyStart + contentLength)
+        {
+            int n = stream.Read(buf, len, buf.Length - len);
+            if (n <= 0) return null;
+            len += n;
+        }
+        var body = contentLength > 0 ? Encoding.UTF8.GetString(buf, bodyStart, contentLength) : "";
+
+        return (reqParts[0], reqParts[1], headers, body);
     }
 
     static int IndexOfCrlfCrlf(byte[] buf, int len)
@@ -174,6 +235,8 @@ public sealed class WebSocketHub : ITouchSink
                      $"Content-Type: {contentType}\r\n" +
                      $"Content-Length: {body.Length}\r\n" +
                      "Access-Control-Allow-Origin: *\r\n" +
+                     "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
+                     "Access-Control-Allow-Headers: Content-Type\r\n" +
                      "Connection: close\r\n\r\n";
         var headerBytes = Encoding.ASCII.GetBytes(header);
         stream.Write(headerBytes);

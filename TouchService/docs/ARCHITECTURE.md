@@ -47,15 +47,25 @@ TouchPipeline（TouchPipeline.cs）— 串起以上全部；flush timer（5ms）
 FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + alive + seq）
   ├─ UdpJsonPublisher（Output/UdpJsonPublisher.cs）→ config endpoints（預設 127.0.0.1:20110）
   ├─ WebSocketHub（Output/WebSocketHub.cs）→ ws://:20111/ + HTTP GET /venue + testpage
+  │     └─ 同 port 本機管理 API（Api/ConfigApi.cs）：GET/POST /config、/monitors、
+  │        /locks/*——寫入類僅 loopback；給內建設定頁用，不屬於對外協議
   └─ TuioPublisher（Output/TuioPublisher.cs）→ **未實作的插槽**（啟用會明確報錯）
+
+TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序列化）：
+  └─ MouseDriver（Mouse/MouseDriver.cs）— ITouchEventObserver，單點所有權 + 8ms 平滑迴圈
+       └─ IMouseInjector：Win32MouseInjector（SendInput ABSOLUTE|VIRTUALDESK）
+          / NullMouseInjector（非 Windows no-op）/ FakeInjector（測試）
 ```
 
 執行緒模型：**receive thread 直通**（收包當下同步走完 parse→route→map→track→publish，
 無 queue、無幀循環——這正是 Unity 版延遲的反面教材）；另有 flush timer thread（5ms）
 處理 release timeout 與 keepalive。兩者以 `TouchPipeline` 內單一 lock 序列化。
+滑鼠模式再多一條 8ms 平滑迴圈 thread（MouseDriver 內部，自有 lock）。
 
 入口：`Program.cs` → `TouchServiceHost.cs`（config 載入、stdin 指令 stats/touches/probe/quit、
-啟動 log）。
+啟動 log）→ 啟動完成後 `Ui/UiLauncher.cs` 自動開 UI（Windows + ui.autoLaunch：
+Edge `--app=` → Chrome `--app=` → 預設瀏覽器；UiLauncher 在 Program.Main 呼叫而非
+host.Start 內——測試大量啟動 host，不該彈視窗）。
 
 ## 3. 不能隨便動的設計決策（含依據）
 
@@ -71,6 +81,9 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
 | checksum 不含 frame byte | 對等 Unity 解析 | 實測 448 真實封包全數通過 | frame byte 目前沒人用，可未來做硬體丟包偵測 |
 | 鎖晶片 | config lockedCells（face+cell），路由後、追蹤前丟棄 | 現場有噪訊晶片持續發訊（Unity 版有同功能但 runtime 手動、無持久化） | 這是遮瑕不是修復；座標要回報硬體商 |
 | autoLock 自檢窗 | 啟動後 10s 內被觸發 ≥10 包的格子自動鎖（enabled 預設 true） | **開機重啟時場上理應無人**——此時還在發訊的格子幾乎必然是故障晶片；噪訊 ~80ms 重送 10s 約 125 包，門檻 10 遠低於噪訊、高於誤踩 | 窗期間不發布任何事件（keepalive 照發）；重啟時有人站場上會誤鎖（stdin `unlock` 救，DEPLOY.md 有 SOP）；`savelocks` 才會持久化到 config |
+| touchMode 滑鼠 = 額外 sink | mouse 模式只在 pipeline 掛 typed 事件觀察者（MouseDriver），WS/UDP 發布照常全量 | Unity 時代「滑鼠模擬**取代**發布」正是這個服務要逃離的架構（單點限制、全場冷卻的根源） | 把滑鼠模式做成取代發布會回到老路；監控頁/訂閱端必須在任何模式下照常收事件 |
+| 滑鼠單點所有權 | mouseMode.face 上第一個 down 的 touch 是 owner，它 up 前其他觸點（含其他面、地板）全忽略 | OS 游標只有一顆——多點搶游標會抖動亂跳；非目標面不過濾的話腳步會亂點 | 要多點手勢去訂閱端做；owner 生命週期由 release timeout 橋接，80ms 重送不會中斷。模式/face 熱切時若 owner 還按著會先 LEFTUP（不留卡死按鍵） |
+| 滑鼠平滑迴圈 | 8ms timer 指數逼近（factor=mouseMode.smoothing），單步 < moveMinPx 不注入；down 第一下例外：直接跳到位**再** LEFTDOWN | 80ms 封包間隔直接設游標會肉眼跳格；位移門檻防 125Hz 微步轟炸；先到位再按下否則 click 落在舊位置 | 平滑只存在滑鼠 sink——發布座標仍是原始值（服務端不平滑、保真實，§6-4 同一原則）；收斂到位的最後一步豁免 moveMinPx（保證精確到點） |
 
 ## 4. 場域可攜性（venue profile）
 
@@ -80,7 +93,7 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（120 個，必須全綠才能交付）
+## 5. 測試結構（152 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -94,7 +107,9 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
 | WebSocketHubTests | RFC6455 對打（.NET ClientWebSocket）、三種 frame 長度編碼 |
 | WiresharkReaderTests | capture 解析（630 點全 checksum 通過全可路由） |
 | EndToEndTests | 真 socket 全鏈路：60 點併發、down<5ms、無假 up（timing 斷言偶發 flake，重跑即可） |
-| ServiceConfigTests | config 預設值/缺欄位容錯 |
+| ServiceConfigTests | config 預設值/缺欄位容錯（含 touchMode/mouseMode/ui） |
+| MouseDriverTests | down 先到位再 LEFTDOWN、平滑收斂、單點所有權、非目標面/grid 零注入、面內→screen rect 映射（含負座標螢幕）、熱切強制放鍵、SendInput 正規化、UpdateTuning 熱套用 |
+| ConfigApiTests | GET/POST /config roundtrip + 寫回保留其他欄位、非法值 400 全拒（不留半套）、非 loopback 403、/monitors 非 Windows 空陣列、locks API、按住中 mouse→grid 熱切自動 LEFTUP |
 
 fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wireshark export，
 **所有 timeout/封包格式的爭論先重放它再說**。
@@ -117,6 +132,12 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
    `savelocks` 寫回 config 持久化。自檢的盲點：間歇性發作的晶片若窗內剛好沒發訊
    就抓不到（用 `touches` 找、`lock` 補）；反向風險：重啟時有人站場上會被誤鎖
    （`unlock` 救）。`stats` 的 dropped by lock / auto-locked cells 可驗證過濾生效。
+6. **滑鼠模式是單點**（OS 游標只有一顆，結構限制不是 bug）；觸控板手勢 / 多點
+   要走訂閱端。滑鼠模式下摸牆會搶機器的真實游標——維運先切回 grid（設定頁熱切，
+   按住中切換會自動 LEFTUP）。
+7. config API 的熱套用範圍只到 touchMode / mouseMode / releaseTimeoutMs /
+   matchRadiusPx；autoLock 寫回 config 下次啟動生效；listenPort / 輸出 port 需重啟
+   （UI 唯讀顯示）。`maxSlots` / `flushIntervalMs` 等冷門欄位刻意不進 API——改 config.json。
 
 ## 7. 歷史脈絡（考古入口）
 
@@ -133,7 +154,7 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
 ## 8. 接手修改 SOP
 
 1. 讀這份 + `PROTOCOL.md`，動協議欄位前先看 §3 的表
-2. 改 code → `dotnet test` 103 全綠（timing flake 重跑一次）
+2. 改 code → `dotnet test` 152 全綠（timing flake 重跑一次）
 3. 協議有變 → 同步改 `PROTOCOL.md` + `MIGRATION-ART-APP.md`，新增欄位 OK、
    改名/移除 = 升 v2
 4. 發布：見 §5 結尾的 publish 參數紅字

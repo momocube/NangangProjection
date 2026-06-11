@@ -52,6 +52,51 @@ public class ServiceConfigTests
         Assert.Equal(170, cfg.ReleaseTimeoutMs);
     }
 
+    [Fact]
+    public void 觸控模式與UI欄位_預設值與null容錯()
+    {
+        var dir = Directory.CreateTempSubdirectory("touchservice-cfg3").FullName;
+        var path = Path.Combine(dir, "config.json");
+
+        // 缺欄位 → 預設：grid / mouseMode 預設 / ui.autoLaunch=true
+        File.WriteAllText(path, """{ "listenPort": 30001 }""");
+        var cfg = ServiceConfig.LoadOrCreate(path);
+        Assert.Equal("grid", cfg.TouchMode);
+        Assert.Equal(0, cfg.MouseMode.Face);
+        Assert.Equal(1920, cfg.MouseMode.Screen.Width);
+        Assert.Equal(1080, cfg.MouseMode.Screen.Height);
+        Assert.Equal(0.35, cfg.MouseMode.Smoothing, 3);
+        Assert.Equal(2, cfg.MouseMode.MoveMinPx);
+        Assert.True(cfg.Ui.AutoLaunch);
+
+        // 顯式 null 容錯
+        File.WriteAllText(path, """{ "touchMode": null, "mouseMode": null, "ui": null }""");
+        cfg = ServiceConfig.LoadOrCreate(path);
+        Assert.Equal("grid", cfg.TouchMode);
+        Assert.NotNull(cfg.MouseMode);
+        Assert.True(cfg.Ui.AutoLaunch);
+
+        // 大小寫 / 空白正規化
+        File.WriteAllText(path, """{ "touchMode": " Mouse " }""");
+        Assert.Equal("mouse", ServiceConfig.LoadOrCreate(path).TouchMode);
+
+        // 完整欄位 roundtrip
+        File.WriteAllText(path, """
+            { "touchMode": "mouse",
+              "mouseMode": { "face": 4, "screen": { "x": -1920, "y": 0, "width": 2560, "height": 1440 },
+                             "smoothing": 0.5, "moveMinPx": 4 },
+              "ui": { "autoLaunch": false } }
+            """);
+        cfg = ServiceConfig.LoadOrCreate(path);
+        Assert.Equal("mouse", cfg.TouchMode);
+        Assert.Equal(4, cfg.MouseMode.Face);
+        Assert.Equal(-1920, cfg.MouseMode.Screen.X);
+        Assert.Equal(2560, cfg.MouseMode.Screen.Width);
+        Assert.Equal(0.5, cfg.MouseMode.Smoothing, 3);
+        Assert.Equal(4, cfg.MouseMode.MoveMinPx);
+        Assert.False(cfg.Ui.AutoLaunch);
+    }
+
     static string FindRepoFile(string name)
     {
         // 從測試輸出目錄往上找 TouchService 根（含 TouchService.sln 的目錄）

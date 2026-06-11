@@ -1,6 +1,7 @@
 using TouchService.Config;
 using TouchService.Diagnostics;
 using TouchService.Logging;
+using TouchService.Ui;
 
 namespace TouchService;
 
@@ -43,6 +44,10 @@ public static class Program
             log.Error($"[TouchService] 啟動失敗：{ex.Message}");
             return 1;
         }
+
+        // 啟動完成 → 自動開 UI（Windows + ui.autoLaunch；Edge app → Chrome app → 預設瀏覽器。
+        // 失敗只 log 不擋服務；放在 Main 而非 host.Start 內——測試啟動 host 不該彈視窗）
+        UiLauncher.TryLaunch(config, log);
 
         var quit = new ManualResetEventSlim(false);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; quit.Set(); };

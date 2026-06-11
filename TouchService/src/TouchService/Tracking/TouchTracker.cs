@@ -70,8 +70,8 @@ public sealed class TouchTracker
 
     readonly TouchSlot[] _slots;
     readonly bool[] _slotMatched;
-    readonly float _matchRadiusSq;
-    readonly int   _releaseTimeoutMs;
+    float _matchRadiusSq;     // 可熱套用（UpdateTuning，呼叫端持 pipeline 鎖）
+    int   _releaseTimeoutMs;  // 同上
     readonly int   _moveMinDistancePx;
 
     // 預分配，避免熱路徑 alloc（對齊 Unity _hitUsed 的零 GC 設計）
@@ -92,6 +92,16 @@ public sealed class TouchTracker
 
     public int ActiveCount => _activeCount;
     public int ReleaseTimeoutMs => _releaseTimeoutMs;
+
+    /// <summary>
+    /// 熱套用配對半徑與 release timeout（POST /config）。下個 batch / flush 生效。
+    /// 非執行緒安全：呼叫端（TouchPipeline.UpdateTuning）持 pipeline 鎖。
+    /// </summary>
+    public void UpdateTuning(float matchRadiusPx, int releaseTimeoutMs)
+    {
+        _matchRadiusSq = matchRadiusPx * matchRadiusPx;
+        _releaseTimeoutMs = releaseTimeoutMs;
+    }
 
     /// <summary>
     /// 處理同一個 datagram 解析出的一批點（同模組合包，物理上同時發生）。

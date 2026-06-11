@@ -2,13 +2,13 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<title>TouchService 測試/校調頁</title>
+<title>TouchService 監控/設定</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
     --bg: #14161c; --panel: #1d2027; --line: #2e3340;
     --text: #d8dce6; --dim: #79808f; --accent: #5b8dee;
-    --down: #ff4d4d; --move: #ffd24d; --up: #8a93a8;
+    --down: #ff4d4d; --move: #ffd24d; --up: #8a93a8; --ok: #5dd97c;
   }
   * { box-sizing: border-box; }
   body {
@@ -20,18 +20,23 @@
     display: flex; align-items: center; gap: 10px;
     padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
   }
-  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  header h1 { font-size: 15px; margin: 0 6px 0 0; font-weight: 600; }
+  .tabs { display: flex; gap: 2px; margin-right: 12px; }
+  .tabs button {
+    background: transparent; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 4px 4px 0 0; padding: 5px 16px; cursor: pointer; font: inherit;
+  }
+  .tabs button.active { background: var(--bg); color: #fff; border-color: var(--accent); }
   header input {
     background: var(--bg); color: var(--text); border: 1px solid var(--line);
     border-radius: 4px; padding: 4px 8px; width: 220px; font: inherit;
   }
-  header button {
+  header button.conn {
     background: var(--accent); border: 0; color: #fff; border-radius: 4px;
     padding: 5px 14px; cursor: pointer; font: inherit;
   }
-  header button.off { background: #444a58; }
   #connState { color: var(--dim); }
-  #connState.ok { color: #5dd97c; }
+  #connState.ok { color: var(--ok); }
   #connState.err { color: var(--down); }
   main { flex: 1; display: flex; min-height: 0; }
   #canvasWrap { flex: 1; position: relative; min-width: 0; }
@@ -41,7 +46,7 @@
     display: flex; flex-direction: column; min-height: 0;
   }
   aside section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
-  aside h2 { font-size: 12px; margin: 0 0 6px; color: var(--dim); font-weight: 600; letter-spacing: 1px; }
+  aside h2, .settings h2 { font-size: 12px; margin: 0 0 6px; color: var(--dim); font-weight: 600; letter-spacing: 1px; }
   .stat { display: flex; justify-content: space-between; padding: 1px 0; }
   .stat b { font-weight: 600; color: #fff; }
   #eventLog {
@@ -54,16 +59,57 @@
   #eventLog .up   { color: var(--up); }
   .legend { display: flex; gap: 14px; margin-top: 4px; color: var(--dim); }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+
+  /* ── 設定 tab ───────────────────────────────────────────────────────────── */
+  #tab-settings { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
+  .settings { max-width: 760px; }
+  .settings fieldset {
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+    margin: 0 0 14px; padding: 12px 16px;
+  }
+  .settings legend { color: var(--accent); font-weight: 600; padding: 0 6px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
+  .row label { min-width: 170px; color: var(--dim); }
+  .settings input[type=number], .settings select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 8px; font: inherit; width: 120px;
+  }
+  .settings select { width: auto; min-width: 220px; max-width: 420px; }
+  .settings input[type=range] { width: 200px; }
+  .settings input[readonly] { color: var(--dim); border-style: dashed; }
+  .hint { color: var(--dim); font-size: 12px; }
+  .warn { color: var(--move); font-size: 12px; }
+  #mouseSection { margin: 6px 0 0 16px; padding: 8px 12px; border-left: 2px solid var(--accent); display: none; }
+  .btn {
+    background: var(--accent); border: 0; color: #fff; border-radius: 4px;
+    padding: 6px 18px; cursor: pointer; font: inherit;
+  }
+  .btn.minor { background: #444a58; padding: 3px 10px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  #applyResult {
+    margin-left: 12px; padding: 5px 12px; border-radius: 4px; display: none;
+  }
+  #applyResult.ok { display: inline-block; background: rgba(93,217,124,.15); color: var(--ok); }
+  #applyResult.err { display: inline-block; background: rgba(255,77,77,.15); color: var(--down); }
+  table.locks { border-collapse: collapse; width: 100%; margin: 6px 0; }
+  table.locks th, table.locks td { border-bottom: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+  table.locks th { color: var(--dim); font-weight: 600; }
 </style>
 </head>
 <body>
 <header>
-  <h1>TouchService 測試頁</h1>
+  <h1>TouchService</h1>
+  <nav class="tabs">
+    <button id="tabBtnMonitor" class="active">監控</button>
+    <button id="tabBtnSettings">設定</button>
+  </nav>
   <label>WS 位址 <input id="wsUrl" value=""></label>
-  <button id="btnConn">連線</button>
+  <button id="btnConn" class="conn">連線</button>
   <span id="connState">未連線</span>
 </header>
-<main>
+
+<!-- ── 監控 tab（既有場域圖 + 統計；tab 切換只藏不拆，WS 不斷）──────────── -->
+<main id="tab-monitor">
   <div id="canvasWrap"><canvas id="cv"></canvas></div>
   <aside>
     <section>
@@ -92,6 +138,97 @@
     <ul id="eventLog"></ul>
   </aside>
 </main>
+
+<!-- ── 設定 tab ──────────────────────────────────────────────────────────── -->
+<div id="tab-settings">
+  <div class="settings">
+    <fieldset>
+      <legend>觸控模式</legend>
+      <div class="row">
+        <label><input type="radio" name="touchMode" value="grid" checked> 採格模式（預設，純發布）</label>
+        <label><input type="radio" name="touchMode" value="mouse"> 滑鼠模式（摸牆操作這台機器）</label>
+      </div>
+      <div id="mouseSection">
+        <div class="row">
+          <label>來源牆面</label>
+          <select id="cfgFace"></select>
+          <span class="hint">預設排除地板面（Floor）</span>
+        </div>
+        <div class="row">
+          <label>目標螢幕</label>
+          <select id="cfgMonitor"><option value="">（讀取中…）</option></select>
+        </div>
+        <div class="row">
+          <label>螢幕矩形 x / y / w / h</label>
+          <input type="number" id="cfgScreenX" style="width:90px">
+          <input type="number" id="cfgScreenY" style="width:90px">
+          <input type="number" id="cfgScreenW" style="width:90px" min="1">
+          <input type="number" id="cfgScreenH" style="width:90px" min="1">
+        </div>
+        <div class="row">
+          <label>平滑強度（smoothing）</label>
+          <input type="range" id="cfgSmoothing" min="0.05" max="1" step="0.05">
+          <b id="cfgSmoothingVal">0.35</b>
+          <span class="hint">1 = 不平滑直接到位</span>
+        </div>
+        <div class="row">
+          <label>最小注入位移 moveMinPx</label>
+          <input type="number" id="cfgMoveMinPx" min="0" max="1000">
+          <span class="hint">px，平滑迴圈小於此位移不注入</span>
+        </div>
+        <div class="warn">⚠ 滑鼠模式下摸牆會搶這台機器的真實游標（鍵盤滑鼠同時操作會互相干擾）；發布端不受影響，監控頁/訂閱端照常收事件。</div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>通用</legend>
+      <div class="row">
+        <label>releaseTimeoutMs</label>
+        <input type="number" id="cfgReleaseTimeout" min="10" max="10000">
+        <span class="hint">離手判定（不建議 &lt;140，依據見 PROTOCOL.md）</span>
+      </div>
+      <div class="row">
+        <label>matchRadiusPx</label>
+        <input type="number" id="cfgMatchRadius" min="1" max="10000">
+        <span class="hint">touch 配對半徑（96 ≈ 3 格）</span>
+      </div>
+      <div class="row">
+        <label>autoLock 啟動自檢</label>
+        <label><input type="checkbox" id="cfgAutoLockEnabled"> 啟用</label>
+        <label style="min-width:auto">窗長(s)</label><input type="number" id="cfgAutoLockWindow" min="0" max="86400" style="width:80px">
+        <label style="min-width:auto">門檻(包)</label><input type="number" id="cfgAutoLockMin" min="1" style="width:80px">
+      </div>
+      <div class="hint">autoLock 欄位只寫回 config.json，<b>下次啟動生效</b>；其餘欄位即時生效（下個 touch）。</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>鎖定晶片</legend>
+      <div id="locksEmpty" class="hint">（無鎖定。鎖定清單由 WS 即時推送——尚未連線時請先按上方「連線」）</div>
+      <table class="locks" id="locksTable" style="display:none">
+        <thead><tr><th>face</th><th>cell</th><th>來源</th><th>封包數</th><th></th></tr></thead>
+        <tbody id="locksBody"></tbody>
+      </table>
+      <div class="row">
+        <button class="btn minor" id="btnSaveLocks">鎖定寫回 config（savelocks）</button>
+        <span id="locksResult" class="hint"></span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>需重啟欄位（唯讀）</legend>
+      <div class="row"><label>listenPort（感應 UDP）</label><input readonly id="roListenPort"></div>
+      <div class="row"><label>WS / HTTP port</label><input readonly id="roWsPort"></div>
+      <div class="row"><label>UDP 輸出 endpoints</label><input readonly id="roUdpEndpoints" style="width:320px"></div>
+      <div class="hint">這些欄位改 config.json 後重啟服務才生效。</div>
+    </fieldset>
+
+    <div class="row">
+      <button class="btn" id="btnApply">套用設定（Apply）</button>
+      <span id="applyResult"></span>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -107,6 +244,9 @@ const state = {
   clockOffsetMin: null,   // min(localRecv - serverT)：時鐘差基線，估延遲用
   latencyMs: null,
   lastSeq: null,
+  config: null,           // GET /config 的目前生效值
+  faces: null,            // /venue 或 hello 的 faces（設定頁下拉用）
+  monitors: [],           // GET /monitors
 };
 const FADE_MS = 600;
 
@@ -116,6 +256,12 @@ const cv = $("cv"), ctx = cv.getContext("2d");
 
 const defaultUrl = `ws://${location.hostname || "127.0.0.1"}:20111/`;
 $("wsUrl").value = localStorage.getItem("ts.wsUrl") || defaultUrl;
+// HTTP API base：由服務本身供頁時 = 同 origin；file:// 開啟時推 WS 位址的 host:port
+function apiBase() {
+  if (location.protocol.startsWith("http")) return "";
+  const m = $("wsUrl").value.trim().match(/^wss?:\/\/([^/]+)/i);
+  return m ? `http://${m[1]}` : "http://127.0.0.1:20111";
+}
 
 $("btnConn").onclick = () => state.ws ? disconnect() : connect();
 
@@ -124,6 +270,19 @@ function setConn(text, cls) {
   el.textContent = text;
   el.className = cls || "";
 }
+
+// ── tab 切換（純 display 切換，WS 不斷）─────────────────────────────────────
+function showTab(name) {
+  const monitor = name === "monitor";
+  $("tab-monitor").style.display = monitor ? "flex" : "none";
+  $("tab-settings").style.display = monitor ? "none" : "block";
+  $("tabBtnMonitor").classList.toggle("active", monitor);
+  $("tabBtnSettings").classList.toggle("active", !monitor);
+  if (monitor) resize();          // canvas 在 hidden 期間量不到尺寸，回來重算
+  else loadSettings();            // 進設定頁刷新目前生效值
+}
+$("tabBtnMonitor").onclick = () => showTab("monitor");
+$("tabBtnSettings").onclick = () => showTab("settings");
 
 // ── WebSocket ───────────────────────────────────────────────────────────────
 function connect() {
@@ -154,6 +313,7 @@ function onMessage(msg) {
 
   if (msg.type === "hello") {
     state.venue = msg;
+    state.faces = msg.faces;
     state.touches.clear();
     applyLocks(msg, now);
     $("stVenue").textContent = msg.venue;
@@ -162,7 +322,7 @@ function onMessage(msg) {
     return;
   }
 
-  // 鎖定變動推播（自檢結束 / lock / unlock 指令）
+  // 鎖定變動推播（自檢結束 / lock / unlock 指令 / API）
   if (msg.type === "locks") {
     applyLocks(msg, now);
     return;
@@ -200,6 +360,7 @@ function applyLocks(msg, now) {
   state.autoLockUntil = msg.autoLockActive
     ? now + (msg.autoLockRemainingSeconds || 0) * 1000
     : null;
+  renderLocksTable();
 }
 
 // ── 事件流面板 ───────────────────────────────────────────────────────────────
@@ -336,6 +497,190 @@ setInterval(() => {
     $("stAutoLock").style.color = "";
   }
 }, 250);
+
+// ── 設定 tab ─────────────────────────────────────────────────────────────────
+
+document.querySelectorAll("input[name=touchMode]").forEach(r =>
+  r.onchange = () => { $("mouseSection").style.display = r.value === "mouse" && r.checked ? "block" : "none"; });
+
+$("cfgSmoothing").oninput = () => $("cfgSmoothingVal").textContent = $("cfgSmoothing").value;
+
+$("cfgMonitor").onchange = () => {
+  const m = state.monitors[+$("cfgMonitor").value];
+  if (!m) return;   // 「手動輸入」：不動 rect
+  $("cfgScreenX").value = m.x; $("cfgScreenY").value = m.y;
+  $("cfgScreenW").value = m.width; $("cfgScreenH").value = m.height;
+};
+
+async function fetchJson(path, opts) {
+  const resp = await fetch(apiBase() + path, opts);
+  const body = await resp.json().catch(() => null);
+  return { ok: resp.ok, status: resp.status, body };
+}
+
+/** 進設定頁 / Apply 後刷新：GET /config + /venue + /monitors → 填表。 */
+async function loadSettings() {
+  try {
+    const [cfg, venue, monitors] = await Promise.all([
+      fetchJson("/config"),
+      state.faces ? Promise.resolve(null) : fetchJson("/venue"),
+      fetchJson("/monitors"),
+    ]);
+    if (!cfg.ok) throw new Error(`GET /config ${cfg.status}`);
+    state.config = cfg.body;
+    if (venue?.body?.faces) state.faces = venue.body.faces.map((f, i) => ({ index: i, name: f.name }));
+    state.monitors = Array.isArray(monitors.body) ? monitors.body : [];
+    fillForm();
+  } catch (e) {
+    showApplyResult(false, "讀取設定失敗：" + e.message + "（服務沒起來？）");
+  }
+}
+
+function fillForm() {
+  const c = state.config;
+  if (!c) return;
+
+  document.querySelector(`input[name=touchMode][value=${c.touchMode === "mouse" ? "mouse" : "grid"}]`).checked = true;
+  $("mouseSection").style.display = c.touchMode === "mouse" ? "block" : "none";
+
+  // 來源牆面下拉：hello / venue faces，預設排除地板（name 含 Floor）；
+  // 目前 config 指到地板時仍列出（標註），不讓表單默默改值
+  const faceSel = $("cfgFace");
+  faceSel.innerHTML = "";
+  (state.faces || []).forEach(f => {
+    const isFloor = /floor/i.test(f.name);
+    if (isFloor && f.index !== c.mouseMode.face) return;
+    const opt = document.createElement("option");
+    opt.value = f.index;
+    opt.textContent = `${f.index}: ${f.name}${isFloor ? "（地板，不建議）" : ""}`;
+    faceSel.appendChild(opt);
+  });
+  faceSel.value = String(c.mouseMode.face);
+  if (faceSel.value === "") faceSel.selectedIndex = 0;   // config face 不在清單（理論上不會）
+
+  // 目標螢幕下拉（GET /monitors；非 Windows 為空）
+  const monSel = $("cfgMonitor");
+  monSel.innerHTML = "";
+  const manual = document.createElement("option");
+  manual.value = ""; manual.textContent = state.monitors.length ? "（手動輸入矩形）" : "（無螢幕資訊——手動輸入矩形）";
+  monSel.appendChild(manual);
+  state.monitors.forEach((m, i) => {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = `${i}: ${m.name} ${m.width}×${m.height} @(${m.x},${m.y})${m.primary ? " 主螢幕" : ""}`;
+    monSel.appendChild(opt);
+  });
+  // 目前 rect 恰等於某顆螢幕 → 預選它
+  const hit = state.monitors.findIndex(m =>
+    m.x === c.mouseMode.screen.x && m.y === c.mouseMode.screen.y &&
+    m.width === c.mouseMode.screen.width && m.height === c.mouseMode.screen.height);
+  monSel.value = hit >= 0 ? String(hit) : "";
+
+  $("cfgScreenX").value = c.mouseMode.screen.x;
+  $("cfgScreenY").value = c.mouseMode.screen.y;
+  $("cfgScreenW").value = c.mouseMode.screen.width;
+  $("cfgScreenH").value = c.mouseMode.screen.height;
+  $("cfgSmoothing").value = c.mouseMode.smoothing;
+  $("cfgSmoothingVal").textContent = c.mouseMode.smoothing;
+  $("cfgMoveMinPx").value = c.mouseMode.moveMinPx;
+
+  $("cfgReleaseTimeout").value = c.releaseTimeoutMs;
+  $("cfgMatchRadius").value = c.matchRadiusPx;
+  $("cfgAutoLockEnabled").checked = c.autoLock.enabled;
+  $("cfgAutoLockWindow").value = c.autoLock.windowSeconds;
+  $("cfgAutoLockMin").value = c.autoLock.minPackets;
+
+  $("roListenPort").value = c.restartOnly.listenPort;
+  $("roWsPort").value = c.restartOnly.webSocketPort;
+  $("roUdpEndpoints").value = (c.restartOnly.udpEndpoints || []).join(", ") || "（停用）";
+}
+
+function showApplyResult(ok, msg) {
+  const el = $("applyResult");
+  el.className = ok ? "ok" : "err";
+  el.textContent = (ok ? "✓ " : "✗ ") + msg;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ""; }, ok ? 6000 : 15000);
+}
+
+$("btnApply").onclick = async () => {
+  const body = {
+    touchMode: document.querySelector("input[name=touchMode]:checked").value,
+    mouseMode: {
+      face: +$("cfgFace").value || 0,
+      screen: {
+        x: +$("cfgScreenX").value, y: +$("cfgScreenY").value,
+        width: +$("cfgScreenW").value, height: +$("cfgScreenH").value,
+      },
+      smoothing: +$("cfgSmoothing").value,
+      moveMinPx: +$("cfgMoveMinPx").value,
+    },
+    releaseTimeoutMs: +$("cfgReleaseTimeout").value,
+    matchRadiusPx: +$("cfgMatchRadius").value,
+    autoLock: {
+      enabled: $("cfgAutoLockEnabled").checked,
+      windowSeconds: +$("cfgAutoLockWindow").value,
+      minPackets: +$("cfgAutoLockMin").value,
+    },
+  };
+  $("btnApply").disabled = true;
+  try {
+    const r = await fetchJson("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showApplyResult(r.ok && r.body?.ok, r.body?.message || `HTTP ${r.status}`);
+    if (r.ok) loadSettings();   // 重新讀生效值（含 hello releaseTimeout 顯示以新連線為準）
+  } catch (e) {
+    showApplyResult(false, "送出失敗：" + e.message);
+  } finally {
+    $("btnApply").disabled = false;
+  }
+};
+
+// ── 鎖定清單（吃既有 locks push；每列 unlock + savelocks）────────────────────
+function renderLocksTable() {
+  const has = state.locks.length > 0;
+  $("locksEmpty").style.display = has ? "none" : "block";
+  $("locksTable").style.display = has ? "table" : "none";
+  if (!has) return;
+
+  const tbody = $("locksBody");
+  tbody.innerHTML = "";
+  for (const l of state.locks) {
+    const faceName = state.faces?.find(f => f.index === l.face)?.name ?? "";
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${l.face} ${faceName}</td><td>(${l.cell[0]},${l.cell[1]})</td>` +
+      `<td>${l.source}</td><td>${l.source === "auto" ? l.packets : "-"}</td>`;
+    const td = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "btn minor";
+    btn.textContent = "解鎖";
+    btn.onclick = async () => {
+      const r = await fetchJson("/locks/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ face: l.face, col: l.cell[0], row: l.cell[1] }),
+      });
+      $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
+      // 清單更新走 WS locks push；沒連 WS 時手動補抓不到——提示連線
+      if (!state.ws) $("locksResult").textContent += "（未連 WS，清單不會即時更新）";
+    };
+    td.appendChild(btn);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+$("btnSaveLocks").onclick = async () => {
+  const r = await fetchJson("/locks/save", { method: "POST" });
+  $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
+};
+
+// ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──
+if (location.protocol.startsWith("http")) connect();
 </script>
 </body>
 </html>

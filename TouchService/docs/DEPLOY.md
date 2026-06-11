@@ -10,20 +10,23 @@
 
 ```bash
 # 在開發機（repo 的 TouchService/ 目錄下）
-dotnet publish src/TouchService/TouchService.csproj  -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/win-x64
-dotnet publish tools/SensorSimulator/SensorSimulator.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/win-x64-sim
+dotnet publish src/TouchService/TouchService.csproj  -c Release -r win-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish/win-x64
+dotnet publish tools/SensorSimulator/SensorSimulator.csproj -c Release -r win-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish/win-x64-sim
 ```
+
+> **SelfContained 必須顯式給**（csproj 只有 RuntimeIdentifiers）：漏掉會變
+> framework-dependent ~9MB，現場沒裝 runtime 跑不起來。正確產物 ~35MB（含壓縮）。
 
 拷貝到目標機的最小部署包：
 
 ```
 TouchService/
-├── TouchService.exe      ← publish 產物（~65MB，含 runtime）
+├── TouchService.exe      ← publish 產物（~35MB，含 runtime、單檔壓縮）
 ├── config.json           ← 服務設定（缺檔時首次啟動自動生成範本）
 ├── venues/
 │   └── 704.json          ← 場域校正 profile
 └── testpage/
-    └── index.html        ← 測試/校調頁（選配；服務會在 GET / 提供）
+    └── index.html        ← 監控/設定頁（選配；服務會在 GET / 提供，啟動 UI 開的就是它）
 ```
 
 > 注意：`config.json` 的相對路徑（venueProfile、log dir）以 **config.json 所在目錄**為基準，
@@ -43,6 +46,11 @@ TouchService/
   "moveMinDistancePx": 0,
   "lockedCells":      [],
   "autoLock":        { "enabled": true,  "windowSeconds": 10, "minPackets": 10 },
+  "touchMode":        "grid",
+  "mouseMode":       { "face": 0,
+                       "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+                       "smoothing": 0.35, "moveMinPx": 2 },
+  "ui":              { "autoLaunch": true },
   "udpOutput":       { "enabled": true,  "endpoints": [ "127.0.0.1:20110" ] },
   "webSocketOutput": { "enabled": true,  "port": 20111 },
   "tuioOutput":      { "enabled": false, "endpoint": "127.0.0.1:3333" },
@@ -64,6 +72,12 @@ TouchService/
 | `autoLock.enabled` | true | 啟動自檢窗（自動鎖噪訊晶片）。**開機時場上理應無人**——窗內還在發訊號的格子幾乎必然是故障晶片 |
 | `autoLock.windowSeconds` | 10 | 自檢窗長度（秒）。窗期間**不發布任何觸控事件**（keepalive 照發）；≤ 0 視為停用 |
 | `autoLock.minPackets` | 10 | 窗內封包數達此值才鎖。噪訊晶片 ~80ms 重送、10 秒約 125 包，門檻 10 遠低於噪訊、又高於短暫誤踩 |
+| `touchMode` | grid | `grid`（純發布）/ `mouse`（額外掛 OS 滑鼠 sink——**發布照常**，監控頁/訂閱端不受影響）。可由設定頁熱切 |
+| `mouseMode.face` | 0 | 滑鼠來源感應面 index（venue faces 順序）。**選牆面**——704 的地板是 face 2（Floor），拿地板當滑鼠會被腳步亂點 |
+| `mouseMode.screen` | 0,0,1920×1080 | 映射目標螢幕矩形（virtual desktop 座標，非主螢幕可為負）。設定頁可從螢幕下拉直接帶入 |
+| `mouseMode.smoothing` | 0.35 | 平滑強度：8ms 迴圈每 tick 以此比例指數逼近目標（0.01~1；1 = 不平滑直接到位） |
+| `mouseMode.moveMinPx` | 2 | 平滑迴圈單步位移小於此 px 不注入（防 125Hz 微步轟炸；到位的最後一步除外） |
+| `ui.autoLaunch` | true | Windows 啟動完成後自動開 UI 視窗（Edge `--app=` → Chrome `--app=` → 預設瀏覽器）。非 Windows / 找不到瀏覽器只 log 不報錯 |
 | `udpOutput.endpoints` | 127.0.0.1:20110 | raw UDP JSON 收端清單（可多個，`host:port`） |
 | `webSocketOutput.port` | 20111 | WS + HTTP（/venue、testpage）監聽 port |
 | `tuioOutput` | 停用 | **v1 未實作**，enabled=true 會啟動失敗（防呆） |
@@ -113,6 +127,63 @@ TouchService.exe --config D:\cybercube\config.json
 | `quit` | 優雅關閉 |
 
 log 每日輪替於 `log.dir`，無自動清理——場館機建議每季手動清舊檔。
+
+## 啟動 UI（監控 + 設定頁）
+
+Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動開 UI 視窗到
+`http://127.0.0.1:<wsPort>/`，依序嘗試：
+
+1. Edge app 視窗（`msedge --app=`，無網址列、像原生視窗）——標準安裝路徑 + PATH
+2. Chrome `--app=`
+3. fallback：預設瀏覽器開該網址
+
+找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面兩個 tab：
+
+- **監控**：場域圖、即時觸點、事件流、統計、鎖定格（暗紅 X）——即原測試頁
+- **設定**：觸控模式（採格/滑鼠）、滑鼠參數、releaseTimeoutMs / matchRadiusPx、
+  autoLock、鎖定清單（每列可解鎖 + 寫回 config）、需重啟欄位唯讀顯示。
+  tab 切換不斷 WS 連線。
+
+設定頁背後是本機管理 HTTP API（與 WS 同 port）：
+
+| 端點 | 用途 | 來源限制 |
+|---|---|---|
+| `GET /config` | 目前生效設定（去敏感，不含 log 設定） | 無 |
+| `POST /config` | 套用設定（驗證全過才套用；熱套用 + 寫回 config.json，其他欄位保留） | **僅 loopback**，否則 403 |
+| `GET /monitors` | 螢幕清單（Windows EnumDisplayMonitors；非 Windows 空陣列） | **僅 loopback** |
+| `POST /locks/unlock` | 解鎖一格（語意同 stdin `unlock`） | **僅 loopback** |
+| `POST /locks/save` | 鎖定寫回 config（語意同 stdin `savelocks`） | **僅 loopback** |
+
+熱套用範圍：`touchMode`、`mouseMode.*`、`releaseTimeoutMs`、`matchRadiusPx`
+（下個 touch 生效）；`autoLock` 欄位只寫回 config、**下次啟動生效**（UI 有標註）。
+`listenPort` / 輸出 port 為需重啟欄位——改 config.json 後重啟。
+
+## 滑鼠模式（摸牆操作這台機器）
+
+`touchMode: "mouse"` 時額外掛一個 OS 滑鼠 sink：**mouseMode.face 那一面**的觸點
+映射成這台 Windows 機器的真實游標（down→LEFTDOWN、move→平滑移動、up→LEFTUP），
+讓使用者直接「摸牆操作網頁」。
+
+### 設定流程
+
+1. 開 UI（autoLaunch 自動開，或瀏覽器開 `http://127.0.0.1:20111/`）→ 切「設定」tab
+2. 觸控模式選「滑鼠模式」
+3. **來源牆面**下拉選一面牆（清單預設排除地板 Floor）
+4. **目標螢幕**下拉選要操作的螢幕（自動帶入矩形；也可手動填 x/y/w/h）
+5. 視需要調**平滑強度**（預設 0.35；越小越滑順但跟手越慢，1 = 直接到位）
+6. 按 **Apply** → 出現綠色「已套用」
+7. 摸牆驗證：游標應跳到對應位置並按下左鍵，滑動時游標平滑跟隨，離手放開
+
+### 行為細節與注意事項
+
+- **單點所有權**：該面第一個 down 的 touch 控制游標，它離手前其他觸點全部忽略
+  （OS 游標只有一顆）。多人同時摸牆不會搶游標，但只有第一個人有效
+- **發布端不受影響**：滑鼠是「額外的 sink」——WS/UDP 照常全量發布，
+  監控頁與其他訂閱端在滑鼠模式下完全正常
+- ⚠ **滑鼠模式下摸牆會搶這台機器的真實游標**——維運人員同時用實體滑鼠會互相干擾；
+  要操作機器先在設定頁切回採格模式（按住中熱切會自動放開按鍵，不會卡死）
+- 非目標面（含地板）觸發零注入；80ms 封包間隔由 release timeout 橋接，按住不會中斷
+- Linux 上選 mouse 模式：log warn + no-op（事件照常發布，不 crash）
 
 ## 開機自啟（建議：工作排程器）
 

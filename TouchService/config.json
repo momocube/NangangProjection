@@ -13,6 +13,16 @@
     "windowSeconds": 10,
     "minPackets": 10
   },
+  "touchMode": "grid",
+  "mouseMode": {
+    "face": 0,
+    "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+    "smoothing": 0.35,
+    "moveMinPx": 2
+  },
+  "ui": {
+    "autoLaunch": true
+  },
   "udpOutput": {
     "enabled": true,
     "endpoints": [ "127.0.0.1:20110" ]

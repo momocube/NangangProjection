@@ -3,10 +3,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using TouchService.Api;
 using TouchService.Config;
 using TouchService.Core;
 using TouchService.Diagnostics;
 using TouchService.Logging;
+using TouchService.Mouse;
 using TouchService.Output;
 using TouchService.Tracking;
 
@@ -23,10 +26,13 @@ public sealed class TouchServiceHost : IDisposable
     readonly Stopwatch _clock = Stopwatch.StartNew();
     readonly CancellationTokenSource _cts = new();
     readonly string? _configPath;
+    readonly IMouseInjector? _injectorOverride;   // 測試注入 FakeInjector 用
+    readonly object _configGate = new();          // 序列化 POST /config 的套用 + 寫回
 
     Socket? _listenSocket;
     Thread? _receiveThread;
     Thread? _timerThread;
+    MouseDriver? _mouseDriver;   // touchMode=mouse 時建立，建立後活到 host 結束（grid 時只卸觀察者）
 
     public VenueProfile Venue { get; private set; } = null!;
     public TouchPipeline Pipeline { get; private set; } = null!;
@@ -39,13 +45,18 @@ public sealed class TouchServiceHost : IDisposable
     /// <summary>實際監聽的 UDP port（config 給 0 時由 OS 配發，測試用）。</summary>
     public int ActualListenPort { get; private set; }
 
-    /// <summary>configPath：savelocks 寫回的目標（null = 無法寫回，例如純測試 host）。</summary>
-    public TouchServiceHost(ServiceConfig config, string baseDir, FileLogger log, string? configPath = null)
+    /// <summary>
+    /// configPath：savelocks / POST /config 寫回的目標（null = 無法寫回，例如純測試 host）。
+    /// mouseInjector：測試注入 FakeInjector；null = 依平台選（Windows SendInput / 其他 no-op）。
+    /// </summary>
+    public TouchServiceHost(ServiceConfig config, string baseDir, FileLogger log, string? configPath = null,
+                            IMouseInjector? mouseInjector = null)
     {
         _config = config;
         _log = log;
         BaseDir = baseDir;
         _configPath = configPath;
+        _injectorOverride = mouseInjector;
     }
 
     public string BaseDir { get; }
@@ -89,12 +100,14 @@ public sealed class TouchServiceHost : IDisposable
         }
         if (_config.WebSocketOutput.Enabled)
         {
+            var configApi = new ConfigApi(this);   // 本機管理 API（/config、/monitors、/locks/*）
             WsHub = new WebSocketHub(
                 _config.WebSocketOutput.Port,
                 BuildVenueJson(),
                 BuildHelloJson,   // 每個 client 連上時取當下鎖定清單 / 自檢狀態
                 FindTestPage(),
-                _log);
+                _log,
+                configApi.Handle);
             WsHub.Start();
             sinks.Add(WsHub);
         }
@@ -107,6 +120,9 @@ public sealed class TouchServiceHost : IDisposable
         Pipeline = new TouchPipeline(
             router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, Locks, autoLock);
         Pipeline.AutoLockCompleted += _ => PushLocks();   // 自檢結束 → 通知所有 WS client 最新鎖定清單
+
+        // 觸控模式（grid / mouse）：mouse 時掛 MouseDriver 為 typed 事件觀察者（額外 sink，發布照常）
+        lock (_configGate) ApplyTouchModeLocked();
 
         // 3. UDP 監聽（感應模組廣播）
         _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -283,6 +299,314 @@ public sealed class TouchServiceHost : IDisposable
         return filter;
     }
 
+    // ── 觸控模式（grid / mouse）與 config 熱套用 ──────────────────────────────
+
+    /// <summary>
+    /// 依 _config.TouchMode 掛/卸 MouseDriver（持 _configGate 呼叫）。
+    /// mouse：建立（或熱更新參數）driver 並掛上 pipeline 觀察者；
+    /// grid：卸觀察者，若 owner 還按著先 LEFTUP（熱切不留卡死的按鍵）。
+    /// driver 建立後活到 host 結束——重複 mouse↔grid 切換不重建執行緒。
+    /// </summary>
+    void ApplyTouchModeLocked()
+    {
+        if (_config.TouchMode == "mouse")
+        {
+            if (_mouseDriver == null)
+            {
+                _mouseDriver = new MouseDriver(CreateInjector(), Venue.Faces, _config.MouseMode, _log);
+                _mouseDriver.Start();   // 8ms 平滑迴圈
+            }
+            else
+            {
+                _mouseDriver.UpdateConfig(_config.MouseMode);
+            }
+            Pipeline.SetEventObserver(_mouseDriver);
+            var m = _config.MouseMode;
+            string faceName = m.Face >= 0 && m.Face < Venue.Faces.Count ? Venue.Faces[m.Face].Name : "?";
+            _log.Info($"[Mouse] 滑鼠模式啟用：face={m.Face}（{faceName}）→ 螢幕 rect " +
+                      $"({m.Screen.X},{m.Screen.Y} {m.Screen.Width}×{m.Screen.Height})，" +
+                      $"smoothing={m.Smoothing} moveMinPx={m.MoveMinPx}（發布端不受影響，照常全量輸出）");
+        }
+        else
+        {
+            Pipeline.SetEventObserver(null);
+            _mouseDriver?.ForceRelease();
+            _log.Info("[Mouse] 採格模式（grid）：純發布，無滑鼠注入");
+        }
+    }
+
+    IMouseInjector CreateInjector()
+    {
+        if (_injectorOverride != null) return _injectorOverride;
+        if (OperatingSystem.IsWindows()) return new Win32MouseInjector();
+        _log.Warn("[Mouse] 非 Windows 平台不支援滑鼠注入——滑鼠模式為 no-op（事件照常發布，不影響服務）");
+        return new NullMouseInjector();
+    }
+
+    /// <summary>
+    /// GET /config：目前生效設定（去敏感：不含 log 設定 / 檔案路徑）。
+    /// restartOnly 區塊 = 需重啟欄位，UI 唯讀顯示並標註「改 config.json 後重啟」。
+    /// </summary>
+    public string GetEffectiveConfigJson()
+    {
+        lock (_configGate)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                touchMode = _config.TouchMode,
+                mouseMode = new
+                {
+                    face = _config.MouseMode.Face,
+                    screen = new
+                    {
+                        x = _config.MouseMode.Screen.X,
+                        y = _config.MouseMode.Screen.Y,
+                        width = _config.MouseMode.Screen.Width,
+                        height = _config.MouseMode.Screen.Height,
+                    },
+                    smoothing = _config.MouseMode.Smoothing,
+                    moveMinPx = _config.MouseMode.MoveMinPx,
+                },
+                releaseTimeoutMs = _config.ReleaseTimeoutMs,
+                matchRadiusPx = _config.MatchRadiusPx,
+                autoLock = new
+                {
+                    enabled = _config.AutoLock.Enabled,
+                    windowSeconds = _config.AutoLock.WindowSeconds,
+                    minPackets = _config.AutoLock.MinPackets,
+                },
+                ui = new { autoLaunch = _config.Ui.AutoLaunch },
+                venue = Venue.Venue,
+                restartOnly = new
+                {
+                    listenPort = _config.ListenPort,
+                    webSocketPort = _config.WebSocketOutput.Port,
+                    udpEndpoints = _config.UdpOutput.Enabled ? _config.UdpOutput.Endpoints : new List<string>(),
+                },
+            });
+        }
+    }
+
+    /// <summary>
+    /// POST /config：套用設定 patch（只動 body 有給的欄位）。
+    /// 流程：解析 + **全部驗證通過才套用**（不留半套狀態）→ 熱套用 runtime
+    /// （touchMode / mouseMode.* / releaseTimeoutMs / matchRadiusPx 下個 touch 生效；
+    /// autoLock 只寫回 config、下次啟動生效）→ 寫回 config.json（JsonNode 保留其他欄位）。
+    /// </summary>
+    public (bool Ok, string Message) ApplyConfigPatch(string json)
+    {
+        JsonObject patch;
+        try
+        {
+            patch = JsonNode.Parse(json) as JsonObject
+                    ?? throw new JsonException("body 必須是 JSON object");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"JSON 解析失敗：{ex.Message}");
+        }
+
+        lock (_configGate)
+        {
+            // ── 1. 以目前生效值為基底，套上 patch 的欄位（先全部驗證，全過才套用）──
+            var errors = new List<string>();
+
+            string touchMode = _config.TouchMode;
+            if (TryReadString(patch, "touchMode", errors, out var tm))
+            {
+                touchMode = tm.Trim().ToLowerInvariant();
+                if (touchMode is not ("grid" or "mouse"))
+                    errors.Add($"touchMode 必須是 \"grid\" 或 \"mouse\"（收到 \"{tm}\"）");
+            }
+
+            int releaseTimeout = ReadInt(patch, "releaseTimeoutMs", _config.ReleaseTimeoutMs, 10, 10_000, errors);
+            double matchRadius = ReadNumber(patch, "matchRadiusPx", _config.MatchRadiusPx, 1, 10_000, errors);
+
+            var mm = _config.MouseMode;
+            int mFace = mm.Face;
+            int sx = mm.Screen.X, sy = mm.Screen.Y, sw = mm.Screen.Width, sh = mm.Screen.Height;
+            double smoothing = mm.Smoothing;
+            int moveMinPx = mm.MoveMinPx;
+            if (patch["mouseMode"] is JsonObject pm)
+            {
+                mFace = ReadInt(pm, "face", mFace, 0, Venue.Faces.Count - 1, errors,
+                    $"mouseMode.face 必須是 0~{Venue.Faces.Count - 1}（venue faces index）");
+                smoothing = ReadNumber(pm, "smoothing", smoothing, 0.01, 1.0, errors,
+                    "mouseMode.smoothing 必須在 0.01~1（1 = 不平滑直接到位）");
+                moveMinPx = ReadInt(pm, "moveMinPx", moveMinPx, 0, 1000, errors);
+                if (pm["screen"] is JsonObject ps)
+                {
+                    sx = ReadInt(ps, "x", sx, -1_000_000, 1_000_000, errors);
+                    sy = ReadInt(ps, "y", sy, -1_000_000, 1_000_000, errors);
+                    sw = ReadInt(ps, "width", sw, 1, 1_000_000, errors, "mouseMode.screen.width 必須 ≥ 1");
+                    sh = ReadInt(ps, "height", sh, 1, 1_000_000, errors, "mouseMode.screen.height 必須 ≥ 1");
+                }
+                else if (pm.ContainsKey("screen"))
+                {
+                    errors.Add("mouseMode.screen 必須是 object {x,y,width,height}");
+                }
+            }
+            else if (patch.ContainsKey("mouseMode"))
+            {
+                errors.Add("mouseMode 必須是 object");
+            }
+
+            var al = _config.AutoLock;
+            bool alEnabled = al.Enabled;
+            int alWindow = al.WindowSeconds, alMin = al.MinPackets;
+            if (patch["autoLock"] is JsonObject pa)
+            {
+                alEnabled = ReadBool(pa, "enabled", alEnabled, errors);
+                alWindow = ReadInt(pa, "windowSeconds", alWindow, 0, 86_400, errors);
+                alMin = ReadInt(pa, "minPackets", alMin, 1, 1_000_000, errors);
+            }
+            else if (patch.ContainsKey("autoLock"))
+            {
+                errors.Add("autoLock 必須是 object");
+            }
+
+            if (errors.Count > 0)
+                return (false, string.Join("；", errors));
+
+            // ── 2. 熱套用 runtime ────────────────────────────────────────────
+            _config.TouchMode = touchMode;
+            _config.ReleaseTimeoutMs = releaseTimeout;
+            _config.MatchRadiusPx = (float)matchRadius;
+            _config.MouseMode = new MouseModeConfig
+            {
+                Face = mFace,
+                Screen = new ScreenRectConfig { X = sx, Y = sy, Width = sw, Height = sh },
+                Smoothing = smoothing,
+                MoveMinPx = moveMinPx,
+            };
+            _config.AutoLock = new AutoLockConfig
+            {
+                Enabled = alEnabled, WindowSeconds = alWindow, MinPackets = alMin,
+            };
+
+            Pipeline.UpdateTuning(_config.MatchRadiusPx, _config.ReleaseTimeoutMs);   // 下個 touch / flush 生效
+            ApplyTouchModeLocked();   // mouse↔grid 熱切（grid 化時 owner 還按著會先 LEFTUP）
+
+            // ── 3. 寫回 config.json（保留其他欄位）──────────────────────────
+            var persistError = PersistManagedFields();
+            _log.Info($"[Config] POST /config 已套用：touchMode={touchMode} " +
+                      $"releaseTimeout={releaseTimeout}ms matchRadius={matchRadius}px" +
+                      (persistError == null ? "（已寫回 config.json）" : $"（寫回失敗：{persistError}）"));
+
+            return persistError == null
+                ? (true, "已套用並寫回 config.json（autoLock 欄位下次啟動生效）")
+                : (true, $"runtime 已套用，但寫回 config.json 失敗：{persistError}（重啟後會還原）");
+        }
+    }
+
+    /// <summary>
+    /// 把 API 管的欄位（touchMode / mouseMode / releaseTimeoutMs / matchRadiusPx / autoLock）
+    /// 寫回 config.json——與 SaveLocks 同一套 JsonNode 機制：只換目標欄位，其他欄位
+    /// （含未知欄位）原樣保留。回傳 null = 成功，否則錯誤訊息。持 _configGate 呼叫。
+    /// </summary>
+    string? PersistManagedFields()
+    {
+        if (_configPath == null) return "host 啟動時未提供 config 路徑";
+        if (!File.Exists(_configPath)) return $"config 不存在：{_configPath}";
+
+        try
+        {
+            var root = JsonNode.Parse(
+                File.ReadAllText(_configPath),
+                documentOptions: new JsonDocumentOptions
+                {
+                    CommentHandling = JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true,
+                })!.AsObject();
+
+            root["touchMode"] = _config.TouchMode;
+            root["releaseTimeoutMs"] = _config.ReleaseTimeoutMs;
+            root["matchRadiusPx"] = _config.MatchRadiusPx;
+            root["mouseMode"] = new JsonObject
+            {
+                ["face"] = _config.MouseMode.Face,
+                ["screen"] = new JsonObject
+                {
+                    ["x"] = _config.MouseMode.Screen.X,
+                    ["y"] = _config.MouseMode.Screen.Y,
+                    ["width"] = _config.MouseMode.Screen.Width,
+                    ["height"] = _config.MouseMode.Screen.Height,
+                },
+                ["smoothing"] = _config.MouseMode.Smoothing,
+                ["moveMinPx"] = _config.MouseMode.MoveMinPx,
+            };
+            root["autoLock"] = new JsonObject
+            {
+                ["enabled"] = _config.AutoLock.Enabled,
+                ["windowSeconds"] = _config.AutoLock.WindowSeconds,
+                ["minPackets"] = _config.AutoLock.MinPackets,
+            };
+
+            File.WriteAllText(_configPath,
+                root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    // ── patch 欄位讀取 helper（型別錯 / 超出範圍 → errors，回傳目前值）─────────
+
+    static bool TryReadString(JsonObject obj, string key, List<string> errors, out string value)
+    {
+        value = "";
+        if (obj[key] is not { } node) return false;
+        if (node.GetValueKind() != JsonValueKind.String)
+        {
+            errors.Add($"{key} 必須是字串");
+            return false;
+        }
+        value = node.GetValue<string>();
+        return true;
+    }
+
+    static int ReadInt(JsonObject obj, string key, int current, int min, int max,
+                       List<string> errors, string? customError = null)
+    {
+        if (obj[key] is not { } node) return current;
+        if (node.GetValueKind() != JsonValueKind.Number ||
+            !int.TryParse(node.ToJsonString(), out var v) || v < min || v > max)
+        {
+            errors.Add(customError ?? $"{key} 必須是 {min}~{max} 的整數");
+            return current;
+        }
+        return v;
+    }
+
+    static double ReadNumber(JsonObject obj, string key, double current, double min, double max,
+                             List<string> errors, string? customError = null)
+    {
+        if (obj[key] is not { } node) return current;
+        if (node.GetValueKind() != JsonValueKind.Number ||
+            !double.TryParse(node.ToJsonString(),
+                System.Globalization.CultureInfo.InvariantCulture, out var v) ||
+            double.IsNaN(v) || v < min || v > max)
+        {
+            errors.Add(customError ?? $"{key} 必須是 {min}~{max} 的數值");
+            return current;
+        }
+        return v;
+    }
+
+    static bool ReadBool(JsonObject obj, string key, bool current, List<string> errors)
+    {
+        if (obj[key] is not { } node) return current;
+        var kind = node.GetValueKind();
+        if (kind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            errors.Add($"{key} 必須是 true/false");
+            return current;
+        }
+        return node.GetValue<bool>();
+    }
+
     // ── 鎖定管理指令（stdin locks / lock / unlock / savelocks）───────────────
 
     /// <summary>stdin `locks` 指令：列出目前所有鎖定（face / cell / 來源 / auto 封包數）。</summary>
@@ -450,7 +774,8 @@ public sealed class TouchServiceHost : IDisposable
         try { _listenSocket?.Close(); } catch { /* ignore */ }
         _receiveThread?.Join(1000);
         _timerThread?.Join(1000);
-        Pipeline?.Dispose();   // 連帶 dispose 所有 sink（含 WsHub）
+        Pipeline?.Dispose();      // 連帶 dispose 所有 sink（含 WsHub）
+        _mouseDriver?.Dispose();  // owner 還按著會先 LEFTUP，不留卡死的按鍵
         _log.Info("[Host] 已停止");
     }
 }

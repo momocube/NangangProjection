@@ -183,6 +183,17 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
 - 實作為最小 RFC 6455（text frame、close、ping/pong），不支援壓縮擴充；
   場館內網使用，不對公網開放
 
+## 觸控模式與協議（2026-06 補充）
+
+- **touch frame 協議不因 touchMode 而變**：`touchMode: "mouse"`（滑鼠模式）只是服務
+  本機額外掛一個 OS 游標 sink，WS / raw UDP 的全量發布、schema、時序完全照常——
+  訂閱端不需要也無法感知目前模式。
+- **config API 是本機管理介面、不屬於對外協議**：與 WS 同 port 另有
+  `GET /config`、`POST /config`、`GET /monitors`、`POST /locks/unlock`、`POST /locks/save`
+  五個 HTTP 端點（給內建設定頁用）。**寫入類端點與 /monitors 僅接受 loopback 來源**
+  （非 loopback 一律 403），不在 v1 承諾範圍內、欄位可能隨版本調整，
+  訂閱端不要依賴。端點細節見 `DEPLOY.md`「啟動 UI」。
+
 ## 版本策略
 
 - `v` 欄位代表 schema 主版本。**v1 承諾：既有欄位不改名、不改型別、不移除**；

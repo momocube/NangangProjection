@@ -8,6 +8,17 @@ using TouchService.Tracking;
 namespace TouchService;
 
 /// <summary>
+/// typed touch 事件觀察者：在 frame 發布的同一時點收到 List&lt;TouchEventData&gt;
+/// （滑鼠模式的 MouseDriver 用——額外 sink，不影響 WS/UDP 發布）。
+/// 在 pipeline 鎖內、熱路徑上被呼叫：實作必須快速返回、不得保留 events 參考
+/// （底層是重用 buffer）。
+/// </summary>
+public interface ITouchEventObserver
+{
+    void OnTouchEvents(IReadOnlyList<TouchEventData> events);
+}
+
+/// <summary>
 /// 處理管線：datagram → parse → route → map → track → publish。
 /// 事件驅動——receive 執行緒直接走完整條（取代 Unity 的 queue + 每幀派送），
 /// down 事件在首包當下即發布（零等待）。
@@ -31,6 +42,7 @@ public sealed class TouchPipeline : IDisposable
     readonly int _keepaliveIntervalMs;
     readonly AutoLockSelfCheck? _autoLock;
     int _autoLockLastLoggedSec = int.MaxValue;
+    ITouchEventObserver? _observer;   // 滑鼠模式 sink（null = grid，零開銷）；受 _gate 保護
 
     // 熱路徑預分配 buffer（receive 執行緒 + timer 執行緒共用，受 _gate 保護）
     readonly List<RawPoint> _rawPoints = new(16);
@@ -65,6 +77,23 @@ public sealed class TouchPipeline : IDisposable
 
     /// <summary>自檢窗結束時觸發（參數 = 本次自動鎖定的格子，可為空）。host 用來推 WS locks 訊息。</summary>
     public event Action<IReadOnlyList<AutoLockSelfCheck.Result>>? AutoLockCompleted;
+
+    /// <summary>
+    /// 掛/卸 typed 事件觀察者（滑鼠模式熱切）。null = 卸下（grid 模式，零開銷）。
+    /// 發布端（WS/UDP sink）完全不受影響——觀察者是「額外的」，不是「取代」。
+    /// </summary>
+    public void SetEventObserver(ITouchEventObserver? observer)
+    {
+        lock (_gate) _observer = observer;
+    }
+
+    /// <summary>
+    /// 熱套用追蹤參數（POST /config：matchRadiusPx / releaseTimeoutMs），下個 touch / flush 生效。
+    /// </summary>
+    public void UpdateTuning(float matchRadiusPx, int releaseTimeoutMs)
+    {
+        lock (_gate) _tracker.UpdateTuning(matchRadiusPx, releaseTimeoutMs);
+    }
 
     public int ActiveTouches { get { lock (_gate) return _tracker.ActiveCount; } }
 
@@ -244,6 +273,10 @@ public sealed class TouchPipeline : IDisposable
 
         for (int i = 0; i < _sinks.Count; i++)
             _sinks[i].Publish(bytes);
+
+        // 滑鼠模式觀察者（額外 sink）：keepalive 空 frame 不需要通知
+        if (_events.Count > 0)
+            _observer?.OnTouchEvents(_events);
 
         _stats.OnFramePublished();
         _lastPublishMs = nowMs;
