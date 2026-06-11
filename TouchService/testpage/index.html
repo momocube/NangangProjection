@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>TouchService 測試/校調頁</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #14161c; --panel: #1d2027; --line: #2e3340;
+    --text: #d8dce6; --dim: #79808f; --accent: #5b8dee;
+    --down: #ff4d4d; --move: #ffd24d; --up: #8a93a8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Consolas", "Microsoft JhengHei", monospace;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  header input {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 8px; width: 220px; font: inherit;
+  }
+  header button {
+    background: var(--accent); border: 0; color: #fff; border-radius: 4px;
+    padding: 5px 14px; cursor: pointer; font: inherit;
+  }
+  header button.off { background: #444a58; }
+  #connState { color: var(--dim); }
+  #connState.ok { color: #5dd97c; }
+  #connState.err { color: var(--down); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #canvasWrap { flex: 1; position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  aside {
+    width: 340px; background: var(--panel); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  aside section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  aside h2 { font-size: 12px; margin: 0 0 6px; color: var(--dim); font-weight: 600; letter-spacing: 1px; }
+  .stat { display: flex; justify-content: space-between; padding: 1px 0; }
+  .stat b { font-weight: 600; color: #fff; }
+  #eventLog {
+    flex: 1; overflow-y: auto; padding: 6px 14px; margin: 0;
+    list-style: none; font-size: 12px;
+  }
+  #eventLog li { white-space: nowrap; }
+  #eventLog .down { color: var(--down); }
+  #eventLog .move { color: var(--move); }
+  #eventLog .up   { color: var(--up); }
+  .legend { display: flex; gap: 14px; margin-top: 4px; color: var(--dim); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TouchService 測試頁</h1>
+  <label>WS 位址 <input id="wsUrl" value=""></label>
+  <button id="btnConn">連線</button>
+  <span id="connState">未連線</span>
+</header>
+<main>
+  <div id="canvasWrap"><canvas id="cv"></canvas></div>
+  <aside>
+    <section>
+      <h2>連線 / 場域</h2>
+      <div class="stat"><span>場域</span><b id="stVenue">-</b></div>
+      <div class="stat"><span>畫布</span><b id="stCanvas">-</b></div>
+      <div class="stat"><span>release timeout</span><b id="stTimeout">-</b></div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--down)"></i>down</span>
+        <span><i class="dot" style="background:var(--move)"></i>move</span>
+        <span><i class="dot" style="background:var(--up)"></i>up（淡出）</span>
+      </div>
+    </section>
+    <section>
+      <h2>即時統計</h2>
+      <div class="stat"><span>訊息速率</span><b><span id="stRate">0</span> msg/s</b></div>
+      <div class="stat"><span>活躍觸點</span><b id="stAlive">0</b></div>
+      <div class="stat"><span>down / move / up</span><b id="stCounts">0 / 0 / 0</b></div>
+      <div class="stat"><span>延遲（服務→頁面，近似）</span><b><span id="stLatency">-</span> ms</b></div>
+      <div class="stat"><span>seq</span><b id="stSeq">-</b></div>
+    </section>
+    <h2 style="padding:10px 14px 0">事件流</h2>
+    <ul id="eventLog"></ul>
+  </aside>
+</main>
+<script>
+"use strict";
+
+// ── 狀態 ────────────────────────────────────────────────────────────────────
+const state = {
+  ws: null,
+  venue: null,            // hello：{venue, canvas:{w,h}, faces:[{name,originX,...}]}
+  touches: new Map(),     // id → {px:[x,y], face, phase, lastSeen, fadeStart}
+  counts: { down: 0, move: 0, up: 0 },
+  msgTimes: [],           // 1s 視窗訊息速率
+  clockOffsetMin: null,   // min(localRecv - serverT)：時鐘差基線，估延遲用
+  latencyMs: null,
+  lastSeq: null,
+};
+const FADE_MS = 600;
+
+// ── DOM ─────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+
+const defaultUrl = `ws://${location.hostname || "127.0.0.1"}:20111/`;
+$("wsUrl").value = localStorage.getItem("ts.wsUrl") || defaultUrl;
+
+$("btnConn").onclick = () => state.ws ? disconnect() : connect();
+
+function setConn(text, cls) {
+  const el = $("connState");
+  el.textContent = text;
+  el.className = cls || "";
+}
+
+// ── WebSocket ───────────────────────────────────────────────────────────────
+function connect() {
+  const url = $("wsUrl").value.trim();
+  localStorage.setItem("ts.wsUrl", url);
+  setConn("連線中…", "");
+  let ws;
+  try { ws = new WebSocket(url); }
+  catch (e) { setConn("位址錯誤：" + e.message, "err"); return; }
+
+  state.ws = ws;
+  $("btnConn").textContent = "斷線";
+
+  ws.onopen = () => setConn("已連線", "ok");
+  ws.onclose = () => { setConn("已斷線", "err"); state.ws = null; $("btnConn").textContent = "連線"; };
+  ws.onerror = () => setConn("連線失敗（服務沒起來？）", "err");
+  ws.onmessage = ev => onMessage(JSON.parse(ev.data));
+}
+
+function disconnect() {
+  state.ws?.close();
+  state.ws = null;
+  $("btnConn").textContent = "連線";
+}
+
+function onMessage(msg) {
+  const now = Date.now();
+
+  if (msg.type === "hello") {
+    state.venue = msg;
+    state.touches.clear();
+    $("stVenue").textContent = msg.venue;
+    $("stCanvas").textContent = `${msg.canvas.w} × ${msg.canvas.h}`;
+    $("stTimeout").textContent = `${msg.releaseTimeoutMs} ms`;
+    return;
+  }
+
+  // frame（schema v1，見 docs/PROTOCOL.md）
+  state.msgTimes.push(now);
+  state.lastSeq = msg.seq;
+
+  // 延遲估計：min(local - serverT) 當時鐘差基線，當下差值減基線 ≈ 傳輸+排隊延遲
+  const off = now - msg.t;
+  if (state.clockOffsetMin === null || off < state.clockOffsetMin) state.clockOffsetMin = off;
+  state.latencyMs = off - state.clockOffsetMin;
+
+  for (const e of msg.events) {
+    state.counts[e.phase] = (state.counts[e.phase] || 0) + 1;
+    logEvent(e);
+    if (e.phase === "up") {
+      const t = state.touches.get(e.id);
+      if (t) { t.phase = "up"; t.fadeStart = now; t.px = e.px; }
+    } else {
+      state.touches.set(e.id, { px: e.px, face: e.face, cell: e.cell, phase: e.phase, lastSeen: now, fadeStart: 0 });
+    }
+  }
+
+  // alive 全清單對帳（TUIO 語意：up 丟包也不殘留鬼點）
+  const alive = new Set(msg.alive);
+  for (const [id, t] of state.touches)
+    if (!alive.has(id) && t.phase !== "up") { t.phase = "up"; t.fadeStart = now; }
+}
+
+// ── 事件流面板 ───────────────────────────────────────────────────────────────
+const logEl = $("eventLog");
+function logEvent(e) {
+  const li = document.createElement("li");
+  li.className = e.phase;
+  li.textContent = `#${e.id} ${e.phase.padEnd(4)} face${e.face} cell(${e.cell[0]},${e.cell[1]}) px(${e.px[0]},${e.px[1]})`;
+  logEl.appendChild(li);
+  while (logEl.children.length > 200) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── 繪製 ─────────────────────────────────────────────────────────────────────
+const FACE_COLORS = ["#e05656", "#56e07a", "#e0c356", "#b056e0", "#5670e0", "#56dbe0", "#e08c56"];
+
+function resize() {
+  const r = cv.parentElement.getBoundingClientRect();
+  cv.width = r.width * devicePixelRatio;
+  cv.height = r.height * devicePixelRatio;
+}
+addEventListener("resize", resize);
+resize();
+
+function draw() {
+  requestAnimationFrame(draw);
+  const now = Date.now();
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  const v = state.venue;
+  if (!v) {
+    ctx.fillStyle = "#79808f";
+    ctx.font = `${14 * devicePixelRatio}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText("尚未連線——連上 TouchService 後自動下發場域輪廓（hello）", cv.width / 2, cv.height / 2);
+    return;
+  }
+
+  // 場域展開平面 fit 畫面（留 24px 邊）
+  const pad = 24 * devicePixelRatio;
+  const s = Math.min((cv.width - pad * 2) / v.canvas.w, (cv.height - pad * 2) / v.canvas.h);
+  const ox = (cv.width - v.canvas.w * s) / 2;
+  const oy = (cv.height - v.canvas.h * s) / 2;
+  const X = x => ox + x * s, Y = y => oy + y * s;
+
+  // 畫布外框
+  ctx.strokeStyle = "#3a4150";
+  ctx.lineWidth = devicePixelRatio;
+  ctx.strokeRect(X(0), Y(0), v.canvas.w * s, v.canvas.h * s);
+
+  // 各感應面輪廓 + 名稱
+  ctx.font = `${11 * devicePixelRatio}px monospace`;
+  ctx.textAlign = "left";
+  for (const f of v.faces) {
+    const c = FACE_COLORS[f.index % FACE_COLORS.length];
+    ctx.strokeStyle = c + "88";
+    ctx.fillStyle = c + "14";
+    ctx.fillRect(X(f.originX), Y(f.originY), f.width * s, f.height * s);
+    ctx.strokeRect(X(f.originX), Y(f.originY), f.width * s, f.height * s);
+    ctx.fillStyle = c + "cc";
+    ctx.fillText(`${f.index}:${f.name}（${f.cols}×${f.rows}）`,
+                 X(f.originX) + 4 * devicePixelRatio, Y(f.originY) + 13 * devicePixelRatio);
+  }
+
+  // 觸點：down 紅 / move 黃 / up 淡出
+  const r = Math.max(5 * devicePixelRatio, 24 * s);
+  ctx.textAlign = "center";
+  for (const [id, t] of state.touches) {
+    let color, alpha = 1;
+    if (t.phase === "up") {
+      alpha = 1 - (now - t.fadeStart) / FADE_MS;
+      if (alpha <= 0) { state.touches.delete(id); continue; }
+      color = "138,147,168";
+    } else if (t.phase === "move") {
+      color = "255,210,77";
+    } else {
+      color = "255,77,77";
+    }
+    const x = X(t.px[0]), y = Y(t.px[1]);
+    ctx.fillStyle = `rgba(${color},${alpha * 0.85})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.font = `${10 * devicePixelRatio}px monospace`;
+    ctx.fillText(String(id), x, y - r - 3 * devicePixelRatio);
+  }
+}
+requestAnimationFrame(draw);
+
+// ── 統計面板（250ms 更新）───────────────────────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  state.msgTimes = state.msgTimes.filter(t => now - t < 1000);
+  $("stRate").textContent = state.msgTimes.length;
+  let alive = 0;
+  for (const t of state.touches.values()) if (t.phase !== "up") alive++;
+  $("stAlive").textContent = alive;
+  $("stCounts").textContent = `${state.counts.down || 0} / ${state.counts.move || 0} / ${state.counts.up || 0}`;
+  $("stLatency").textContent = state.latencyMs === null ? "-" : state.latencyMs.toFixed(0);
+  $("stSeq").textContent = state.lastSeq ?? "-";
+}, 250);
+</script>
+</body>
+</html>
