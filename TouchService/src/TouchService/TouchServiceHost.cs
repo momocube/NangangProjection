@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using TouchService.Config;
 using TouchService.Core;
@@ -57,6 +58,7 @@ public sealed class TouchServiceHost : IDisposable
         var tracker = new TouchTracker(
             _config.MaxSlots, _config.MatchRadiusPx, _config.ReleaseTimeoutMs, _config.MoveMinDistancePx);
         var serializer = new FrameSerializer(Venue);
+        var lockedCells = BuildLockedCellFilter();
 
         var sinks = new List<ITouchSink>();
         if (_config.UdpOutput.Enabled && _config.UdpOutput.Endpoints.Count > 0)
@@ -82,7 +84,8 @@ public sealed class TouchServiceHost : IDisposable
             sinks.Add(new TuioPublisher(_config.TuioOutput.Endpoint, _log));
         }
 
-        Pipeline = new TouchPipeline(router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs);
+        Pipeline = new TouchPipeline(
+            router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, lockedCells);
 
         // 3. UDP 監聽（感應模組廣播）
         _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -192,6 +195,81 @@ public sealed class TouchServiceHost : IDisposable
 
     public string StatsSnapshot() =>
         Stats.Snapshot(Pipeline?.ActiveTouches ?? 0, WsHub?.ClientCount ?? 0);
+
+    /// <summary>
+    /// config lockedCells → 過濾器 + 啟動 log（鎖定晶片 N 顆與清單；格式壞項 / 超出場域範圍提出警告）。
+    /// </summary>
+    LockedCellFilter BuildLockedCellFilter()
+    {
+        var filter = new LockedCellFilter(_config.LockedCells);
+
+        if (filter.Skipped > 0)
+            _log.Warn($"[Host] config lockedCells 有 {filter.Skipped} 筆格式不完整（需 face ≥ 0、cell = [col,row]），已跳過");
+
+        if (filter.Count == 0)
+        {
+            _log.Info("[Host] 鎖定晶片 0 顆（lockedCells 為空，不過濾）");
+            return filter;
+        }
+
+        var list = string.Join("、", filter.Entries.Select(e => $"face={e.Face} cell=({e.Cell![0]},{e.Cell[1]})"));
+        _log.Info($"[Host] 鎖定晶片 {filter.Count} 顆（命中點進 tracker 前丟棄）：{list}");
+
+        // 防呆：填錯座標（超出場域範圍）永遠不會命中，啟動時就提醒
+        foreach (var e in filter.Entries)
+        {
+            if (e.Face >= Venue.Faces.Count)
+                _log.Warn($"[Host] lockedCells face={e.Face} 超出場域面數（共 {Venue.Faces.Count} 面）——此項永遠不會命中");
+            else if (e.Cell![0] >= Venue.Faces[e.Face].ColCount || e.Cell[1] >= Venue.Faces[e.Face].RowCount)
+                _log.Warn($"[Host] lockedCells face={e.Face} cell=({e.Cell[0]},{e.Cell[1]}) 超出該面格數" +
+                          $"（{Venue.Faces[e.Face].ColCount}×{Venue.Faces[e.Face].RowCount}）——此項永遠不會命中");
+        }
+        return filter;
+    }
+
+    /// <summary>stdin `touches` 指令：列出當下所有活躍 touch（現場找噪訊晶片座標用）。</summary>
+    public string TouchesSnapshot()
+    {
+        var touches = new List<ActiveTouchSnapshot>();
+        Pipeline.SnapshotTouches(_clock.ElapsedMilliseconds, touches);
+        return FormatTouches(touches, Venue.Faces);
+    }
+
+    /// <summary>
+    /// 格式化活躍 touch 清單（靜態純函式，可測試）。
+    /// 存活久的排前面——噪訊晶片的特徵就是存活異常久且 cell 固定不動。
+    /// </summary>
+    public static string FormatTouches(List<ActiveTouchSnapshot> touches, IReadOnlyList<SensorFaceConfig> faces)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"── 活躍 touch：{touches.Count} 筆 ─────────────────────────────");
+
+        if (touches.Count == 0)
+        {
+            sb.AppendLine("（目前沒有活躍 touch）");
+        }
+        else
+        {
+            touches.Sort((a, b) => b.AgeMs.CompareTo(a.AgeMs));   // 存活久的在前
+            sb.AppendLine($"{"id",5}  {"face",-20}{"cell",-11}{"px",-14}存活");
+            foreach (var t in touches)
+            {
+                string face = t.Point.FaceIndex >= 0 && t.Point.FaceIndex < faces.Count
+                    ? $"{t.Point.FaceIndex} {faces[t.Point.FaceIndex].Name}"
+                    : t.Point.FaceIndex.ToString();
+                sb.AppendLine(
+                    $"{t.Id,5}  {face,-20}" +
+                    $"{$"({t.Point.Col},{t.Point.Row})",-11}" +
+                    $"{$"({t.Point.PixelX},{t.Point.PixelY})",-14}" +
+                    $"{t.AgeMs / 1000.0:F1}s");
+            }
+            sb.AppendLine("噪訊晶片特徵：存活持續累加、cell 固定不動（真人腳踩會移動且幾秒內就 up）。");
+            sb.AppendLine("鎖定方法：把該筆 face 與 cell 填進 config.json 的 lockedCells 後重啟服務。");
+        }
+
+        sb.Append("───────────────────────────────────────────────");
+        return sb.ToString();
+    }
 
     public void Dispose()
     {

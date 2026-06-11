@@ -12,6 +12,15 @@ public readonly struct TouchEventData
     public required RoutedPoint Point { get; init; }
 }
 
+/// <summary>stdin `touches` 指令用的活躍 touch 快照（現場找噪訊晶片：看誰存活異常久且不動）。</summary>
+public readonly struct ActiveTouchSnapshot
+{
+    public required int Id { get; init; }
+    public required RoutedPoint Point { get; init; }
+    /// <summary>down 至今的存活時間（ms）。</summary>
+    public required long AgeMs { get; init; }
+}
+
 /// <summary>
 /// Touch ID 追蹤器：slot 最近鄰配對。
 /// 核心配對演算法移植自 Unity 專案 Assets/_Script/Sensor/SensorBridgeToPassPosition.cs:133-212
@@ -41,6 +50,7 @@ public sealed class TouchTracker
     {
         public bool        Active;
         public int         Id;
+        public long        FirstSeenMs;
         public long        LastSeenMs;
         public RoutedPoint Last;
     }
@@ -165,10 +175,11 @@ public sealed class TouchTracker
             int free = FindFreeSlot();
             if (free < 0) break;   // slot 滿（maxSlots），丟棄新點
 
-            _slots[free].Active     = true;
-            _slots[free].Id         = _nextId++;
-            _slots[free].LastSeenMs = nowMs;
-            _slots[free].Last       = points[p];
+            _slots[free].Active      = true;
+            _slots[free].Id          = _nextId++;
+            _slots[free].FirstSeenMs = nowMs;
+            _slots[free].LastSeenMs  = nowMs;
+            _slots[free].Last        = points[p];
             _activeCount++;
 
             eventsOut.Add(new TouchEventData
@@ -206,6 +217,22 @@ public sealed class TouchTracker
         idsOut.Clear();
         for (int s = 0; s < _slots.Length; s++)
             if (_slots[s].Active) idsOut.Add(_slots[s].Id);
+    }
+
+    /// <summary>收集所有活躍 touch 細節（id / 座標 / 存活時間）。stdin `touches` 指令用，非熱路徑。</summary>
+    public void CollectAliveDetails(long nowMs, List<ActiveTouchSnapshot> touchesOut)
+    {
+        touchesOut.Clear();
+        for (int s = 0; s < _slots.Length; s++)
+        {
+            if (!_slots[s].Active) continue;
+            touchesOut.Add(new ActiveTouchSnapshot
+            {
+                Id = _slots[s].Id,
+                Point = _slots[s].Last,
+                AgeMs = nowMs - _slots[s].FirstSeenMs,
+            });
+        }
     }
 
     int FindFreeSlot()

@@ -7,6 +7,7 @@
   "flushIntervalMs": 5,
   "keepaliveIntervalMs": 1000,
   "moveMinDistancePx": 0,
+  "lockedCells": [],
   "udpOutput": {
     "enabled": true,
     "endpoints": [ "127.0.0.1:20110" ]

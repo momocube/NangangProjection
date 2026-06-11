@@ -20,6 +20,7 @@ public sealed class TouchPipeline : IDisposable
     readonly SensorFaceRouter _router;
     readonly TouchTracker _tracker;
     readonly FrameSerializer _serializer;
+    readonly LockedCellFilter _lockedCells;
     readonly List<ITouchSink> _sinks;
     readonly StatsCollector _stats;
     readonly FileLogger _log;
@@ -41,11 +42,13 @@ public sealed class TouchPipeline : IDisposable
         List<ITouchSink> sinks,
         StatsCollector stats,
         FileLogger log,
-        int keepaliveIntervalMs)
+        int keepaliveIntervalMs,
+        LockedCellFilter? lockedCells = null)
     {
         _router = router;
         _tracker = tracker;
         _serializer = serializer;
+        _lockedCells = lockedCells ?? LockedCellFilter.Empty;
         _sinks = sinks;
         _stats = stats;
         _log = log;
@@ -53,6 +56,12 @@ public sealed class TouchPipeline : IDisposable
     }
 
     public int ActiveTouches { get { lock (_gate) return _tracker.ActiveCount; } }
+
+    /// <summary>stdin `touches` 指令：複製當下活躍 touch 清單（現場找噪訊晶片用，非熱路徑）。</summary>
+    public void SnapshotTouches(long nowMs, List<ActiveTouchSnapshot> touchesOut)
+    {
+        lock (_gate) _tracker.CollectAliveDetails(nowMs, touchesOut);
+    }
 
     /// <summary>receive 執行緒入口：一個 UDP datagram 全程處理。</summary>
     public void OnDatagram(ReadOnlySpan<byte> data, long nowMs, int sourcePort = 0)
@@ -83,7 +92,15 @@ public sealed class TouchPipeline : IDisposable
             for (int i = 0; i < _rawPoints.Count; i++)
             {
                 if (_router.TryRoute(_rawPoints[i].X, _rawPoints[i].Y, out var p))
+                {
+                    // 鎖定晶片（噪訊）過濾：進 tracker 前丟棄（config lockedCells）
+                    if (_lockedCells.IsLocked(p.FaceIndex, p.Col, p.Row))
+                    {
+                        _stats.OnDroppedByLock();
+                        continue;
+                    }
                     _routedBuf[routed++] = p;
+                }
                 else
                     _stats.OnUnrouted();
             }

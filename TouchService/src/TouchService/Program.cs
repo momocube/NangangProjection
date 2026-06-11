@@ -7,7 +7,7 @@ namespace TouchService;
 /// <summary>
 /// TouchService 進入點：headless console。
 /// 啟動讀 config → 收 UDP → 發布（raw UDP JSON + WebSocket）。
-/// stdin 指令：stats（吐統計）、probe（dump latency CSV）、quit。
+/// stdin 指令：stats（吐統計）、touches（活躍 touch 清單，找噪訊晶片）、probe（dump latency CSV）、quit。
 /// </summary>
 public static class Program
 {
@@ -47,7 +47,7 @@ public static class Program
         var quit = new ManualResetEventSlim(false);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; quit.Set(); };
 
-        Console.WriteLine("指令：stats（統計）/ probe（dump latency CSV）/ quit（離開）");
+        Console.WriteLine("指令：stats（統計）/ touches（活躍 touch 清單，找噪訊晶片）/ probe（dump latency CSV）/ quit（離開）");
 
         // stdin 指令迴圈（stdin 關閉時改等 Ctrl+C / SIGTERM）
         var stdinThread = new Thread(() =>
@@ -60,6 +60,9 @@ public static class Program
                     case "stats":
                         Console.WriteLine(host.StatsSnapshot());
                         break;
+                    case "touches":
+                        Console.WriteLine(host.TouchesSnapshot());
+                        break;
                     case "probe":
                         var path = LatencyProbe.DumpCsv(logDir);
                         Console.WriteLine($"latency CSV → {path}");
@@ -70,7 +73,7 @@ public static class Program
                     case "":
                         break;
                     default:
-                        Console.WriteLine("未知指令。可用：stats / probe / quit");
+                        Console.WriteLine("未知指令。可用：stats / touches / probe / quit");
                         break;
                 }
             }

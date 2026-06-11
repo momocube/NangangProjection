@@ -15,6 +15,7 @@ public sealed class StatsCollector
     long _parseErrors;
     long _points;
     long _pointsUnrouted;
+    long _droppedByLock;
     long _downs;
     long _moves;
     long _ups;
@@ -31,6 +32,7 @@ public sealed class StatsCollector
     public void OnParseError()    => Interlocked.Increment(ref _parseErrors);
     public void OnPoints(int n)   => Interlocked.Add(ref _points, n);
     public void OnUnrouted()      => Interlocked.Increment(ref _pointsUnrouted);
+    public void OnDroppedByLock() => Interlocked.Increment(ref _droppedByLock);
     public void OnDown()          => Interlocked.Increment(ref _downs);
     public void OnMove()          => Interlocked.Increment(ref _moves);
     public void OnUp()            => Interlocked.Increment(ref _ups);
@@ -68,6 +70,7 @@ public sealed class StatsCollector
         sb.AppendLine($"datagrams        : {datagrams}  ({_pktRate:F1} pkt/s)");
         sb.AppendLine($"parse errors     : {Interlocked.Read(ref _parseErrors)}");
         sb.AppendLine($"points           : {Interlocked.Read(ref _points)}  (unrouted {Interlocked.Read(ref _pointsUnrouted)})");
+        sb.AppendLine($"dropped by lock  : {Interlocked.Read(ref _droppedByLock)}  (lockedCells 噪訊晶片過濾)");
         sb.AppendLine($"touch down/move/up: {Interlocked.Read(ref _downs)} / {Interlocked.Read(ref _moves)} / {Interlocked.Read(ref _ups)}");
         sb.AppendLine($"active touches   : {activeTouches}");
         sb.AppendLine($"frames published : {Interlocked.Read(ref _framesPublished)}");

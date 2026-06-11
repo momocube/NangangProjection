@@ -41,6 +41,7 @@ TouchService/
   "flushIntervalMs": 5,
   "keepaliveIntervalMs": 1000,
   "moveMinDistancePx": 0,
+  "lockedCells":      [],
   "udpOutput":       { "enabled": true,  "endpoints": [ "127.0.0.1:20110" ] },
   "webSocketOutput": { "enabled": true,  "port": 20111 },
   "tuioOutput":      { "enabled": false, "endpoint": "127.0.0.1:3333" },
@@ -58,6 +59,7 @@ TouchService/
 | `flushIntervalMs` | 5 | 離手掃描週期，決定 up 事件時間精度 |
 | `keepaliveIntervalMs` | 1000 | 無事件時的全狀態 snapshot 週期 |
 | `moveMinDistancePx` | 0 | move 事件最小位移門檻（0 = 任何座標變化都發） |
+| `lockedCells` | `[]` | 鎖定晶片清單（噪訊晶片過濾）：`[{"face":2,"cell":[7,13]}]`，face = 面 index、cell = [col,row]（晶片格）。命中的點在進 touch tracker 前丟棄。鎖定 SOP 見下方「現場發現噪訊晶片怎麼辦」 |
 | `udpOutput.endpoints` | 127.0.0.1:20110 | raw UDP JSON 收端清單（可多個，`host:port`） |
 | `webSocketOutput.port` | 20111 | WS + HTTP（/venue、testpage）監聽 port |
 | `tuioOutput` | 停用 | **v1 未實作**，enabled=true 會啟動失敗（防呆） |
@@ -93,7 +95,8 @@ TouchService.exe --config D:\cybercube\config.json
 
 | 指令 | 作用 |
 |---|---|
-| `stats` | 吐統計（pkt rate、parse errors、down/move/up、處理延遲、WS client 數） |
+| `stats` | 吐統計（pkt rate、parse errors、down/move/up、dropped by lock、處理延遲、WS client 數） |
+| `touches` | 列出當下所有活躍 touch（id / face / cell / px / 存活秒數），找噪訊晶片用 |
 | `probe` | dump latency CSV 到 log 目錄（環形 buffer 最近 ~16k 筆事件） |
 | `quit` | 優雅關閉 |
 
@@ -123,9 +126,35 @@ SensorSimulator.exe replay capture-multitouch-floor.txt --target 127.0.0.1:20001
 # 瀏覽器：開 http://127.0.0.1:20111/ → 連線 → 看觸點與事件流
 ```
 
+## 現場發現噪訊晶片怎麼辦（lockedCells 鎖定 SOP）
+
+症狀：沒人踩卻一直有觸點、或同一格觸點反覆 up / down 換 ID 重生——通常是該格晶片故障持續發訊號。
+
+1. 在服務 console（stdin）打 **`touches`** —— 列出當下所有活躍 touch
+   （id / face / cell / px / 存活秒數，存活久的排最上面）
+2. 確認場上沒人，找出可疑筆：**存活秒數持續累加、cell 固定不動**
+   （真人腳踩會移動、且離腳後 ~170ms 就 up）
+3. 抄下該筆的 `face` 與 `cell`
+4. 打開 config.json，把座標填進 `lockedCells`（可多筆）：
+
+   ```json
+   "lockedCells": [
+     { "face": 2, "cell": [7, 13] }
+   ]
+   ```
+
+5. 重啟服務（`lockedCells` 只在啟動時讀取，改 config 不會熱生效）
+6. 驗證：啟動 log 出現「鎖定晶片 N 顆」與清單；之後打 `stats`，
+   `dropped by lock` 持續上升 = 過濾生效，該格的點不會再進 touch 追蹤
+
+> 填錯座標不會壞事：超出場域範圍的項啟動時會在 log 印警告（永遠不會命中）；
+> 格式不完整的項自動跳過、不擋啟動。鎖定只影響那一格（16×32cm 地磚的一塊晶片），
+> 相鄰格踩踏不受影響。
+
 ## 健康檢查清單（進場後）
 
 1. `stats` → `datagrams` 持續上升、`parse errors = 0`、`unrouted = 0`
 2. testpage 踩一腳：down 紅點即時出現（體感無延遲）、放開 ~170ms 後淡出
 3. `unrouted > 0` 持續增加 → 校正範圍沒蓋到實際 raw 值 → 走 CALIBRATION.md 四角測試
 4. 觸點閃爍（按住卻 up/down 交替）→ 重送 gap 超過 timeout → `releaseTimeoutMs` 調高 20ms 再觀察
+5. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方 lockedCells 鎖定 SOP

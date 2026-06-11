@@ -30,6 +30,23 @@ public sealed class LogConfig
 }
 
 /// <summary>
+/// 鎖定晶片格（噪訊晶片過濾）：face = 面 index、cell = [col, row]（晶片格座標）。
+/// 對應 Unity 專案 SensorTestManager 的 locked[]，config 化版本。
+/// </summary>
+public sealed class LockedCellConfig
+{
+    public int Face { get; set; } = -1;
+    public int[]? Cell { get; set; }
+
+    /// <summary>欄位齊全且在 packing 範圍內才有效（壞項跳過、不擋啟動）。</summary>
+    [JsonIgnore]
+    public bool IsValid => Face is >= 0 and <= 2047 &&
+                           Cell is { Length: 2 } &&
+                           Cell[0] is >= 0 and <= 1023 &&
+                           Cell[1] is >= 0 and <= 1023;
+}
+
+/// <summary>
 /// 服務設定（config.json）。全部欄位有預設值；缺檔時自動生成範本。
 /// </summary>
 public sealed class ServiceConfig
@@ -61,6 +78,12 @@ public sealed class ServiceConfig
     /// <summary>move 事件最小位移門檻（px，0 = 任何座標變化都發）</summary>
     public int MoveMinDistancePx { get; set; } = 0;
 
+    /// <summary>
+    /// 鎖定晶片清單（噪訊晶片過濾）：命中的點在進 touch tracker 前丟棄。
+    /// 缺欄位 / null = 空 = 不過濾。現場鎖定 SOP 見 docs/DEPLOY.md。
+    /// </summary>
+    public List<LockedCellConfig> LockedCells { get; set; } = new();
+
     public UdpOutputConfig UdpOutput { get; set; } = new();
     public WebSocketOutputConfig WebSocketOutput { get; set; } = new();
     public TuioOutputConfig TuioOutput { get; set; } = new();
@@ -87,6 +110,8 @@ public sealed class ServiceConfig
         }
 
         var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<ServiceConfig>(json, JsonOptions) ?? new ServiceConfig();
+        var cfg = JsonSerializer.Deserialize<ServiceConfig>(json, JsonOptions) ?? new ServiceConfig();
+        cfg.LockedCells ??= new List<LockedCellConfig>();   // "lockedCells": null 容錯
+        return cfg;
     }
 }
