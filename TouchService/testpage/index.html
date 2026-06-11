@@ -105,6 +105,33 @@
   .score-hi  { color: var(--down); font-weight: 700; }
   .score-mid { color: var(--move); font-weight: 700; }
   td.lockedMark { color: var(--down); }
+
+  /* ── 設定 tab：啟用面勾選清單 ──────────────────────────────────────────── */
+  #cfgFaces { display: flex; flex-direction: column; gap: 2px; }
+  #cfgFaces label { min-width: auto; color: var(--text); cursor: pointer; }
+  #cfgFaces .floorNote { color: var(--dim); }
+
+  /* ── 終端 tab ──────────────────────────────────────────────────────────── */
+  #tab-term { flex: 1; display: none; flex-direction: column; min-height: 0; padding: 10px 14px; gap: 8px; }
+  #termLog {
+    flex: 1; overflow-y: auto; background: #0d0f13; border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 12px; font: 12px/1.45 "Consolas", monospace;
+    white-space: pre-wrap; word-break: break-all; min-height: 0;
+  }
+  #termLog .lv-Debug { color: #5a6172; }
+  #termLog .lv-Info  { color: var(--text); }
+  #termLog .lv-Warn  { color: var(--move); }
+  #termLog .lv-Error { color: var(--down); }
+  #termLog .cmd-echo { color: var(--accent); font-weight: 600; }
+  #termLog .cmd-out  { color: #aee8bb; }
+  #termLog .ts { color: var(--dim); }
+  #termBar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #termInput {
+    flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 10px; font: 13px "Consolas", monospace; min-width: 200px;
+  }
+  #termDenied { padding: 30px; text-align: center; color: var(--dim); display: none; }
+  #btnPauseScroll.paused { background: var(--move); color: #000; }
 </style>
 </head>
 <body>
@@ -114,6 +141,7 @@
     <button id="tabBtnMonitor" class="active">監控</button>
     <button id="tabBtnSettings">設定</button>
     <button id="tabBtnDiag">診斷</button>
+    <button id="tabBtnTerm">終端</button>
   </nav>
   <label>WS 位址 <input id="wsUrl" value=""></label>
   <button id="btnConn" class="conn">連線</button>
@@ -165,10 +193,12 @@
         <label><input type="radio" name="touchMode" value="mouse"> 滑鼠模式（摸牆操作這台機器）</label>
       </div>
       <div id="mouseSection">
-        <div class="row">
-          <label>來源牆面</label>
-          <select id="cfgFace"></select>
-          <span class="hint">預設排除地板面（Floor）</span>
+        <div class="row" style="align-items:flex-start">
+          <label>啟用觸控範圍</label>
+          <div id="cfgFaces"><span class="hint">（連線後載入面清單）</span></div>
+        </div>
+        <div class="hint" style="margin-left:180px">
+          觸點以整個場域 canvas 十字展開圖等比映射到螢幕；勾選的面才驅動游標（地板預設不勾——腳步會亂點）。
         </div>
         <div class="row">
           <label>目標螢幕</label>
@@ -180,6 +210,16 @@
           <input type="number" id="cfgScreenY" style="width:90px">
           <input type="number" id="cfgScreenW" style="width:90px" min="1">
           <input type="number" id="cfgScreenH" style="width:90px" min="1">
+        </div>
+        <div class="row">
+          <label>內容校正 offsetX / offsetY / scaleX / scaleY</label>
+          <input type="number" id="cfgContentOX" style="width:90px" step="1">
+          <input type="number" id="cfgContentOY" style="width:90px" step="1">
+          <input type="number" id="cfgContentSX" style="width:90px" min="0.01" max="100" step="0.01">
+          <input type="number" id="cfgContentSY" style="width:90px" min="0.01" max="100" step="0.01">
+        </div>
+        <div class="hint" style="margin-left:180px">
+          投影沒滿版時校正用（letterbox）：落點 = 螢幕原點 + offset + norm × 螢幕寬高 × scale。滿版維持 0 / 0 / 1 / 1。
         </div>
         <div class="row">
           <label>平滑強度（smoothing）</label>
@@ -287,6 +327,23 @@
   </div>
 </div>
 
+<!-- ── 終端 tab（log 串流 + 指令；黑視窗從此不需要）─────────────────────────── -->
+<div id="tab-term">
+  <div id="termDenied">
+    終端僅限本機 —— log 與指令只開放給服務所在機器（http://127.0.0.1:20111/）。<br>
+    此頁從其他機器開啟，僅能使用監控／診斷功能。
+  </div>
+  <div id="termLog"></div>
+  <div id="termBar">
+    <button class="btn minor termQuick" data-cmd="stats">stats</button>
+    <button class="btn minor termQuick" data-cmd="locks">locks</button>
+    <button class="btn minor termQuick" data-cmd="history">history</button>
+    <button class="btn minor termQuick" data-cmd="touches">touches</button>
+    <button class="btn minor" id="btnPauseScroll">暫停捲動</button>
+    <input id="termInput" placeholder="指令（Enter 送出；↑↓ 歷史）—— stats / touches / history [n] / locks / lock f c r / unlock f c r / savelocks / probe" autocomplete="off">
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -334,16 +391,20 @@ function showTab(name) {
   $("tab-monitor").style.display = name === "monitor" ? "flex" : "none";
   $("tab-settings").style.display = name === "settings" ? "block" : "none";
   $("tab-diag").style.display = name === "diag" ? "block" : "none";
+  $("tab-term").style.display = name === "term" ? "flex" : "none";
   $("tabBtnMonitor").classList.toggle("active", name === "monitor");
   $("tabBtnSettings").classList.toggle("active", name === "settings");
   $("tabBtnDiag").classList.toggle("active", name === "diag");
+  $("tabBtnTerm").classList.toggle("active", name === "term");
   if (name === "monitor") resize();         // canvas 在 hidden 期間量不到尺寸，回來重算
   if (name === "settings") loadSettings();  // 進設定頁刷新目前生效值
   if (name === "diag") refreshHistory();    // 進診斷頁立即抓排行（之後每 5 秒）
+  if (name === "term") enterTerminal();     // 終端：loopback 檢查 + 捲到底 + focus 輸入框
 }
 $("tabBtnMonitor").onclick = () => showTab("monitor");
 $("tabBtnSettings").onclick = () => showTab("settings");
 $("tabBtnDiag").onclick = () => showTab("diag");
+$("tabBtnTerm").onclick = () => showTab("term");
 
 // ── WebSocket ───────────────────────────────────────────────────────────────
 function connect() {
@@ -388,6 +449,14 @@ function onMessage(msg) {
     applyLocks(msg, now);
     return;
   }
+
+  // log 串流（僅 loopback client 會收到；終端 tab 顯示）
+  if (msg.type === "log") {
+    termAppendLog(msg);
+    return;
+  }
+
+  if (msg.type) return;   // 未知 type：一律忽略（協議規則）
 
   // frame（schema v1，見 docs/PROTOCOL.md）
   state.msgTimes.push(now);
@@ -617,20 +686,31 @@ function fillForm() {
   document.querySelector(`input[name=touchMode][value=${c.touchMode === "mouse" ? "mouse" : "grid"}]`).checked = true;
   $("mouseSection").style.display = c.touchMode === "mouse" ? "block" : "none";
 
-  // 來源牆面下拉：hello / venue faces，預設排除地板（name 含 Floor）；
-  // 目前 config 指到地板時仍列出（標註），不讓表單默默改值
-  const faceSel = $("cfgFace");
-  faceSel.innerHTML = "";
+  // 啟用觸控範圍：每面一個 checkbox（hello / venue faces）；勾選狀態 = 後端解析後的
+  // mouseMode.faces（缺欄位時後端預設 = 排除地板）。地板列出但標註不建議
+  const facesBox = $("cfgFaces");
+  facesBox.innerHTML = "";
+  const enabled = new Set(c.mouseMode.faces || []);
   (state.faces || []).forEach(f => {
     const isFloor = /floor/i.test(f.name);
-    if (isFloor && f.index !== c.mouseMode.face) return;
-    const opt = document.createElement("option");
-    opt.value = f.index;
-    opt.textContent = `${f.index}: ${f.name}${isFloor ? "（地板，不建議）" : ""}`;
-    faceSel.appendChild(opt);
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "faceCb";
+    cb.value = f.index;
+    cb.checked = enabled.has(f.index);
+    label.appendChild(cb);
+    label.append(` ${f.index}: ${f.name}`);
+    if (isFloor) {
+      const note = document.createElement("span");
+      note.className = "floorNote";
+      note.textContent = "（地板，預設不勾——腳步會亂點）";
+      label.appendChild(note);
+    }
+    facesBox.appendChild(label);
   });
-  faceSel.value = String(c.mouseMode.face);
-  if (faceSel.value === "") faceSel.selectedIndex = 0;   // config face 不在清單（理論上不會）
+  if (!(state.faces || []).length)
+    facesBox.innerHTML = '<span class="hint">（取不到面清單——先按上方「連線」或檢查服務）</span>';
 
   // 目標螢幕下拉（GET /monitors；非 Windows 為空）
   const monSel = $("cfgMonitor");
@@ -654,6 +734,10 @@ function fillForm() {
   $("cfgScreenY").value = c.mouseMode.screen.y;
   $("cfgScreenW").value = c.mouseMode.screen.width;
   $("cfgScreenH").value = c.mouseMode.screen.height;
+  $("cfgContentOX").value = c.mouseMode.content.offsetX;
+  $("cfgContentOY").value = c.mouseMode.content.offsetY;
+  $("cfgContentSX").value = c.mouseMode.content.scaleX;
+  $("cfgContentSY").value = c.mouseMode.content.scaleY;
   $("cfgSmoothing").value = c.mouseMode.smoothing;
   $("cfgSmoothingVal").textContent = c.mouseMode.smoothing;
   $("cfgMoveMinPx").value = c.mouseMode.moveMinPx;
@@ -681,10 +765,14 @@ $("btnApply").onclick = async () => {
   const body = {
     touchMode: document.querySelector("input[name=touchMode]:checked").value,
     mouseMode: {
-      face: +$("cfgFace").value || 0,
+      faces: [...document.querySelectorAll("#cfgFaces .faceCb:checked")].map(cb => +cb.value),
       screen: {
         x: +$("cfgScreenX").value, y: +$("cfgScreenY").value,
         width: +$("cfgScreenW").value, height: +$("cfgScreenH").value,
+      },
+      content: {
+        offsetX: +$("cfgContentOX").value || 0, offsetY: +$("cfgContentOY").value || 0,
+        scaleX: +$("cfgContentSX").value || 1, scaleY: +$("cfgContentSY").value || 1,
       },
       smoothing: +$("cfgSmoothing").value,
       moveMinPx: +$("cfgMoveMinPx").value,
@@ -851,6 +939,95 @@ $("btnManualLock").onclick = async () => {
   if (r.body?.ok) refreshHistory();
 };
 gateLockButton($("btnManualLock"));
+
+// ── 終端 tab：log 串流 + 指令（POST /command；與 stdin 同輸出）──────────────
+const TERM_MAX_NODES = 1500;   // 顯示上限（ring 300 行 backlog + 即時 + 指令輸出）
+let termAutoScroll = true;
+const termHistory = [];        // 指令歷史（↑↓）
+let termHistIdx = -1;
+
+function termScrollBottom() {
+  if (termAutoScroll) $("termLog").scrollTop = $("termLog").scrollHeight;
+}
+
+function termTrim() {
+  const el = $("termLog");
+  while (el.children.length > TERM_MAX_NODES) el.removeChild(el.firstChild);
+}
+
+function termAppendLog(msg) {
+  const div = document.createElement("div");
+  div.className = `lv-${msg.level}`;
+  const ts = new Date(msg.ts).toLocaleTimeString("en-GB");
+  div.innerHTML = `<span class="ts">${ts}</span> [${msg.level}] `;
+  div.append(msg.line);   // append 文字節點：log 內容不進 innerHTML（防注入）
+  $("termLog").appendChild(div);
+  termTrim();
+  termScrollBottom();
+}
+
+function termAppendText(text, cls) {
+  for (const line of String(text).split("\n")) {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = line;
+    $("termLog").appendChild(div);
+  }
+  termTrim();
+  termScrollBottom();
+}
+
+async function termRun(cmd) {
+  cmd = cmd.trim();
+  if (!cmd) return;
+  termAppendText(`> ${cmd}`, "cmd-echo");
+  termHistory.push(cmd);
+  termHistIdx = termHistory.length;
+  try {
+    const r = await fetchJson("/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cmd }),
+    });
+    if (r.status === 403) termAppendText("（403：終端僅限本機）", "lv-Error");
+    else termAppendText(r.body?.output ?? r.body?.message ?? `HTTP ${r.status}`, "cmd-out");
+  } catch (e) {
+    termAppendText("送出失敗：" + e.message, "lv-Error");
+  }
+}
+
+$("termInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    termRun($("termInput").value);
+    $("termInput").value = "";
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (termHistIdx > 0) $("termInput").value = termHistory[--termHistIdx];
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (termHistIdx < termHistory.length - 1) $("termInput").value = termHistory[++termHistIdx];
+    else { termHistIdx = termHistory.length; $("termInput").value = ""; }
+  }
+});
+
+document.querySelectorAll(".termQuick").forEach(btn =>
+  btn.onclick = () => termRun(btn.dataset.cmd));
+
+$("btnPauseScroll").onclick = () => {
+  termAutoScroll = !termAutoScroll;
+  $("btnPauseScroll").textContent = termAutoScroll ? "暫停捲動" : "恢復捲動";
+  $("btnPauseScroll").classList.toggle("paused", !termAutoScroll);
+  termScrollBottom();
+};
+
+/** 進終端 tab：非 loopback 開頁 → log 區塊隱藏 + 「終端僅限本機」提示（log 本來就不會推給非 loopback）。 */
+function enterTerminal() {
+  const local = uiIsLoopback();
+  $("termDenied").style.display = local ? "none" : "block";
+  $("termLog").style.display = local ? "block" : "none";
+  $("termBar").style.display = local ? "flex" : "none";
+  if (local) { termScrollBottom(); $("termInput").focus(); }
+}
 
 // ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──
 if (location.protocol.startsWith("http")) connect();

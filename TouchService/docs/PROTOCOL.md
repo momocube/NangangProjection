@@ -176,8 +176,27 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
 - `lockedCells` 為**全量清單**（不是 delta），欄位同 hello——收到直接整包替換即可
 - 一般訂閱端（遊戲 / 美術程式）**可以無視**這個訊息：鎖定格本來就不會有事件。
   它存在的目的是讓監控頁（testpage）即時顯示鎖定狀態
-- 訂閱端 parser 規則：**帶 `type` 欄位的訊息都不是觸控 frame**（目前有 hello / locks，
-  未來可能新增），未知 type 一律忽略
+- 訂閱端 parser 規則：**帶 `type` 欄位的訊息都不是觸控 frame**（目前有 hello / locks /
+  log，未來可能新增），未知 type 一律忽略
+
+### log 推播（僅 loopback；UI 終端用，2026-06 v6 新增）
+
+服務 log 即時推給 **loopback 來源的 WS client**（識別：`"type":"log"`）：
+
+```json
+{ "type": "log", "ts": 1765432100123, "level": "Info", "line": "[Host] 啟動完成…" }
+```
+
+| 欄位 | 說明 |
+|---|---|
+| `ts` | log 時刻 unix epoch 毫秒 |
+| `level` | `Debug` / `Info` / `Warn` / `Error` |
+| `line` | log 內文（不含時間戳前綴——`ts`/`level` 已是獨立欄位） |
+
+- **只推給 loopback（127.0.0.1）連線**：LAN 訂閱端收不到（它們本來就會忽略帶
+  `type` 的訊息，但 log 內容也不該外流到內網）
+- loopback client 連上時先補發最近 **300 行** ring buffer，之後即時推
+- 這是 UI「終端」tab 的資料源，**不屬於對外協議**——LAN 訂閱端永遠看不到此 type
 - 同 port 的 HTTP：`GET /venue` 回完整場域 profile（含 raw 校準值，CORS `*`）、
   `GET /` 回內建 testpage
 - 實作為最小 RFC 6455（text frame、close、ping/pong），不支援壓縮擴充；
@@ -190,11 +209,15 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
   訂閱端不需要也無法感知目前模式。
 - **config API 是本機管理介面、不屬於對外協議**：與 WS 同 port 另有
   `GET /config`、`POST /config`、`GET /monitors`、`GET /history`、
-  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/save`
-  七個 HTTP 端點（給內建設定/診斷頁用）。**寫入類端點與 /monitors 僅接受 loopback 來源**
-  （非 loopback 一律 403）；`GET /history`（疑似噪訊排行，`?top=N` 預設 50）與
-  `GET /config` 為唯讀、不限 loopback——場館內網監看 OK。皆不在 v1 承諾範圍內、
-  欄位可能隨版本調整，訂閱端不要依賴。端點細節見 `DEPLOY.md`「啟動 UI」。
+  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/save`、`POST /command`
+  八個 HTTP 端點（給內建設定/診斷/終端頁用）。**寫入類端點、/monitors 與 /command
+  僅接受 loopback 來源**（非 loopback 一律 403）；`GET /history`（疑似噪訊排行，
+  `?top=N` 預設 50）與 `GET /config` 為唯讀、不限 loopback——場館內網監看 OK。
+  皆不在 v1 承諾範圍內、欄位可能隨版本調整，訂閱端不要依賴。
+  端點細節見 `DEPLOY.md`「啟動 UI」。
+- **`POST /command`（v6）**：UI 終端的指令通道——body `{"cmd":"history 20"}` →
+  回 `{"output":"..."}`。與 stdin 走同一個 CommandProcessor，輸出文字一致；
+  搭配上方 log 推播（type:"log"，僅 loopback），UI 終端 = console 的完整替代。
 
 ## 版本策略
 

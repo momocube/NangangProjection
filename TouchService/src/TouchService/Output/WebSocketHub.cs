@@ -47,6 +47,7 @@ public sealed class WebSocketHub : ITouchSink
     {
         public required TcpClient Tcp;
         public required NetworkStream Stream;
+        public required bool IsLoopback;   // log push 僅 loopback（LAN 訂閱端不收 log 內容）
         public readonly object SendGate = new();
         public volatile bool Dead;
     }
@@ -57,6 +58,7 @@ public sealed class WebSocketHub : ITouchSink
     readonly Func<byte[]> _helloProvider;
     readonly string? _testPagePath;
     readonly Func<ApiRequest, ApiResponse?>? _apiHandler;
+    readonly Func<IReadOnlyList<byte[]>>? _loopbackBacklog;
     readonly List<Client> _clients = new();
     readonly object _clientsGate = new();
     readonly CancellationTokenSource _cts = new();
@@ -64,16 +66,19 @@ public sealed class WebSocketHub : ITouchSink
 
     /// <summary>
     /// helloProvider：每個 client 連上時呼叫一次，產生當下的 hello（鎖定清單 / 自檢狀態是動態的）。
-    /// apiHandler：本機管理 HTTP API（/config、/monitors、/locks/*；ConfigApi），null = 停用。
+    /// apiHandler：本機管理 HTTP API（/config、/monitors、/locks/*、/command；ConfigApi），null = 停用。
+    /// loopbackBacklog：loopback client 連上時 hello 之後補發的訊息（log ring buffer），null = 無。
     /// </summary>
     public WebSocketHub(int port, byte[] venueJson, Func<byte[]> helloProvider, string? testPagePath,
-                        FileLogger log, Func<ApiRequest, ApiResponse?>? apiHandler = null)
+                        FileLogger log, Func<ApiRequest, ApiResponse?>? apiHandler = null,
+                        Func<IReadOnlyList<byte[]>>? loopbackBacklog = null)
     {
         _log = log;
         _venueJson = venueJson;
         _helloProvider = helloProvider;
         _testPagePath = testPagePath;
         _apiHandler = apiHandler;
+        _loopbackBacklog = loopbackBacklog;
         _listener = new TcpListener(IPAddress.Any, port);
     }
 
@@ -270,12 +275,17 @@ public sealed class WebSocketHub : ITouchSink
         stream.Flush();
         stream.ReadTimeout = Timeout.Infinite;
 
-        var client = new Client { Tcp = tcp, Stream = stream };
+        var client = new Client { Tcp = tcp, Stream = stream, IsLoopback = IsLoopback(tcp) };
         lock (_clientsGate) _clients.Add(client);
         _log.Info($"[WebSocketHub] client 連入（{tcp.Client.RemoteEndPoint}），目前 {ClientCount} 個");
 
         // hello：venue 輪廓 + 當下鎖定清單 / 自檢狀態下發（testpage 啟動繪製用）
         SendFrame(client, 0x1, _helloProvider());
+
+        // loopback client：補發 log ring buffer（UI 終端開頁即看到最近 300 行）
+        if (client.IsLoopback && _loopbackBacklog != null)
+            foreach (var msg in _loopbackBacklog())
+                SendFrame(client, 0x1, msg);
 
         try { ClientReadLoop(client); }
         catch { /* 斷線 */ }
@@ -403,6 +413,23 @@ public sealed class WebSocketHub : ITouchSink
 
         foreach (var c in snapshot)
         {
+            SendFrame(c, 0x1, utf8Json);
+            if (c.Dead) DropClient(c);
+        }
+    }
+
+    /// <summary>
+    /// 只推給 loopback 來源的 client（log push 用：LAN 訂閱端不收 log——
+    /// 它們本來就忽略帶 type 的訊息，但 log 內容也不該外流）。
+    /// </summary>
+    public void PublishToLoopback(byte[] utf8Json)
+    {
+        Client[] snapshot;
+        lock (_clientsGate) snapshot = _clients.ToArray();
+
+        foreach (var c in snapshot)
+        {
+            if (!c.IsLoopback) continue;
             SendFrame(c, 0x1, utf8Json);
             if (c.Dead) DropClient(c);
         }

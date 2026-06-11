@@ -33,6 +33,13 @@ public sealed class LogConfig
 public sealed class UiConfig
 {
     public bool AutoLaunch { get; set; } = true;
+
+    /// <summary>
+    /// 系統列托盤常駐（僅 Windows）：啟動時隱藏 console、掛 NotifyIcon
+    /// （雙擊開 UI / 右鍵選單）。false = 行為同 v5（console 視窗照常顯示、無托盤）。
+    /// `--console` CLI flag 可在 trayEnabled=true 下保留 console（除錯用）。
+    /// </summary>
+    public bool TrayEnabled { get; set; } = true;
 }
 
 /// <summary>滑鼠模式的目標螢幕矩形（virtual desktop 座標，非主螢幕可為負）。</summary>
@@ -45,18 +52,47 @@ public sealed class ScreenRectConfig
 }
 
 /// <summary>
-/// 滑鼠模式（touchMode == "mouse" 時生效）：mouseMode.face 那一面的觸點映射為
-/// OS 滑鼠操作（down→LEFTDOWN / move→游標平滑移動 / up→LEFTUP）。
-/// 單點所有權：該面第一個 down 的 touch 是 owner，up 前其他觸點忽略。
+/// 投影內容在螢幕內的校正（letterbox / 投影沒滿版時用）：
+/// 有效落點 = screen rect 套用 offset/scale。預設 0/0/1/1 = 滿版（不校正）。
+/// screenX = screen.x + offsetX + norm.x × screen.width × scaleX。
+/// </summary>
+public sealed class ContentRectConfig
+{
+    public double OffsetX { get; set; }
+    public double OffsetY { get; set; }
+    public double ScaleX { get; set; } = 1.0;
+    public double ScaleY { get; set; } = 1.0;
+}
+
+/// <summary>
+/// 滑鼠模式（touchMode == "mouse" 時生效）：啟用面（faces）上的觸點以
+/// **canvas 十字展開圖座標**映射為 OS 滑鼠操作（down→LEFTDOWN / move→平滑移動 / up→LEFTUP）。
+/// 投影螢幕顯示的是整個場域 canvas 的十字展開圖——映射是 canvas norm（px / canvas 尺寸）
+/// → 目標螢幕 rect 等比落點，不是單一面拉伸到全螢幕（v4 的 bug）。
+/// 單點所有權跨所有啟用面：任一啟用面第一個 down 的 touch 是 owner，up 前其他觸點忽略。
 /// 詳見 docs/DEPLOY.md「滑鼠模式」。
 /// </summary>
 public sealed class MouseModeConfig
 {
-    /// <summary>來源感應面 index（venue faces 順序；704 牆面建議、地板 face 2 = Floor 不建議）。</summary>
-    public int Face { get; set; }
+    /// <summary>
+    /// 啟用滑鼠觸控的面清單（venue faces index）。
+    /// 缺欄位/null = 預設：全部面但排除名稱含 Floor 的面（704 = 地板關、六個牆面開）。
+    /// 空陣列 = 全部停用（滑鼠 sink 不動作）。
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<int>? Faces { get; set; }
 
-    /// <summary>映射目標螢幕矩形（面內 0~1 座標 → 此矩形內的螢幕座標）。</summary>
+    /// <summary>
+    /// 舊版（v4/v5）單數欄位：讀到時自動轉成 Faces=[Face] 並 log 提示（向後相容，僅供反序列化）。
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Face { get; set; }
+
+    /// <summary>映射目標螢幕矩形（canvas norm 0~1 → 此矩形內的螢幕座標）。</summary>
     public ScreenRectConfig Screen { get; set; } = new();
+
+    /// <summary>投影內容校正（letterbox/沒滿版時用）。缺欄位/null = 滿版（0/0/1/1）。</summary>
+    public ContentRectConfig Content { get; set; } = new();
 
     /// <summary>平滑強度：8ms 迴圈每 tick 以此比例指數逼近目標（0 &lt; s ≤ 1；1 = 不平滑直接到位）。</summary>
     public double Smoothing { get; set; } = 0.35;
@@ -145,6 +181,13 @@ public sealed class ServiceConfig
     /// <summary>滑鼠模式參數（touchMode == "mouse" 時生效）。缺欄位 / null = 預設值。</summary>
     public MouseModeConfig MouseMode { get; set; } = new();
 
+    /// <summary>
+    /// 舊 config 的 mouseMode.face（單數）被轉成 faces:[face] 時為 true——
+    /// host 啟動時據此 log 提示（LoadOrCreate 無 logger，旗標帶出去）。
+    /// </summary>
+    [JsonIgnore]
+    public bool MouseModeLegacyFaceConverted { get; private set; }
+
     /// <summary>啟動 UI（Windows 自動開瀏覽器 app 視窗）。缺欄位 / null = 預設開啟。</summary>
     public UiConfig Ui { get; set; } = new();
 
@@ -180,6 +223,14 @@ public sealed class ServiceConfig
         cfg.TouchMode = string.IsNullOrWhiteSpace(cfg.TouchMode) ? "grid" : cfg.TouchMode.Trim().ToLowerInvariant();
         cfg.MouseMode ??= new MouseModeConfig();            // "mouseMode": null 容錯
         cfg.MouseMode.Screen ??= new ScreenRectConfig();
+        cfg.MouseMode.Content ??= new ContentRectConfig();  // "content": null 容錯（滿版）
+        // 向後相容：舊 config 的 mouseMode.face（單數）→ faces:[face]（host 啟動時 log 提示）
+        if (cfg.MouseMode.Faces == null && cfg.MouseMode.Face is int legacyFace)
+        {
+            cfg.MouseMode.Faces = new List<int> { legacyFace };
+            cfg.MouseModeLegacyFaceConverted = true;
+        }
+        cfg.MouseMode.Face = null;                          // 單數欄位僅供讀入，不再往下傳
         cfg.Ui ??= new UiConfig();                          // "ui": null 容錯
         return cfg;
     }

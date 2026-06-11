@@ -18,6 +18,12 @@ public sealed class FileLogger : IDisposable
     StreamWriter? _writer;
     DateTime _writerDate;
 
+    /// <summary>
+    /// 每寫一筆（過 minLevel 後）通知：UI 終端的 log 串流（LogStreamer）掛這裡。
+    /// 在 _gate 外觸發、訂閱端必須快速返回（LogStreamer 只 enqueue，推送在背景執行緒）。
+    /// </summary>
+    public event Action<DateTime, LogLevel, string>? EntryWritten;
+
     public FileLogger(string dir, LogLevel minLevel, bool console)
     {
         _dir = dir;
@@ -56,6 +62,8 @@ public sealed class FileLogger : IDisposable
             if (_console)
                 Console.WriteLine(line);
         }
+
+        EntryWritten?.Invoke(now, level, msg);   // _gate 外：訂閱端慢不會卡住 log 寫入
     }
 
     void EnsureWriter(DateTime date)

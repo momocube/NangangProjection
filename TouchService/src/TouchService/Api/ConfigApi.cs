@@ -16,8 +16,10 @@ namespace TouchService.Api;
 ///   POST /locks/lock    手動鎖定一格（body {"face":2,"col":7,"row":13}；語意同 stdin lock，來源 manual）
 ///   POST /locks/unlock  解鎖一格（body {"face":2,"col":7,"row":13}；語意同 stdin unlock）
 ///   POST /locks/save    鎖定寫回 config.json（語意同 stdin savelocks）
+///   POST /command       UI 終端指令（body {"cmd":"history 20"} → {"output":"..."}；
+///                       與 stdin 共用 CommandProcessor，輸出文字一致）
 ///
-/// 來源限制：**全部寫入類端點 + /monitors 僅接受 loopback**，非 loopback 一律 403
+/// 來源限制：**全部寫入類端點 + /monitors + /command 僅接受 loopback**，非 loopback 一律 403
 /// （服務在場館內網跑、WS port 對網段開放，但設定只准本機 UI 改）。
 /// </summary>
 public sealed class ConfigApi
@@ -62,6 +64,11 @@ public sealed class ConfigApi
                 var saveMsg = _host.SaveLocks();
                 return Result("200 OK", saveMsg.StartsWith("已寫回"), saveMsg);
 
+            case ("POST", "/command"):
+                // UI 終端：與 stdin 同一個 CommandProcessor，輸出文字一致。僅 loopback。
+                if (!req.IsLoopback) return Forbidden();
+                return HandleCommand(req.Body);
+
             default:
                 return null;   // 不歸 API 管 → hub 回 404
         }
@@ -86,6 +93,25 @@ public sealed class ConfigApi
 
         var msg = unlock ? _host.UnlockCell(face, col, row) : _host.LockCell(face, col, row);
         return Result("200 OK", msg.StartsWith(unlock ? "已解鎖" : "已鎖定"), msg);
+    }
+
+    /// <summary>POST /command：body {"cmd":"..."} → {"output":"..."}（CommandProcessor 與 stdin 共用）。</summary>
+    WebSocketHub.ApiResponse HandleCommand(string body)
+    {
+        string cmd;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            cmd = doc.RootElement.GetProperty("cmd").GetString()
+                  ?? throw new JsonException("cmd 必須是字串");
+        }
+        catch (Exception ex)
+        {
+            return Result("400 Bad Request", false, $"body 需為 {{\"cmd\":\"指令\"}}：{ex.Message}");
+        }
+
+        var output = _host.Commands.Execute(cmd);
+        return WebSocketHub.ApiResponse.Json("200 OK", JsonSerializer.Serialize(new { output }));
     }
 
     /// <summary>解析 query 的 top 參數（缺省 / 非法 → defaultTop；上限 500 防整包傾倒）。</summary>

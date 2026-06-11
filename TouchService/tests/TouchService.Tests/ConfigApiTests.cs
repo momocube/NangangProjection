@@ -81,7 +81,15 @@ public class ConfigApiTests
             Assert.Equal(190, root.GetProperty("releaseTimeoutMs").GetInt32());
             Assert.Equal(96, root.GetProperty("matchRadiusPx").GetSingle());
             Assert.False(root.GetProperty("autoLock").GetProperty("enabled").GetBoolean());
-            Assert.Equal(0.35, root.GetProperty("mouseMode").GetProperty("smoothing").GetDouble(), 3);
+            var mm = root.GetProperty("mouseMode");
+            Assert.Equal(0.35, mm.GetProperty("smoothing").GetDouble(), 3);
+            // faces 缺欄位 → 預設：全部面排除 Floor（704 = face 2 地板）
+            var faces = mm.GetProperty("faces").EnumerateArray().Select(f => f.GetInt32()).ToArray();
+            Assert.Equal(new[] { 0, 1, 3, 4, 5, 6 }, faces);
+            // content 預設滿版 0/0/1/1
+            Assert.Equal(1.0, mm.GetProperty("content").GetProperty("scaleX").GetDouble(), 3);
+            Assert.Equal(0.0, mm.GetProperty("content").GetProperty("offsetX").GetDouble(), 3);
+            Assert.True(root.GetProperty("ui").GetProperty("trayEnabled").GetBoolean());
             Assert.Equal("704", root.GetProperty("venue").GetString());
             // 需重啟欄位（UI 唯讀顯示用）；去敏感：不直出 log 設定
             Assert.True(root.GetProperty("restartOnly").TryGetProperty("listenPort", out _));
@@ -110,8 +118,9 @@ public class ConfigApiTests
                   "releaseTimeoutMs": 220,
                   "matchRadiusPx": 120,
                   "mouseMode": {
-                    "face": 4,
+                    "faces": [4, 0],
                     "screen": { "x": -1920, "y": 0, "width": 1920, "height": 1080 },
+                    "content": { "offsetX": 12, "offsetY": -8, "scaleX": 0.9, "scaleY": 0.95 },
                     "smoothing": 0.5,
                     "moveMinPx": 3
                   },
@@ -130,8 +139,11 @@ public class ConfigApiTests
                 Assert.Equal(220, root.GetProperty("releaseTimeoutMs").GetInt32());
                 Assert.Equal(120, root.GetProperty("matchRadiusPx").GetSingle());
                 var mm = root.GetProperty("mouseMode");
-                Assert.Equal(4, mm.GetProperty("face").GetInt32());
+                Assert.Equal(new[] { 0, 4 },   // 解析後排序去重
+                    mm.GetProperty("faces").EnumerateArray().Select(f => f.GetInt32()).ToArray());
                 Assert.Equal(-1920, mm.GetProperty("screen").GetProperty("x").GetInt32());
+                Assert.Equal(12, mm.GetProperty("content").GetProperty("offsetX").GetDouble(), 3);
+                Assert.Equal(0.9, mm.GetProperty("content").GetProperty("scaleX").GetDouble(), 3);
                 Assert.Equal(0.5, mm.GetProperty("smoothing").GetDouble(), 3);
             }
 
@@ -139,8 +151,10 @@ public class ConfigApiTests
             var reloaded = ServiceConfig.LoadOrCreate(configPath);
             Assert.Equal("mouse", reloaded.TouchMode);
             Assert.Equal(220, reloaded.ReleaseTimeoutMs);
-            Assert.Equal(4, reloaded.MouseMode.Face);
+            Assert.Equal(new List<int> { 0, 4 }, reloaded.MouseMode.Faces);
             Assert.Equal(-1920, reloaded.MouseMode.Screen.X);
+            Assert.Equal(0.9, reloaded.MouseMode.Content.ScaleX, 3);
+            Assert.Equal(-8, reloaded.MouseMode.Content.OffsetY, 3);
             Assert.True(reloaded.AutoLock.Enabled);
             Assert.Equal(8, reloaded.AutoLock.WindowSeconds);
             Assert.Equal(30001, reloaded.ListenPort);
@@ -166,6 +180,30 @@ public class ConfigApiTests
         }
     }
 
+    [Fact]
+    public async Task PostConfig_舊欄位face單數_相容轉成faces()
+    {
+        var (host, configPath, log, _) = NewHost("""{ "autoLock": { "enabled": false } }""");
+        using (host)
+        using (log)
+        {
+            // 舊版 UI / 腳本還送 face（單數）→ 視為 faces:[face]
+            var (status, _) = await Post(host, "/config", """{ "mouseMode": { "face": 4 } }""");
+            Assert.Equal(HttpStatusCode.OK, status);
+
+            var (_, body) = await Get(host, "/config");
+            using var doc = JsonDocument.Parse(body);
+            Assert.Equal(new[] { 4 },
+                doc.RootElement.GetProperty("mouseMode").GetProperty("faces")
+                    .EnumerateArray().Select(f => f.GetInt32()).ToArray());
+
+            // 寫回的是新 schema（faces 陣列，無 face 單數欄位）
+            var raw = File.ReadAllText(configPath);
+            Assert.Contains("\"faces\"", raw);
+            Assert.DoesNotContain("\"face\":", raw);
+        }
+    }
+
     // ── 非法值拒收（400，且不留半套狀態）─────────────────────────────────────
 
     [Theory]
@@ -173,11 +211,17 @@ public class ConfigApiTests
     [InlineData("""{ "releaseTimeoutMs": 0 }""")]
     [InlineData("""{ "releaseTimeoutMs": "fast" }""")]
     [InlineData("""{ "matchRadiusPx": -5 }""")]
+    [InlineData("""{ "mouseMode": { "faces": [99] } }""")]
+    [InlineData("""{ "mouseMode": { "faces": [-1] } }""")]
+    [InlineData("""{ "mouseMode": { "faces": "walls" } }""")]
+    [InlineData("""{ "mouseMode": { "faces": [0, "x"] } }""")]
     [InlineData("""{ "mouseMode": { "face": 99 } }""")]
-    [InlineData("""{ "mouseMode": { "face": -1 } }""")]
     [InlineData("""{ "mouseMode": { "smoothing": 0 } }""")]
     [InlineData("""{ "mouseMode": { "smoothing": 1.5 } }""")]
     [InlineData("""{ "mouseMode": { "screen": { "width": 0 } } }""")]
+    [InlineData("""{ "mouseMode": { "content": { "scaleX": 0 } } }""")]
+    [InlineData("""{ "mouseMode": { "content": { "scaleY": -1 } } }""")]
+    [InlineData("""{ "mouseMode": { "content": "full" } }""")]
     [InlineData("""{ "autoLock": { "minPackets": 0 } }""")]
     [InlineData("not json at all")]
     public async Task PostConfig_非法值_400且現值不變(string badBody)
@@ -322,9 +366,9 @@ public class ConfigApiTests
             host.Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { WallRaw }), 0);
             Assert.Empty(injector.Calls);
 
-            // 熱切到 mouse（face 0 = Wall Left）
+            // 熱切到 mouse（只勾 face 0 = Wall Left）
             var (status, _) = await Post(host, "/config",
-                """{ "touchMode": "mouse", "mouseMode": { "face": 0 } }""");
+                """{ "touchMode": "mouse", "mouseMode": { "faces": [0] } }""");
             Assert.Equal(HttpStatusCode.OK, status);
 
             // 既有 touch 的 move 事件不接手（owner 必須由 down 建立）；新 down 取得游標

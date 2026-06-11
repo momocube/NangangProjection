@@ -47,10 +47,11 @@ TouchService/
   "lockedCells":      [],
   "autoLock":        { "enabled": true,  "windowSeconds": 10, "minPackets": 10 },
   "touchMode":        "grid",
-  "mouseMode":       { "face": 0,
+  "mouseMode":       { "faces": [0, 1, 3, 4, 5, 6],
                        "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+                       "content": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 },
                        "smoothing": 0.35, "moveMinPx": 2 },
-  "ui":              { "autoLaunch": true },
+  "ui":              { "autoLaunch": true, "trayEnabled": true },
   "udpOutput":       { "enabled": true,  "endpoints": [ "127.0.0.1:20110" ] },
   "webSocketOutput": { "enabled": true,  "port": 20111 },
   "tuioOutput":      { "enabled": false, "endpoint": "127.0.0.1:3333" },
@@ -73,11 +74,13 @@ TouchService/
 | `autoLock.windowSeconds` | 10 | 自檢窗長度（秒）。窗期間**不發布任何觸控事件**（keepalive 照發）；≤ 0 視為停用 |
 | `autoLock.minPackets` | 10 | 窗內封包數達此值才鎖。噪訊晶片 ~80ms 重送、10 秒約 125 包，門檻 10 遠低於噪訊、又高於短暫誤踩 |
 | `touchMode` | grid | `grid`（純發布）/ `mouse`（額外掛 OS 滑鼠 sink——**發布照常**，監控頁/訂閱端不受影響）。可由設定頁熱切 |
-| `mouseMode.face` | 0 | 滑鼠來源感應面 index（venue faces 順序）。**選牆面**——704 的地板是 face 2（Floor），拿地板當滑鼠會被腳步亂點 |
+| `mouseMode.faces` | 缺欄位 = 排除 Floor | **啟用滑鼠觸控的面清單**（venue faces index 陣列）。缺欄位/null = 預設「全部面但排除名稱含 Floor 的面」（704 = 地板關、六個牆面開）；空陣列 = 全部停用。**舊 config 的 `face`（單數 int）讀到時自動轉成 `faces:[該值]` 並在 log 提示**，設定頁套用後以新 schema 寫回 |
 | `mouseMode.screen` | 0,0,1920×1080 | 映射目標螢幕矩形（virtual desktop 座標，非主螢幕可為負）。設定頁可從螢幕下拉直接帶入 |
+| `mouseMode.content` | 0/0/1/1 | 投影內容在螢幕內的校正（letterbox/沒滿版時用）：落點 = screen 原點 + offset + norm × screen 寬高 × scale。預設 0/0/1/1 = 滿版。校正流程見下方「滑鼠模式」 |
 | `mouseMode.smoothing` | 0.35 | 平滑強度：8ms 迴圈每 tick 以此比例指數逼近目標（0.01~1；1 = 不平滑直接到位） |
 | `mouseMode.moveMinPx` | 2 | 平滑迴圈單步位移小於此 px 不注入（防 125Hz 微步轟炸；到位的最後一步除外） |
 | `ui.autoLaunch` | true | Windows 啟動完成後自動開 UI 視窗（Edge `--app=` → Chrome `--app=` → 預設瀏覽器）。非 Windows / 找不到瀏覽器只 log 不報錯 |
+| `ui.trayEnabled` | true | Windows 系統列托盤常駐：啟動時**隱藏 console 視窗**、掛托盤圖示（雙擊開 UI / 右鍵選單）。false = 行為同 v5（console 照常、無托盤）。非 Windows 無作用。除錯要看 console：`TouchService.exe --console` |
 | `udpOutput.endpoints` | 127.0.0.1:20110 | raw UDP JSON 收端清單（可多個，`host:port`） |
 | `webSocketOutput.port` | 20111 | WS + HTTP（/venue、testpage）監聽 port |
 | `tuioOutput` | 停用 | **v1 未實作**，enabled=true 會啟動失敗（防呆） |
@@ -105,15 +108,34 @@ TouchService/
 ## 啟動與日常維運
 
 ```
-TouchService.exe                  ← 使用同目錄 config.json
+TouchService.exe                  ← 使用同目錄 config.json；Windows 預設托盤化（console 隱藏）
+TouchService.exe --console        ← 托盤化但保留 console 視窗（除錯用）
 TouchService.exe --config D:\cybercube\config.json
 ```
+
+### 托盤常駐（v6 起，黑視窗從此不需要）
+
+Windows + `ui.trayEnabled: true`（預設）時，服務啟動後：
+
+1. **console 視窗自動隱藏**（背景照跑），系統列出現 TouchService 托盤圖示
+2. **雙擊圖示** → 開 UI 視窗（監控/設定/診斷/終端）
+3. **右鍵圖示** → 選單：**開啟介面** / **顯示主控台**（再點一次隱藏）/ **結束服務**（優雅關閉）
+
+**心智模型**：服務本體常駐在托盤——**UI 視窗（Edge --app）關掉只是關瀏覽器，服務照跑**，
+托盤雙擊隨時叫回；要真正停止服務用右鍵「結束服務」（或 console `quit`）。
+維運不再需要面對黑視窗：log 與指令都在 UI 的「終端」tab（見下）。
+
+- 除錯要看原生 console：`--console` flag 啟動（不隱藏），或托盤右鍵「顯示主控台」
+- 回到 v5 行為（無托盤、console 常駐）：config `ui.trayEnabled: false`
+- explorer 重啟（TaskbarCreated）托盤圖示會自動重掛，不會消失
+- Linux / 包成 service（無 console）：托盤與隱藏全部自動 no-op，不影響服務
 
 > **重啟注意**：啟動後前 `autoLock.windowSeconds`（預設 10）秒是自檢窗——
 > 這段期間**不發布觸控事件**，且場上有人站著會被當噪訊晶片誤鎖。
 > 重啟時請淨空場地；誤鎖用 `unlock` 指令救（見下表），不必再重啟。
 
-啟動後 console / stdin 指令：
+啟動後 console / stdin 指令（**同一組指令在 UI「終端」tab 也能打**，輸出一字不差——
+托盤化後不需要 console 也能維運）：
 
 | 指令 | 作用 |
 |---|---|
@@ -138,15 +160,24 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 2. Chrome `--app=`
 3. fallback：預設瀏覽器開該網址
 
-找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面三個 tab：
+找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面四個 tab：
 
 - **監控**：場域圖、即時觸點、活躍觸點側欄（id / face / cell / px / 存活秒，
   存活久的在上）、事件流、統計、鎖定格（暗紅 X）——即原測試頁
-- **設定**：觸控模式（採格/滑鼠）、滑鼠參數、releaseTimeoutMs / matchRadiusPx、
+- **設定**：觸控模式（採格/滑鼠）、**啟用觸控範圍勾選清單**（7 面 checkbox，地板預設不勾）、
+  目標螢幕、content 校正、releaseTimeoutMs / matchRadiusPx、
   autoLock、鎖定清單（每列可解鎖 + 寫回 config）、需重啟欄位唯讀顯示
 - **診斷**：疑似噪訊排行（每 5 秒刷新，每列「鎖定」按鈕一鍵鎖）+ 手動鎖定表單
   （face / col / row）。非本機開頁時鎖定按鈕鎖灰（僅限本機操作）。
   tab 切換不斷 WS 連線。
+- **終端**（v6 新增）：黑視窗的完整替代——
+  - **log 滾動視窗**：服務 log 即時串流（WS push，等寬字體、自動捲到底、可暫停捲動）；
+    連上時先補發最近 300 行 ring buffer
+  - **指令輸入框**：Enter 送出、↑↓ 鍵翻歷史；與 stdin 走同一個處理器
+    （`POST /command`），輸出文字跟 console 一字不差
+  - **快速按鈕列**：stats / locks / history / touches 一鍵執行
+  - **僅限本機**：log 只推給 loopback 連線（內網其他機器訂閱 WS 收不到 log 內容）；
+    非本機開頁終端 tab 顯示「終端僅限本機」、log 區塊隱藏
 
 設定頁背後是本機管理 HTTP API（與 WS 同 port）：
 
@@ -159,6 +190,7 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 | `POST /locks/lock` | 手動鎖定一格（語意同 stdin `lock`，來源 manual；body `{"face":2,"col":7,"row":13}`） | **僅 loopback** |
 | `POST /locks/unlock` | 解鎖一格（語意同 stdin `unlock`） | **僅 loopback** |
 | `POST /locks/save` | 鎖定寫回 config（語意同 stdin `savelocks`） | **僅 loopback** |
+| `POST /command` | UI 終端指令（body `{"cmd":"history 20"}` → `{"output":"..."}`；與 stdin 共用處理器，輸出一致） | **僅 loopback** |
 
 熱套用範圍：`touchMode`、`mouseMode.*`、`releaseTimeoutMs`、`matchRadiusPx`
 （下個 touch 生效）；`autoLock` 欄位只寫回 config、**下次啟動生效**（UI 有標註）。
@@ -166,30 +198,71 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 
 ## 滑鼠模式（摸牆操作這台機器）
 
-`touchMode: "mouse"` 時額外掛一個 OS 滑鼠 sink：**mouseMode.face 那一面**的觸點
+`touchMode: "mouse"` 時額外掛一個 OS 滑鼠 sink：**啟用面（mouseMode.faces）**上的觸點
 映射成這台 Windows 機器的真實游標（down→LEFTDOWN、move→平滑移動、up→LEFTUP），
 讓使用者直接「摸牆操作網頁」。
 
+### canvas 十字映射（v6 重寫——為什麼游標位置對得上）
+
+投影螢幕顯示的是**整個場域 canvas 的十字展開圖**（中央地板、四周牆臂，704 = 2688×3840），
+不是單一牆面拉滿。所以映射是：
+
+```
+觸點 canvas norm（px ÷ canvas 尺寸）→ 目標螢幕 rect 等比落點
+screenX = rect.x + content.offsetX + norm.x × rect.width  × content.scaleX
+screenY = rect.y + content.offsetY + norm.y × rect.height × content.scaleY
+```
+
+摸 Right Big Wall，游標就落在螢幕上十字圖的右臂——跟投影畫面一一對應。
+十字外的盲區自然無事（沒有感應面就沒有觸點）。
+> v4 的 bug：把「單一面的面內座標」拉伸到整個螢幕——摸右牆游標跑到螢幕中央（地板區）。
+> v6 起以 canvas 為座標系，已修正。
+
 ### 設定流程
 
-1. 開 UI（autoLaunch 自動開，或瀏覽器開 `http://127.0.0.1:20111/`）→ 切「設定」tab
+1. 開 UI（autoLaunch 自動開、或托盤雙擊）→ 切「設定」tab
 2. 觸控模式選「滑鼠模式」
-3. **來源牆面**下拉選一面牆（清單預設排除地板 Floor）
-4. **目標螢幕**下拉選要操作的螢幕（自動帶入矩形；也可手動填 x/y/w/h）
-5. 視需要調**平滑強度**（預設 0.35；越小越滑順但跟手越慢，1 = 直接到位）
-6. 按 **Apply** → 出現綠色「已套用」
-7. 摸牆驗證：游標應跳到對應位置並按下左鍵，滑動時游標平滑跟隨，離手放開
+3. **啟用觸控範圍**：7 個面的勾選清單，勾選的面才驅動游標。
+   預設 = 六個牆面開、**地板（Floor）不勾**（腳步會亂點游標）
+4. **目標螢幕**下拉選投影十字圖所在的螢幕（自動帶入矩形；也可手動填 x/y/w/h）
+5. **內容校正**（投影沒滿版才需要，滿版維持 0/0/1/1）：見下方校正流程
+6. 視需要調**平滑強度**（預設 0.35；越小越滑順但跟手越慢，1 = 直接到位）
+7. 按 **Apply** → 出現綠色「已套用」
+8. 摸牆驗證：游標應跳到螢幕十字圖的**對應面對應位置**並按下左鍵，
+   滑動時游標平滑跟隨，離手放開
+
+### content 校正流程（投影沒滿版 / letterbox 時）
+
+投影內容若沒鋪滿整顆螢幕（上下黑邊、置中縮放等），游標落點會整體偏移——用
+content 四個欄位把「canvas 十字圖實際顯示的範圍」校進來：
+
+1. 先量（或從投影軟體讀）內容區在螢幕內的位置：左上角偏移 `(offsetX, offsetY)` px、
+   內容寬高相對螢幕的比例 `(scaleX, scaleY)`
+   - 例：1920×1080 螢幕、內容置中顯示 1536×864 → offsetX=192、offsetY=108、
+     scaleX=0.8、scaleY=0.8
+2. 設定 tab 填入四欄 → Apply
+3. 驗證：摸 canvas 四個角落的感應面邊緣，游標應落在投影內容的對應角落；
+   有系統性偏移就調 offset、比例不對就調 scale
+4. 落點計算後一律 clamp 回螢幕 rect——校正填錯游標也不會飛到別顆螢幕
 
 ### 行為細節與注意事項
 
-- **單點所有權**：該面第一個 down 的 touch 控制游標，它離手前其他觸點全部忽略
-  （OS 游標只有一顆）。多人同時摸牆不會搶游標，但只有第一個人有效
+- **單點所有權（跨所有啟用面）**：任一啟用面第一個 down 的 touch 控制游標，
+  它離手前其他觸點（含其他啟用面）全部忽略（OS 游標只有一顆）。
+  多人同時摸牆不會搶游標，但只有第一個人有效
 - **發布端不受影響**：滑鼠是「額外的 sink」——WS/UDP 照常全量發布，
-  監控頁與其他訂閱端在滑鼠模式下完全正常
+  監控頁與其他訂閱端在滑鼠模式下完全正常；未勾選面（地板）的觸發也照常全量發布
 - ⚠ **滑鼠模式下摸牆會搶這台機器的真實游標**——維運人員同時用實體滑鼠會互相干擾；
   要操作機器先在設定頁切回採格模式（按住中熱切會自動放開按鍵，不會卡死）
-- 非目標面（含地板）觸發零注入；80ms 封包間隔由 release timeout 橋接，按住不會中斷
+- 未勾選面（預設含地板）觸發零注入；80ms 封包間隔由 release timeout 橋接，按住不會中斷
 - Linux 上選 mouse 模式：log warn + no-op（事件照常發布，不 crash）
+
+### 舊 config 相容（v4/v5 → v6）
+
+- 舊欄位 `mouseMode.face`（單數 int）讀到時自動轉成 `faces:[該值]`，log 會提示；
+  下次從設定頁 Apply 後以新 schema（faces 陣列 + content）寫回 config.json
+- `faces` 缺欄位 = 預設「全部面排除名稱含 Floor 的面」；`content` 缺欄位 = 滿版 0/0/1/1
+- **注意**：舊 config 轉換後啟用面只有原本那一面——要六面全開請在設定頁勾齊再 Apply
 
 ## 開機自啟（建議：工作排程器）
 
@@ -200,7 +273,9 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 4. 設定：勾「如果工作失敗，每 1 分鐘重新啟動」
 
 > 也可用 NSSM 包成 Windows service；TouchService 是純 console 程式無特殊需求。
-> 包成 service 後 stdin 指令不可用，統計改看 log 檔。
+> 包成 service 後 stdin 指令不可用（stdin loop 自動 no-op、不影響服務）、托盤也不會出現
+> （service session 沒有桌面）——指令與 log 改用 UI「終端」tab（本機開
+> `http://127.0.0.1:20111/`），或看 log 檔。
 
 ## 離場驗證（沒有硬體時）
 

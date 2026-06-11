@@ -7,14 +7,21 @@ namespace TouchService.Mouse;
 
 /// <summary>
 /// 滑鼠模式 sink：訂閱 TouchPipeline 的 typed 事件流（ITouchEventObserver），
-/// 把 mouseMode.face 那一面的觸點轉成 OS 滑鼠操作。
+/// 把啟用面（mouseMode.faces）上的觸點轉成 OS 滑鼠操作。
 /// **額外 sink、不是取代**——grid 的 WS/UDP 發布完全不受模式影響
 /// （Unity 時代「滑鼠模擬取代發布」正是這個服務要逃離的架構）。
 ///
+/// 映射（v6 重寫）：投影螢幕顯示的是**整個場域 canvas 的十字展開圖**
+/// （中央地板、四周牆臂），不是單一面拉滿——所以映射是
+/// canvas norm（px / canvas 尺寸）→ 目標螢幕 rect 等比落點，
+/// 再套 content 校正（投影 letterbox/沒滿版時的 offset/scale）：
+///   screenX = rect.x + content.offsetX + norm.x × rect.width × content.scaleX
+/// 十字外的盲區自然無事（沒有感應面，不會有觸點）。
+///
 /// 行為：
-///   - 只看 mouseMode.face 那一面的觸點；其他面（含地板）一律忽略
-///   - 單點所有權：該面第一個 down 的 touch 成為 owner，它 up 前其他觸點忽略
-///     （OS 游標只有一顆，多點搶游標會亂跳）
+///   - 只看啟用面（faces）的觸點；未啟用面（預設含地板）一律忽略
+///   - 單點所有權**跨所有啟用面**：任一啟用面第一個 down 的 touch 成為 owner，
+///     它 up 前其他觸點（含其他啟用面）忽略（OS 游標只有一顆，多點搶游標會亂跳）
 ///   - down → 游標直接跳到映射位置（先到位）再 LEFTDOWN（順序不能反，否則點到舊位置）
 ///   - move → 只更新目標位置；實際移動由 8ms 平滑迴圈指數逼近（factor = smoothing）
 ///   - up → 只 LEFTUP，游標停在原地（目標凍結，平滑迴圈停止）
@@ -28,11 +35,13 @@ public sealed class MouseDriver : ITouchEventObserver, IDisposable
 {
     readonly object _gate = new();
     readonly IMouseInjector _injector;
-    readonly IReadOnlyList<SensorFaceConfig> _faces;
+    readonly double _canvasW;
+    readonly double _canvasH;
     readonly FileLogger _log;
     readonly CancellationTokenSource _cts = new();
 
     MouseModeConfig _cfg;
+    HashSet<int> _enabledFaces;
     Thread? _smoothThread;
 
     int _ownerId = -1;        // 目前持有游標的 touch ID（-1 = 無）
@@ -41,12 +50,18 @@ public sealed class MouseDriver : ITouchEventObserver, IDisposable
     double _targetX, _targetY;
     int _lastInjX, _lastInjY; // 最後注入的整數座標（moveMinPx 門檻基準）
 
-    public MouseDriver(IMouseInjector injector, IReadOnlyList<SensorFaceConfig> faces,
-                       MouseModeConfig cfg, FileLogger log)
+    /// <summary>
+    /// enabledFaces：已解析的啟用面集合（host 由 mouseMode.faces 或預設規則
+    /// 「全部面排除名稱含 Floor」解析；driver 不自己解析，保持單一真相源在 host）。
+    /// </summary>
+    public MouseDriver(IMouseInjector injector, VenueProfile venue,
+                       MouseModeConfig cfg, IEnumerable<int> enabledFaces, FileLogger log)
     {
         _injector = injector;
-        _faces = faces;
+        _canvasW = venue.Canvas.Width;
+        _canvasH = venue.Canvas.Height;
         _cfg = cfg;
+        _enabledFaces = new HashSet<int>(enabledFaces);
         _log = log;
     }
 
@@ -67,14 +82,16 @@ public sealed class MouseDriver : ITouchEventObserver, IDisposable
     }
 
     /// <summary>
-    /// 熱套用滑鼠參數（POST /config）。face 變更時若 owner 還按著先強制放鍵——
-    /// 否則 owner 的後續事件全變成「非目標面」被忽略，按鍵會卡死。
+    /// 熱套用滑鼠參數（POST /config）。啟用面集合變更時若 owner 還按著先強制放鍵——
+    /// 否則 owner 的後續事件可能變成「未啟用面」被忽略，按鍵會卡死。
     /// </summary>
-    public void UpdateConfig(MouseModeConfig cfg)
+    public void UpdateConfig(MouseModeConfig cfg, IEnumerable<int> enabledFaces)
     {
         lock (_gate)
         {
-            if (cfg.Face != _cfg.Face && _buttonDown) ReleaseLocked();
+            var faces = new HashSet<int>(enabledFaces);
+            if (!faces.SetEquals(_enabledFaces) && _buttonDown) ReleaseLocked();
+            _enabledFaces = faces;
             _cfg = cfg;
         }
     }
@@ -98,17 +115,16 @@ public sealed class MouseDriver : ITouchEventObserver, IDisposable
         lock (_gate)
         {
             var cfg = _cfg;
-            if (cfg.Face < 0 || cfg.Face >= _faces.Count) return;   // 防呆（apply 已驗證）
 
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.Point.FaceIndex != cfg.Face) continue;   // 非目標面（含地板）一律忽略
+                if (!_enabledFaces.Contains(e.Point.FaceIndex)) continue;   // 未啟用面（預設含地板）一律忽略
 
                 switch (e.Phase)
                 {
                     case TouchPhase.Down:
-                        if (_ownerId >= 0) break;              // 單點所有權：owner 在，其他觸點忽略
+                        if (_ownerId >= 0) break;              // 單點所有權：owner 在，其他觸點忽略（跨面）
                         _ownerId = e.Id;
                         (_targetX, _targetY) = MapToScreen(e.Point, cfg);
                         _curX = _targetX;
@@ -177,15 +193,28 @@ public sealed class MouseDriver : ITouchEventObserver, IDisposable
         }
     }
 
-    /// <summary>面內座標（px - face origin → 0~1）→ mouseMode.screen 矩形內的螢幕座標。</summary>
+    /// <summary>canvas 像素 → canvas norm → 螢幕 rect 等比落點（含 content 校正）。</summary>
     (double X, double Y) MapToScreen(in RoutedPoint p, MouseModeConfig cfg)
     {
-        var face = _faces[cfg.Face];
-        double nx = face.TotalPixelWidth  > 0 ? (p.PixelX - face.OriginX) / (double)face.TotalPixelWidth  : 0;
-        double ny = face.TotalPixelHeight > 0 ? (p.PixelY - face.OriginY) / (double)face.TotalPixelHeight : 0;
-        nx = Math.Clamp(nx, 0, 1);
-        ny = Math.Clamp(ny, 0, 1);
-        return (cfg.Screen.X + nx * cfg.Screen.Width, cfg.Screen.Y + ny * cfg.Screen.Height);
+        double nx = _canvasW > 0 ? p.PixelX / _canvasW : 0;
+        double ny = _canvasH > 0 ? p.PixelY / _canvasH : 0;
+        return MapCanvasToScreen(nx, ny, cfg.Screen, cfg.Content);
+    }
+
+    /// <summary>
+    /// canvas norm（0~1）→ 螢幕座標（純函式，單元測試對拍）：
+    /// screen.x + content.offsetX + norm × screen.width × content.scaleX，
+    /// 結果 clamp 回 screen rect（content 校正填錯也不會把游標丟出目標螢幕）。
+    /// 預設 content 0/0/1/1 = 滿版：退化為 rect.x + norm.x × rect.width。
+    /// </summary>
+    public static (double X, double Y) MapCanvasToScreen(
+        double normX, double normY, ScreenRectConfig screen, ContentRectConfig content)
+    {
+        double x = screen.X + content.OffsetX + normX * screen.Width * content.ScaleX;
+        double y = screen.Y + content.OffsetY + normY * screen.Height * content.ScaleY;
+        x = Math.Clamp(x, screen.X, screen.X + screen.Width);
+        y = Math.Clamp(y, screen.Y, screen.Y + screen.Height);
+        return (x, y);
     }
 
     void ReleaseLocked()   // 持 _gate 呼叫

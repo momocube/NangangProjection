@@ -33,11 +33,20 @@ public sealed class TouchServiceHost : IDisposable
     Thread? _receiveThread;
     Thread? _timerThread;
     MouseDriver? _mouseDriver;   // touchMode=mouse 時建立，建立後活到 host 結束（grid 時只卸觀察者）
+    LogStreamer? _logStreamer;   // UI 終端 log 串流（ring 300 + loopback-only push）
 
     public VenueProfile Venue { get; private set; } = null!;
     public TouchPipeline Pipeline { get; private set; } = null!;
     public StatsCollector Stats { get; } = new();
     public WebSocketHub? WsHub { get; private set; }
+
+    /// <summary>指令處理（stdin 與 POST /command 共用，輸出文字一致）。Start() 後可用。</summary>
+    public CommandProcessor Commands { get; private set; } = null!;
+
+    /// <summary>優雅關閉請求（stdin/API quit、托盤「結束服務」）。Program 掛 quit event。</summary>
+    public event Action? ShutdownRequested;
+
+    public void RequestShutdown() => ShutdownRequested?.Invoke();
 
     /// <summary>runtime 鎖定黑名單（config + auto + manual 共用同一個過濾器）。</summary>
     public LockedCellFilter Locks { get; private set; } = LockedCellFilter.Empty;
@@ -66,12 +75,20 @@ public sealed class TouchServiceHost : IDisposable
 
     public void Start()
     {
+        // 0. log 串流（UI 終端）：先掛——啟動期的 log 也進 ring，loopback client 連上補發
+        _logStreamer = new LogStreamer();
+        _log.EntryWritten += _logStreamer.OnLog;
+
         // 1. 場域 profile
         var venuePath = Path.IsPathRooted(_config.VenueProfile)
             ? _config.VenueProfile
             : Path.Combine(BaseDir, _config.VenueProfile);
         Venue = VenueProfile.Load(venuePath);
         _log.Info($"[Host] 場域 profile：{Venue.Venue}（{Venue.Canvas.Width}×{Venue.Canvas.Height}，{Venue.Faces.Count} 面）← {venuePath}");
+
+        if (_config.MouseModeLegacyFaceConverted)
+            _log.Info($"[Host] 偵測到舊版 config 的 mouseMode.face（單數）——已自動轉成 faces:[{string.Join(",", _config.MouseMode.Faces ?? new List<int>())}]" +
+                      "（下次由設定頁套用後會以新 schema 寫回 config.json）");
 
         // 2. 管線元件
         var router = new SensorFaceRouter(Venue);
@@ -99,6 +116,10 @@ public sealed class TouchServiceHost : IDisposable
         History = new TriggerHistory(
             _clock.ElapsedMilliseconds, _config.ReleaseTimeoutMs, _config.MatchRadiusPx * 2);
 
+        // 指令處理（stdin + POST /command 共用）——在 hub 起來前就緒，API 一上線即可用
+        var logDir = Path.IsPathRooted(_config.Log.Dir) ? _config.Log.Dir : Path.Combine(BaseDir, _config.Log.Dir);
+        Commands = new CommandProcessor(this, logDir, RequestShutdown);
+
         var sinks = new List<ITouchSink>();
         if (_config.UdpOutput.Enabled && _config.UdpOutput.Endpoints.Count > 0)
         {
@@ -108,16 +129,18 @@ public sealed class TouchServiceHost : IDisposable
         }
         if (_config.WebSocketOutput.Enabled)
         {
-            var configApi = new ConfigApi(this);   // 本機管理 API（/config、/monitors、/locks/*）
+            var configApi = new ConfigApi(this);   // 本機管理 API（/config、/monitors、/locks/*、/command）
             WsHub = new WebSocketHub(
                 _config.WebSocketOutput.Port,
                 BuildVenueJson(),
                 BuildHelloJson,   // 每個 client 連上時取當下鎖定清單 / 自檢狀態
                 FindTestPage(),
                 _log,
-                configApi.Handle);
+                configApi.Handle,
+                () => _logStreamer!.Backlog());   // loopback client 連上補發最近 300 行 log
             WsHub.Start();
             sinks.Add(WsHub);
+            _logStreamer.Attach(WsHub);           // log push（僅 loopback client）
         }
         if (_config.TuioOutput.Enabled)
         {
@@ -311,6 +334,26 @@ public sealed class TouchServiceHost : IDisposable
     // ── 觸控模式（grid / mouse）與 config 熱套用 ──────────────────────────────
 
     /// <summary>
+    /// mouseMode.faces 解析成有效啟用面集合：
+    /// faces 有給 → 過濾掉超範圍 index（log warn）；
+    /// 缺欄位（null）→ 預設 = 全部面但排除名稱含 Floor 的面（704 = 地板關、六個牆面開）。
+    /// </summary>
+    public IReadOnlyList<int> ResolveMouseFaces()
+    {
+        var mm = _config.MouseMode;
+        if (mm.Faces != null)
+        {
+            var valid = mm.Faces.Where(f => f >= 0 && f < Venue.Faces.Count).Distinct().OrderBy(f => f).ToList();
+            foreach (var bad in mm.Faces.Where(f => f < 0 || f >= Venue.Faces.Count).Distinct())
+                _log.Warn($"[Mouse] mouseMode.faces 含超範圍 index {bad}（場域共 {Venue.Faces.Count} 面）——忽略此項");
+            return valid;
+        }
+        return Enumerable.Range(0, Venue.Faces.Count)
+            .Where(i => !Venue.Faces[i].Name.Contains("Floor", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
     /// 依 _config.TouchMode 掛/卸 MouseDriver（持 _configGate 呼叫）。
     /// mouse：建立（或熱更新參數）driver 並掛上 pipeline 觀察者；
     /// grid：卸觀察者，若 owner 還按著先 LEFTUP（熱切不留卡死的按鍵）。
@@ -320,21 +363,26 @@ public sealed class TouchServiceHost : IDisposable
     {
         if (_config.TouchMode == "mouse")
         {
+            var faces = ResolveMouseFaces();
             if (_mouseDriver == null)
             {
-                _mouseDriver = new MouseDriver(CreateInjector(), Venue.Faces, _config.MouseMode, _log);
+                _mouseDriver = new MouseDriver(CreateInjector(), Venue, _config.MouseMode, faces, _log);
                 _mouseDriver.Start();   // 8ms 平滑迴圈
             }
             else
             {
-                _mouseDriver.UpdateConfig(_config.MouseMode);
+                _mouseDriver.UpdateConfig(_config.MouseMode, faces);
             }
             Pipeline.SetEventObserver(_mouseDriver);
             var m = _config.MouseMode;
-            string faceName = m.Face >= 0 && m.Face < Venue.Faces.Count ? Venue.Faces[m.Face].Name : "?";
-            _log.Info($"[Mouse] 滑鼠模式啟用：face={m.Face}（{faceName}）→ 螢幕 rect " +
+            string faceList = faces.Count == 0
+                ? "（無——所有面停用，滑鼠 sink 不動作）"
+                : string.Join("、", faces.Select(f => $"{f} {Venue.Faces[f].Name}"));
+            _log.Info($"[Mouse] 滑鼠模式啟用：canvas 十字映射 → 螢幕 rect " +
                       $"({m.Screen.X},{m.Screen.Y} {m.Screen.Width}×{m.Screen.Height})，" +
-                      $"smoothing={m.Smoothing} moveMinPx={m.MoveMinPx}（發布端不受影響，照常全量輸出）");
+                      $"content 校正 offset=({m.Content.OffsetX},{m.Content.OffsetY}) scale=({m.Content.ScaleX},{m.Content.ScaleY})，" +
+                      $"smoothing={m.Smoothing} moveMinPx={m.MoveMinPx}；啟用面：{faceList}" +
+                      "（發布端不受影響，照常全量輸出）");
         }
         else
         {
@@ -365,13 +413,20 @@ public sealed class TouchServiceHost : IDisposable
                 touchMode = _config.TouchMode,
                 mouseMode = new
                 {
-                    face = _config.MouseMode.Face,
+                    faces = ResolveMouseFaces(),   // 已解析的啟用面（缺欄位時為預設：排除 Floor）
                     screen = new
                     {
                         x = _config.MouseMode.Screen.X,
                         y = _config.MouseMode.Screen.Y,
                         width = _config.MouseMode.Screen.Width,
                         height = _config.MouseMode.Screen.Height,
+                    },
+                    content = new
+                    {
+                        offsetX = _config.MouseMode.Content.OffsetX,
+                        offsetY = _config.MouseMode.Content.OffsetY,
+                        scaleX = _config.MouseMode.Content.ScaleX,
+                        scaleY = _config.MouseMode.Content.ScaleY,
                     },
                     smoothing = _config.MouseMode.Smoothing,
                     moveMinPx = _config.MouseMode.MoveMinPx,
@@ -384,7 +439,7 @@ public sealed class TouchServiceHost : IDisposable
                     windowSeconds = _config.AutoLock.WindowSeconds,
                     minPackets = _config.AutoLock.MinPackets,
                 },
-                ui = new { autoLaunch = _config.Ui.AutoLaunch },
+                ui = new { autoLaunch = _config.Ui.AutoLaunch, trayEnabled = _config.Ui.TrayEnabled },
                 venue = Venue.Venue,
                 restartOnly = new
                 {
@@ -432,14 +487,44 @@ public sealed class TouchServiceHost : IDisposable
             double matchRadius = ReadNumber(patch, "matchRadiusPx", _config.MatchRadiusPx, 1, 10_000, errors);
 
             var mm = _config.MouseMode;
-            int mFace = mm.Face;
+            List<int>? mFaces = mm.Faces?.ToList();   // null = 預設（排除 Floor），交給 ResolveMouseFaces
             int sx = mm.Screen.X, sy = mm.Screen.Y, sw = mm.Screen.Width, sh = mm.Screen.Height;
+            double cox = mm.Content.OffsetX, coy = mm.Content.OffsetY;
+            double csx = mm.Content.ScaleX, csy = mm.Content.ScaleY;
             double smoothing = mm.Smoothing;
             int moveMinPx = mm.MoveMinPx;
             if (patch["mouseMode"] is JsonObject pm)
             {
-                mFace = ReadInt(pm, "face", mFace, 0, Venue.Faces.Count - 1, errors,
-                    $"mouseMode.face 必須是 0~{Venue.Faces.Count - 1}（venue faces index）");
+                if (pm["faces"] is JsonArray pf)
+                {
+                    var parsed = new List<int>();
+                    foreach (var node in pf)
+                    {
+                        if (node?.GetValueKind() != JsonValueKind.Number ||
+                            !int.TryParse(node.ToJsonString(), out var fv) ||
+                            fv < 0 || fv >= Venue.Faces.Count)
+                        {
+                            errors.Add($"mouseMode.faces 每項必須是 0~{Venue.Faces.Count - 1} 的整數（venue faces index）");
+                            parsed = null!;
+                            break;
+                        }
+                        if (!parsed.Contains(fv)) parsed.Add(fv);
+                    }
+                    if (parsed != null) mFaces = parsed;   // 空陣列合法 = 全部停用
+                }
+                else if (pm.ContainsKey("faces"))
+                {
+                    errors.Add("mouseMode.faces 必須是整數陣列（例 [0,1,3,4,5,6]）");
+                }
+                else if (pm["face"] is { } legacyNode)
+                {
+                    // 向後相容：舊欄位 face（單數 int）→ faces:[face]
+                    int legacy = ReadInt(pm, "face", -1, 0, Venue.Faces.Count - 1, errors,
+                        $"mouseMode.face（舊欄位）必須是 0~{Venue.Faces.Count - 1}");
+                    if (legacy >= 0) mFaces = new List<int> { legacy };
+                    _ = legacyNode;
+                }
+
                 smoothing = ReadNumber(pm, "smoothing", smoothing, 0.01, 1.0, errors,
                     "mouseMode.smoothing 必須在 0.01~1（1 = 不平滑直接到位）");
                 moveMinPx = ReadInt(pm, "moveMinPx", moveMinPx, 0, 1000, errors);
@@ -453,6 +538,19 @@ public sealed class TouchServiceHost : IDisposable
                 else if (pm.ContainsKey("screen"))
                 {
                     errors.Add("mouseMode.screen 必須是 object {x,y,width,height}");
+                }
+                if (pm["content"] is JsonObject pc)
+                {
+                    cox = ReadNumber(pc, "offsetX", cox, -1_000_000, 1_000_000, errors);
+                    coy = ReadNumber(pc, "offsetY", coy, -1_000_000, 1_000_000, errors);
+                    csx = ReadNumber(pc, "scaleX", csx, 0.01, 100, errors,
+                        "mouseMode.content.scaleX 必須在 0.01~100（1 = 滿版）");
+                    csy = ReadNumber(pc, "scaleY", csy, 0.01, 100, errors,
+                        "mouseMode.content.scaleY 必須在 0.01~100（1 = 滿版）");
+                }
+                else if (pm.ContainsKey("content"))
+                {
+                    errors.Add("mouseMode.content 必須是 object {offsetX,offsetY,scaleX,scaleY}");
                 }
             }
             else if (patch.ContainsKey("mouseMode"))
@@ -483,8 +581,9 @@ public sealed class TouchServiceHost : IDisposable
             _config.MatchRadiusPx = (float)matchRadius;
             _config.MouseMode = new MouseModeConfig
             {
-                Face = mFace,
+                Faces = mFaces,
                 Screen = new ScreenRectConfig { X = sx, Y = sy, Width = sw, Height = sh },
+                Content = new ContentRectConfig { OffsetX = cox, OffsetY = coy, ScaleX = csx, ScaleY = csy },
                 Smoothing = smoothing,
                 MoveMinPx = moveMinPx,
             };
@@ -531,15 +630,27 @@ public sealed class TouchServiceHost : IDisposable
             root["touchMode"] = _config.TouchMode;
             root["releaseTimeoutMs"] = _config.ReleaseTimeoutMs;
             root["matchRadiusPx"] = _config.MatchRadiusPx;
+            // faces 寫回解析後的清單（v6 schema；舊欄位 face 整個 mouseMode 物件替換時自然消失）。
+            // 注意要用 JsonNode 轉換——JsonArray.Add(int) 會選到泛型 Add<T>，
+            // 序列化時要求 TypeInfoResolver 直接炸（.NET 8 行為）
+            var facesArr = new JsonArray();
+            foreach (var f in ResolveMouseFaces()) facesArr.Add((JsonNode)f);
             root["mouseMode"] = new JsonObject
             {
-                ["face"] = _config.MouseMode.Face,
+                ["faces"] = facesArr,
                 ["screen"] = new JsonObject
                 {
                     ["x"] = _config.MouseMode.Screen.X,
                     ["y"] = _config.MouseMode.Screen.Y,
                     ["width"] = _config.MouseMode.Screen.Width,
                     ["height"] = _config.MouseMode.Screen.Height,
+                },
+                ["content"] = new JsonObject
+                {
+                    ["offsetX"] = _config.MouseMode.Content.OffsetX,
+                    ["offsetY"] = _config.MouseMode.Content.OffsetY,
+                    ["scaleX"] = _config.MouseMode.Content.ScaleX,
+                    ["scaleY"] = _config.MouseMode.Content.ScaleY,
                 },
                 ["smoothing"] = _config.MouseMode.Smoothing,
                 ["moveMinPx"] = _config.MouseMode.MoveMinPx,
@@ -861,6 +972,11 @@ public sealed class TouchServiceHost : IDisposable
         _timerThread?.Join(1000);
         Pipeline?.Dispose();      // 連帶 dispose 所有 sink（含 WsHub）
         _mouseDriver?.Dispose();  // owner 還按著會先 LEFTUP，不留卡死的按鍵
+        if (_logStreamer != null)
+        {
+            _log.EntryWritten -= _logStreamer.OnLog;
+            _logStreamer.Dispose();
+        }
         _log.Info("[Host] 已停止");
     }
 }

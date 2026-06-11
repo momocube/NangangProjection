@@ -58,9 +58,23 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
   └─ TuioPublisher（Output/TuioPublisher.cs）→ **未實作的插槽**（啟用會明確報錯）
 
 TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序列化）：
-  └─ MouseDriver（Mouse/MouseDriver.cs）— ITouchEventObserver，單點所有權 + 8ms 平滑迴圈
+  └─ MouseDriver（Mouse/MouseDriver.cs）— ITouchEventObserver，**canvas 十字映射**
+       （canvas norm → 螢幕 rect + content 校正）、啟用面過濾（mouseMode.faces，
+       預設排除 Floor）、跨面單點所有權 + 8ms 平滑迴圈
        └─ IMouseInjector：Win32MouseInjector（SendInput ABSOLUTE|VIRTUALDESK）
           / NullMouseInjector（非 Windows no-op）/ FakeInjector（測試）
+
+旁路元件（v6）：
+  ├─ CommandProcessor（Api/CommandProcessor.cs）— 指令單一入口：stdin 迴圈與
+  │    POST /command 走同一個，輸出文字一致（stats/touches/history/locks/lock/
+  │    unlock/savelocks/probe/quit；quit 經 host.ShutdownRequested 優雅關閉）
+  ├─ LogStreamer（Logging/LogStreamer.cs）— FileLogger.EntryWritten → ring 300 行
+  │    + 背景執行緒推 {"type":"log",...} 給 **loopback WS client**（連上先補 backlog）
+  └─ ITrayHost（Tray/）— Windows 托盤常駐：WindowsTrayHost（P/Invoke Shell_NotifyIcon，
+       獨立 STA thread + hidden window message loop；雙擊開 UI / 右鍵選單 / TaskbarCreated
+       重掛）/ NullTrayHost（非 Windows、trayEnabled=false 全 no-op）。
+       ConsoleWindowManager（GetConsoleWindow+ShowWindow）負責 console 隱藏/叫回，
+       `--console` flag 跳過啟動隱藏
 ```
 
 執行緒模型：**receive thread 直通**（收包當下同步走完 parse→route→map→track→publish，
@@ -68,10 +82,12 @@ TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序�
 處理 release timeout 與 keepalive。兩者以 `TouchPipeline` 內單一 lock 序列化。
 滑鼠模式再多一條 8ms 平滑迴圈 thread（MouseDriver 內部，自有 lock）。
 
-入口：`Program.cs` → `TouchServiceHost.cs`（config 載入、stdin 指令 stats/touches/history/
-locks/lock/unlock/savelocks/probe/quit、啟動 log）→ 啟動完成後 `Ui/UiLauncher.cs` 自動開 UI（Windows + ui.autoLaunch：
+入口：`Program.cs` → `TouchServiceHost.cs`（config 載入、CommandProcessor、啟動 log）
+→ 啟動完成後托盤化（Windows + ui.trayEnabled：ConsoleWindowManager.Hide + TrayHostFactory，
+`--console` flag 不隱藏）→ `Ui/UiLauncher.cs` 自動開 UI（Windows + ui.autoLaunch：
 Edge `--app=` → Chrome `--app=` → 預設瀏覽器；UiLauncher 在 Program.Main 呼叫而非
-host.Start 內——測試大量啟動 host，不該彈視窗）。
+host.Start 內——測試大量啟動 host，不該彈視窗）。stdin 迴圈把每行丟給
+host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）時 graceful no-op。
 
 ## 3. 不能隨便動的設計決策（含依據）
 
@@ -88,7 +104,10 @@ host.Start 內——測試大量啟動 host，不該彈視窗）。
 | 鎖晶片 | config lockedCells（face+cell），路由後、追蹤前丟棄 | 現場有噪訊晶片持續發訊（Unity 版有同功能但 runtime 手動、無持久化） | 這是遮瑕不是修復；座標要回報硬體商 |
 | autoLock 自檢窗 | 啟動後 10s 內被觸發 ≥10 包的格子自動鎖（enabled 預設 true） | **開機重啟時場上理應無人**——此時還在發訊的格子幾乎必然是故障晶片；噪訊 ~80ms 重送 10s 約 125 包，門檻 10 遠低於噪訊、高於誤踩 | 窗期間不發布任何事件（keepalive 照發）；重啟時有人站場上會誤鎖（stdin `unlock` 救，DEPLOY.md 有 SOP）；`savelocks` 才會持久化到 config |
 | touchMode 滑鼠 = 額外 sink | mouse 模式只在 pipeline 掛 typed 事件觀察者（MouseDriver），WS/UDP 發布照常全量 | Unity 時代「滑鼠模擬**取代**發布」正是這個服務要逃離的架構（單點限制、全場冷卻的根源） | 把滑鼠模式做成取代發布會回到老路；監控頁/訂閱端必須在任何模式下照常收事件 |
-| 滑鼠單點所有權 | mouseMode.face 上第一個 down 的 touch 是 owner，它 up 前其他觸點（含其他面、地板）全忽略 | OS 游標只有一顆——多點搶游標會抖動亂跳；非目標面不過濾的話腳步會亂點 | 要多點手勢去訂閱端做；owner 生命週期由 release timeout 橋接，80ms 重送不會中斷。模式/face 熱切時若 owner 還按著會先 LEFTUP（不留卡死按鍵） |
+| 滑鼠單點所有權 | **跨所有啟用面**：任一啟用面（mouseMode.faces）第一個 down 的 touch 是 owner，它 up 前其他觸點（含其他啟用面）全忽略；未勾選面（預設地板）滑鼠 sink 完全無視 | OS 游標只有一顆——多點搶游標會抖動亂跳；地板不過濾的話腳步會亂點 | 要多點手勢去訂閱端做；owner 生命週期由 release timeout 橋接，80ms 重送不會中斷。模式/faces 熱切時若 owner 還按著會先 LEFTUP（不留卡死按鍵） |
+| canvas 十字映射 | 滑鼠落點 = canvas norm（px ÷ canvas 尺寸）→ 螢幕 rect 等比 + content offset/scale 校正，**不是單一面拉伸到全螢幕** | 投影螢幕顯示的是整個場域 canvas 的十字展開圖——v4 面內拉伸映射讓「摸右牆游標跑到螢幕中央地板區」（2026-06 現場 bug）；canvas 座標系才跟投影畫面一一對應 | content 預設 0/0/1/1 = 滿版；投影 letterbox 時用 content 校正（DEPLOY.md 有流程）。落點 clamp 回螢幕 rect，校正填錯不會飛出目標螢幕。改映射公式同步改 `MouseDriver.MapCanvasToScreen` 與其測試 |
+| 托盤 P/Invoke 不用 WinForms | Shell_NotifyIcon 手寫 P/Invoke（Tray/WindowsTrayHost.cs，~300 行），不是 net8.0-windows + WinForms NotifyIcon | WinForms 多目標要 `EnableWindowsTargeting=true` 才能在 Linux build、TFM 分岔（net8.0 + net8.0-windows）、publish 變胖 ~15MB+；P/Invoke 保持單一 TFM net8.0 / console OutputType / exe ~35MB 不變 | 托盤行為（圖示、雙擊、選單）Linux 測不到——純對映層有單元測試（TrayMenu），實機行為屬現場驗證。若未來要氣球通知 / 動態圖示再評估 WinForms 路線 |
+| log push 僅 loopback | type:"log" 訊息只送 loopback WS client（per-client IsLoopback 旗標）；ring buffer 300 行連線即補發 | LAN 訂閱端本來就忽略帶 type 的訊息（協議規則），但 log **內容**不該外流內網（路徑、鎖定座標、內部狀態）；與寫入類 API 的 loopback 限制同一條安全線 | LogStreamer 是 enqueue + 背景推送執行緒——log 熱路徑零阻塞、推送產生的 log 不遞迴。改 ring 上限同步改 `LogStreamer.Capacity` 與測試 |
 | 滑鼠平滑迴圈 | 8ms timer 指數逼近（factor=mouseMode.smoothing），單步 < moveMinPx 不注入；down 第一下例外：直接跳到位**再** LEFTDOWN | 80ms 封包間隔直接設游標會肉眼跳格；位移門檻防 125Hz 微步轟炸；先到位再按下否則 click 落在舊位置 | 平滑只存在滑鼠 sink——發布座標仍是原始值（服務端不平滑、保真實，§6-4 同一原則）；收斂到位的最後一步豁免 moveMinPx（保證精確到點） |
 | 疑似噪訊評分 | 三因子加權（0~100）：**頻率 40**（30 分鐘觸發次數 / 30 飽和）＋**孤立 35**（down 當下 tracker 內無鄰近活躍 touch 的比率）＋**佔用 25**（總活躍時長占運行時間） | 為什麼這三個因子：間歇噪訊 = 同格反覆觸發（正常遊玩單格不會幾十上百次）、無鄰近連動（真人腳掌/移動幾乎總是多格連動——另一腳、上一步觸點還活著）、常駐叫（佔用比真人高一個量級）。三者皆可解釋、可單獨驗證。鄰近半徑 = 2×matchRadiusPx（≈192px）：matchRadius 內的點必被合併進同一 touch，更小的半徑（如 ±2 格）不可能有「另一個」活躍 touch | **分數只是排序用，不自動鎖——營運中有真人在踩，誤鎖比漏鎖傷**（鎖定一律人工確認：UI 診斷 tab 按鈕 / stdin lock）。改權重同步改 `TriggerHistory.cs` 常數與本表；歷史 runtime-only 重啟歸零（見 §6-8） |
 
@@ -100,7 +119,7 @@ host.Start 內——測試大量啟動 host，不該彈視窗）。
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（174 個，必須全綠才能交付）
+## 5. 測試結構（212 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -114,9 +133,12 @@ host.Start 內——測試大量啟動 host，不該彈視窗）。
 | WebSocketHubTests | RFC6455 對打（.NET ClientWebSocket）、三種 frame 長度編碼 |
 | WiresharkReaderTests | capture 解析（630 點全 checksum 通過全可路由） |
 | EndToEndTests | 真 socket 全鏈路：60 點併發、down<5ms、無假 up（timing 斷言偶發 flake，重跑即可） |
-| ServiceConfigTests | config 預設值/缺欄位容錯（含 touchMode/mouseMode/ui） |
-| MouseDriverTests | down 先到位再 LEFTDOWN、平滑收斂、單點所有權、非目標面/grid 零注入、面內→screen rect 映射（含負座標螢幕）、熱切強制放鍵、SendInput 正規化、UpdateTuning 熱套用 |
-| ConfigApiTests | GET/POST /config roundtrip + 寫回保留其他欄位、非法值 400 全拒（不留半套）、非 loopback 403、/monitors 非 Windows 空陣列、locks API、按住中 mouse→grid 熱切自動 LEFTUP |
+| ServiceConfigTests | config 預設值/缺欄位容錯（含 touchMode/mouseMode/ui.trayEnabled）、舊 config `face` 單數 → `faces` 相容轉換 + 旗標 |
+| MouseDriverTests | down 先到位再 LEFTDOWN、平滑收斂、**canvas 十字映射**（純函式對拍：content offset/scale、負座標 rect、clamp）、faces 過濾（勾選面注入 / 地板與空清單零注入）、跨面單點所有權、熱切強制放鍵、SendInput 正規化、UpdateTuning 熱套用 |
+| ConfigApiTests | GET/POST /config roundtrip（faces 陣列 + content）+ 寫回保留其他欄位、舊欄位 `face` API 相容、非法值 400 全拒（不留半套）、非 loopback 403、/monitors 非 Windows 空陣列、locks API、按住中 mouse→grid 熱切自動 LEFTUP |
+| CommandProcessorTests | stdin 與 POST /command 同指令同輸出、用法錯誤/未知指令訊息、quit 觸發 ShutdownRequested、/command 非 loopback 403、壞 body 400 |
+| LogStreamTests | ring buffer 上限 300、log 訊息 schema、loopback 連上 hello→backlog→即時推、**非 loopback client 不收 log type**（frame 照常收；既有 WS harness 從 LAN IP 連入驗證） |
+| TrayHostTests | factory 決策（trayEnabled=false / 非 Windows → NullTrayHost）、NullTrayHost no-op、托盤訊息/選單 → 動作純對映（雙擊=開 UI、選單三指令）。Windows 實機行為屬現場驗證 |
 | TriggerHistoryTests | 觸發歷史聚合（down/up、30 分鐘 rolling 衰減、move 不換 cell）、孤立判定（同批/追溯撤銷/遠處不算）、自檢窗 suppressed gap 邏輯、評分（噪訊 ≥80 vs 正常遊玩 ≤40 對比）、記憶體有界（聚合不隨事件數成長）、pipeline 整合（窗內計入 / 鎖定後停止累積）。時間注入，無 sleep |
 | HistoryApiTests | GET /history 排序/欄位/top/locked 旗標、空歷史、POST /locks/lock 語意同 stdin lock + 非 loopback 403（/history 唯讀可看）、stdin `history` 排行格式與 top 筆數 |
 
@@ -143,17 +165,23 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
    剛好沒發訊就抓不到——觸發歷史 + 評分就是為此而生（窗內被抑制的觸發也計入歷史）。
    反向風險：重啟時有人站場上會被誤鎖（`unlock` 救）。`stats` 的 dropped by lock /
    auto-locked cells 可驗證過濾生效。
-6. **滑鼠模式是單點**（OS 游標只有一顆，結構限制不是 bug）；觸控板手勢 / 多點
-   要走訂閱端。滑鼠模式下摸牆會搶機器的真實游標——維運先切回 grid（設定頁熱切，
+6. **滑鼠模式是單點**（OS 游標只有一顆，結構限制不是 bug）——v6 起所有權跨所有
+   啟用面（任一啟用面第一個 down 持有游標）；觸控板手勢 / 多點要走訂閱端。
+   滑鼠模式下摸牆會搶機器的真實游標——維運先切回 grid（設定頁熱切，
    按住中切換會自動 LEFTUP）。
-7. config API 的熱套用範圍只到 touchMode / mouseMode / releaseTimeoutMs /
-   matchRadiusPx；autoLock 寫回 config 下次啟動生效；listenPort / 輸出 port 需重啟
-   （UI 唯讀顯示）。`maxSlots` / `flushIntervalMs` 等冷門欄位刻意不進 API——改 config.json。
+7. config API 的熱套用範圍只到 touchMode / mouseMode（faces/screen/content/smoothing/
+   moveMinPx）/ releaseTimeoutMs / matchRadiusPx；autoLock 與 ui.trayEnabled 寫回
+   config 下次啟動生效；listenPort / 輸出 port 需重啟（UI 唯讀顯示）。
+   `maxSlots` / `flushIntervalMs` 等冷門欄位刻意不進 API——改 config.json。
 8. **觸發歷史是 runtime-only，重啟歸零——刻意的**：噪訊晶片（尤其間歇型）會很快重新
    冒上排行，持久化歷史反而把「上次營運的舊帳」跟「現在的狀態」混在一起；要持久的是
    鎖定結果（savelocks），不是統計。另兩個已知近似：孤立因子的鄰近判定用 down 時座標
    （touch 後續移動不更新鄰近關係）、touch 存活時長含 releaseTimeout 尾巴（~170ms）
    ——對排序用途無影響。歷史的 releaseTimeout / 鄰近半徑取啟動值，不跟 config 熱套用。
+9. **托盤 / console 隱藏是 Windows-only 行為**：Linux CI 只能測抽象層（factory 決策、
+   訊息對映、NullTrayHost）；圖示顯示、雙擊、右鍵選單、console show/hide、
+   TaskbarCreated 重掛屬**現場驗證項**（流程見 DEPLOY.md「托盤常駐」）。
+   UI 視窗（Edge --app）關閉只是關瀏覽器、服務照跑——托盤雙擊隨時叫回。
 
 ## 7. 歷史脈絡（考古入口）
 
@@ -170,7 +198,7 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
 ## 8. 接手修改 SOP
 
 1. 讀這份 + `PROTOCOL.md`，動協議欄位前先看 §3 的表
-2. 改 code → `dotnet test` 152 全綠（timing flake 重跑一次）
+2. 改 code → `dotnet test` 212 全綠（timing flake 重跑一次）
 3. 協議有變 → 同步改 `PROTOCOL.md` + `MIGRATION-ART-APP.md`，新增欄位 OK、
    改名/移除 = 升 v2
 4. 發布：見 §5 結尾的 publish 參數紅字

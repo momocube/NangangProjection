@@ -11,8 +11,9 @@ namespace TouchService.Tests;
 
 /// <summary>
 /// 滑鼠模式 MouseDriver（FakeInjector 記錄呼叫序列，時間/平滑 tick 全部手動驅動，確定性）：
-/// down 先到位再按下、平滑收斂、單點所有權、非目標面/grid 零注入、
-/// 面內座標 → screen rect 映射（含偏移與負座標）、熱切強制放鍵、SendInput 正規化。
+/// **canvas 十字映射**（v6：canvas norm → 螢幕 rect 等比落點，含 content 校正與負座標 rect）、
+/// down 先到位再按下、平滑收斂、跨面單點所有權、未啟用面（地板）零注入、
+/// 熱切強制放鍵、SendInput 正規化。
 /// </summary>
 public class MouseDriverTests : IDisposable
 {
@@ -36,23 +37,29 @@ public class MouseDriverTests : IDisposable
 
     public void Dispose() => _log.Dispose();
 
-    // face 0 = Wall Left：origin (0,640)、640×2048 px。face 2 = Floor（地板）。
-    const int WallFace = 0;
-    const int FloorFace = 2;
+    // 704 canvas = 2688×3840。face 0 = Wall Left（origin (0,640) 640×2048）、
+    // face 2 = Floor（地板，預設不啟用）、face 4 = Wall Right Big。
+    const int WallLeft = 0;
+    const int Floor = 2;
+    const int WallRightBig = 4;
 
-    static MouseModeConfig Cfg(int face = WallFace, int sx = 0, int sy = 0, int sw = 1920, int sh = 1080,
-                               double smoothing = 0.5, int moveMinPx = 2) => new()
+    /// <summary>預設啟用面 = 排除地板（704：0,1,3,4,5,6）。</summary>
+    static readonly int[] DefaultFaces = { 0, 1, 3, 4, 5, 6 };
+
+    static MouseModeConfig Cfg(int sx = 0, int sy = 0, int sw = 1920, int sh = 1080,
+                               double smoothing = 0.5, int moveMinPx = 2,
+                               ContentRectConfig? content = null) => new()
     {
-        Face = face,
         Screen = new ScreenRectConfig { X = sx, Y = sy, Width = sw, Height = sh },
+        Content = content ?? new ContentRectConfig(),
         Smoothing = smoothing,
         MoveMinPx = moveMinPx,
     };
 
-    (MouseDriver Driver, FakeInjector Injector) NewDriver(MouseModeConfig? cfg = null)
+    (MouseDriver Driver, FakeInjector Injector) NewDriver(MouseModeConfig? cfg = null, int[]? faces = null)
     {
         var injector = new FakeInjector();
-        return (new MouseDriver(injector, _venue.Faces, cfg ?? Cfg(), _log), injector);
+        return (new MouseDriver(injector, _venue, cfg ?? Cfg(), faces ?? DefaultFaces, _log), injector);
     }
 
     static TouchEventData Ev(int id, TouchPhase phase, int face, int px, int py) => new()
@@ -74,17 +81,76 @@ public class MouseDriverTests : IDisposable
         return (int.Parse(inner[0]), int.Parse(inner[1]));
     }
 
-    // ── down / move / up 基本序列 ─────────────────────────────────────────────
+    // ── canvas → 螢幕映射數學（純函式對拍）──────────────────────────────────
 
     [Fact]
-    public void down事件_先Move到位再LeftDown()
+    public void canvas映射_預設content滿版_等比落點()
+    {
+        var screen = new ScreenRectConfig { X = 0, Y = 0, Width = 1920, Height = 1080 };
+        var full = new ContentRectConfig();
+
+        Assert.Equal((0d, 0d), MouseDriver.MapCanvasToScreen(0, 0, screen, full));
+        Assert.Equal((960d, 540d), MouseDriver.MapCanvasToScreen(0.5, 0.5, screen, full));
+        Assert.Equal((1920d, 1080d), MouseDriver.MapCanvasToScreen(1, 1, screen, full));
+        Assert.Equal((480d, 270d), MouseDriver.MapCanvasToScreen(0.25, 0.25, screen, full));
+    }
+
+    [Fact]
+    public void canvas映射_content_offset與scale校正()
+    {
+        // 投影沒滿版：內容右移 100px、下移 50px、縮 0.8×0.9
+        var screen = new ScreenRectConfig { X = 0, Y = 0, Width = 1920, Height = 1080 };
+        var content = new ContentRectConfig { OffsetX = 100, OffsetY = 50, ScaleX = 0.8, ScaleY = 0.9 };
+
+        Assert.Equal((100d, 50d), MouseDriver.MapCanvasToScreen(0, 0, screen, content));
+        // 0.5：x = 100 + 0.5×1920×0.8 = 868；y = 50 + 0.5×1080×0.9 = 536
+        Assert.Equal((868d, 536d), MouseDriver.MapCanvasToScreen(0.5, 0.5, screen, content));
+        // 1.0：x = 100 + 1536 = 1636；y = 50 + 972 = 1022（letterbox 內，不到螢幕右下）
+        Assert.Equal((1636d, 1022d), MouseDriver.MapCanvasToScreen(1, 1, screen, content));
+    }
+
+    [Fact]
+    public void canvas映射_非主螢幕負座標rect()
+    {
+        // 第二螢幕在主螢幕左邊：rect (-1920, 120, 1280×720)
+        var screen = new ScreenRectConfig { X = -1920, Y = 120, Width = 1280, Height = 720 };
+        var full = new ContentRectConfig();
+
+        Assert.Equal((-1920d, 120d), MouseDriver.MapCanvasToScreen(0, 0, screen, full));
+        Assert.Equal((-1600d, 300d), MouseDriver.MapCanvasToScreen(0.25, 0.25, screen, full));
+        Assert.Equal((-640d, 840d), MouseDriver.MapCanvasToScreen(1, 1, screen, full));
+
+        // 負座標 rect + content 校正
+        var content = new ContentRectConfig { OffsetX = 10, OffsetY = 20, ScaleX = 0.5, ScaleY = 0.5 };
+        Assert.Equal((-1920d + 10 + 640, 120d + 20 + 360),
+            MouseDriver.MapCanvasToScreen(1, 1, screen, content));
+    }
+
+    [Fact]
+    public void canvas映射_content校正超界_clamp回螢幕rect()
+    {
+        var screen = new ScreenRectConfig { X = 0, Y = 0, Width = 1920, Height = 1080 };
+        var over = new ContentRectConfig { ScaleX = 1.2, ScaleY = 1.2 };
+
+        // norm 1.0 × scale 1.2 = 2304 → clamp 1920（填錯校正不會把游標丟出目標螢幕）
+        Assert.Equal((1920d, 1080d), MouseDriver.MapCanvasToScreen(1, 1, screen, over));
+
+        var negOff = new ContentRectConfig { OffsetX = -500, OffsetY = -500 };
+        Assert.Equal((0d, 0d), MouseDriver.MapCanvasToScreen(0, 0, screen, negOff));
+    }
+
+    // ── down / move / up 基本序列（canvas 座標）─────────────────────────────
+
+    [Fact]
+    public void down事件_先Move到位再LeftDown_canvas等比落點()
     {
         var (d, inj) = NewDriver();
         using (d)
         {
-            // Wall Left 面中心：px (320, 640+1024) → 面內 (0.5, 0.5) → 螢幕 (960, 540)
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 320, 640 + 1024));
-            Assert.Equal(new[] { "move(960,540)", "down" }, inj.Calls);
+            // Wall Left 上的點 canvas px (336, 1920)：norm (0.125, 0.5) → 螢幕 (240, 540)
+            // （v4 bug 對照：舊版面內拉伸會把這點丟到螢幕中央偏左上——現在是 canvas 十字位置）
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));
+            Assert.Equal(new[] { "move(240,540)", "down" }, inj.Calls);
         }
     }
 
@@ -94,9 +160,9 @@ public class MouseDriverTests : IDisposable
         var (d, inj) = NewDriver(Cfg(smoothing: 0.5, moveMinPx: 2));
         using (d)
         {
-            // down 在面左上角 → 螢幕 (0,0)；move 目標面右下角 → 螢幕 (1920,1080)
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 0, 640));
-            Send(d, Ev(1, TouchPhase.Move, WallFace, 640, 640 + 2048));
+            // down 在 canvas 左上角 → 螢幕 (0,0)；move 到 canvas 右下角 → 螢幕 (1920,1080)
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 0, 0));
+            Send(d, Ev(1, TouchPhase.Move, WallLeft, 2688, 3840));
             Assert.Equal(2, inj.Calls.Count);   // move 只更新目標，不立刻注入
 
             for (int i = 0; i < 80; i++) d.TickSmoothing();
@@ -127,13 +193,13 @@ public class MouseDriverTests : IDisposable
         var (d, inj) = NewDriver(Cfg(smoothing: 0.5));
         using (d)
         {
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 0, 640));
-            Send(d, Ev(1, TouchPhase.Move, WallFace, 640, 640 + 2048));
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 0, 640));
+            Send(d, Ev(1, TouchPhase.Move, WallLeft, 640, 2688));
             d.TickSmoothing();   // 滑到一半
             d.TickSmoothing();
             int movesBefore = inj.Calls.Count;
 
-            Send(d, Ev(1, TouchPhase.Up, WallFace, 640, 640 + 2048));
+            Send(d, Ev(1, TouchPhase.Up, WallLeft, 640, 2688));
             Assert.Equal("up", inj.Calls[^1]);
 
             // up 後游標凍結：繼續 tick 不再有任何 Move
@@ -142,7 +208,7 @@ public class MouseDriverTests : IDisposable
         }
     }
 
-    // ── 單點所有權 ───────────────────────────────────────────────────────────
+    // ── 單點所有權（跨所有啟用面）────────────────────────────────────────────
 
     [Fact]
     public void 單點所有權_owner存活時第二觸點完全忽略()
@@ -150,73 +216,88 @@ public class MouseDriverTests : IDisposable
         var (d, inj) = NewDriver();
         using (d)
         {
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 320, 640 + 1024));
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));
             int n = inj.Calls.Count;
 
-            // 第二觸點的 down / move / up 全部不產生注入
-            Send(d, Ev(2, TouchPhase.Down, WallFace, 100, 700));
-            Send(d, Ev(2, TouchPhase.Move, WallFace, 120, 720));
-            Send(d, Ev(2, TouchPhase.Up, WallFace, 120, 720));
+            // 第二觸點（同面）的 down / move / up 全部不產生注入
+            Send(d, Ev(2, TouchPhase.Down, WallLeft, 100, 700));
+            Send(d, Ev(2, TouchPhase.Move, WallLeft, 120, 720));
+            Send(d, Ev(2, TouchPhase.Up, WallLeft, 120, 720));
             for (int i = 0; i < 10; i++) d.TickSmoothing();
             Assert.Equal(n, inj.Calls.Count);
 
             // owner 還在：它的 up 正常放鍵
-            Send(d, Ev(1, TouchPhase.Up, WallFace, 320, 640 + 1024));
+            Send(d, Ev(1, TouchPhase.Up, WallLeft, 336, 1920));
             Assert.Equal("up", inj.Calls[^1]);
         }
     }
 
     [Fact]
-    public void owner離手後_新觸點可接手()
+    public void 跨面單點所有權_他面啟用觸點也被owner擋住_owner離手後可接手()
     {
         var (d, inj) = NewDriver();
         using (d)
         {
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 0, 640));
-            Send(d, Ev(1, TouchPhase.Up, WallFace, 0, 640));
+            // owner 在 Wall Left
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));
+            int n = inj.Calls.Count;
 
-            Send(d, Ev(3, TouchPhase.Down, WallFace, 320, 640 + 1024));
-            Assert.Equal("move(960,540)", inj.Calls[^2]);
-            Assert.Equal("down", inj.Calls[^1]);
+            // Wall Right Big（另一個啟用面）的觸點：owner 在，全部忽略
+            Send(d, Ev(2, TouchPhase.Down, WallRightBig, 2400, 1000));
+            Send(d, Ev(2, TouchPhase.Move, WallRightBig, 2420, 1020));
+            Assert.Equal(n, inj.Calls.Count);
 
-            Send(d, Ev(3, TouchPhase.Up, WallFace, 320, 640 + 1024));
+            // owner up → 釋放；Wall Right Big 新 down 接手游標
+            Send(d, Ev(1, TouchPhase.Up, WallLeft, 336, 1920));
             Assert.Equal("up", inj.Calls[^1]);
+
+            // canvas px (2688, 1920)：norm (1, 0.5) → 螢幕 (1920, 540)
+            Send(d, Ev(3, TouchPhase.Down, WallRightBig, 2688, 1920));
+            Assert.Equal("move(1920,540)", inj.Calls[^2]);
+            Assert.Equal("down", inj.Calls[^1]);
         }
     }
 
-    // ── 非目標面 / 映射 ──────────────────────────────────────────────────────
+    // ── faces 過濾 ───────────────────────────────────────────────────────────
 
     [Fact]
-    public void 非目標面_地板觸點零注入()
+    public void 未啟用面_地板觸點零注入()
     {
-        var (d, inj) = NewDriver(Cfg(face: WallFace));
+        var (d, inj) = NewDriver();   // 預設啟用面排除地板
         using (d)
         {
             // Floor（face 2）的 down/move/up 全程忽略
-            Send(d, Ev(1, TouchPhase.Down, FloorFace, 800, 800));
-            Send(d, Ev(1, TouchPhase.Move, FloorFace, 850, 850));
-            Send(d, Ev(1, TouchPhase.Up, FloorFace, 850, 850));
+            Send(d, Ev(1, TouchPhase.Down, Floor, 800, 800));
+            Send(d, Ev(1, TouchPhase.Move, Floor, 850, 850));
+            Send(d, Ev(1, TouchPhase.Up, Floor, 850, 850));
             for (int i = 0; i < 10; i++) d.TickSmoothing();
             Assert.Empty(inj.Calls);
         }
     }
 
     [Fact]
-    public void 面內座標映射_含rect偏移與非主螢幕負座標()
+    public void faces清單_只勾選的面觸發注入()
     {
-        // 第二螢幕在主螢幕左邊：rect (-1920, 120, 1280×720)
-        var (d, inj) = NewDriver(Cfg(sx: -1920, sy: 120, sw: 1280, sh: 720));
+        var (d, inj) = NewDriver(faces: new[] { WallRightBig });   // 只勾 face 4
         using (d)
         {
-            // 面內 (0.25, 0.25)：px (160, 640+512) → (-1920 + 320, 120 + 180) = (-1600, 300)
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 160, 640 + 512));
-            Assert.Equal("move(-1600,300)", inj.Calls[0]);
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));   // face 0 沒勾：忽略
+            Assert.Empty(inj.Calls);
 
-            Send(d, Ev(1, TouchPhase.Up, WallFace, 160, 640 + 512));
+            Send(d, Ev(2, TouchPhase.Down, WallRightBig, 2688, 1920));
+            Assert.Equal(new[] { "move(1920,540)", "down" }, inj.Calls);
+        }
+    }
 
-            // 面右下角 = rect 右下角；面外座標 clamp 回 rect 邊界
-            Send(d, Ev(2, TouchPhase.Down, WallFace, 640, 640 + 2048));
-            Assert.Equal($"move({-1920 + 1280},{120 + 720})", inj.Calls[^2]);
+    [Fact]
+    public void faces空清單_全部停用_零注入()
+    {
+        var (d, inj) = NewDriver(faces: Array.Empty<int>());
+        using (d)
+        {
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));
+            Send(d, Ev(2, TouchPhase.Down, Floor, 800, 800));
+            Assert.Empty(inj.Calls);
         }
     }
 
@@ -228,7 +309,7 @@ public class MouseDriverTests : IDisposable
         var (d, inj) = NewDriver();
         using (d)
         {
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 320, 640 + 1024));
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));
             d.ForceRelease();   // host 在 mouse→grid 熱切時呼叫
             Assert.Equal("up", inj.Calls[^1]);
 
@@ -241,13 +322,13 @@ public class MouseDriverTests : IDisposable
     }
 
     [Fact]
-    public void 來源面熱切_按住中換面_先放開不留卡死按鍵()
+    public void 啟用面熱切_按住中換面清單_先放開不留卡死按鍵()
     {
-        var (d, inj) = NewDriver(Cfg(face: WallFace));
+        var (d, inj) = NewDriver(faces: new[] { WallLeft });
         using (d)
         {
-            Send(d, Ev(1, TouchPhase.Down, WallFace, 320, 640 + 1024));
-            d.UpdateConfig(Cfg(face: 4));   // 換到 Wall Right Big
+            Send(d, Ev(1, TouchPhase.Down, WallLeft, 336, 1920));
+            d.UpdateConfig(Cfg(), new[] { WallRightBig });   // 換成只勾 face 4
             Assert.Equal("up", inj.Calls[^1]);
         }
     }
@@ -319,15 +400,15 @@ public class MouseDriverTests : IDisposable
     {
         var (pipeline, sink) = NewPipeline();
         var injector = new FakeInjector();
-        using var driver = new MouseDriver(injector, _venue.Faces, Cfg(face: WallFace), _log);
+        using var driver = new MouseDriver(injector, _venue, Cfg(), DefaultFaces, _log);
         pipeline.SetEventObserver(driver);
 
-        // 目標面觸點：滑鼠注入 + WS/UDP 發布兩者都發生
+        // 啟用面（牆面）觸點：滑鼠注入 + WS/UDP 發布兩者都發生
         pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { WallRaw }), 0);
         Assert.Equal("down", injector.Calls[^1]);
         Assert.Single(sink.Frames);
 
-        // 地板觸點：被 driver 忽略（owner 是牆面觸點），發布照常
+        // 地板觸點：被 driver 忽略（未啟用面），發布照常
         pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { FloorRaw }), 50);
         int callsAfterFloor = injector.Calls.Count;
         Assert.Equal(2, sink.Frames.Count);

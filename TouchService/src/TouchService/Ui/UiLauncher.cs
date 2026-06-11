@@ -23,6 +23,19 @@ public static class UiLauncher
         }
     }
 
+    /// <summary>
+    /// 托盤觸發的開啟（雙擊圖示 / 右鍵「開啟介面」）：**不看 ui.autoLaunch**——
+    /// 使用者主動要開就開。UI 視窗關掉只是關瀏覽器、服務照跑，托盤隨時叫回。
+    /// </summary>
+    public static void Open(ServiceConfig config, FileLogger log)
+    {
+        try { OpenInner(config, log); }
+        catch (Exception ex)
+        {
+            log.Warn($"[UI] 開啟 UI 失敗：{ex.Message}");
+        }
+    }
+
     static void LaunchInner(ServiceConfig config, FileLogger log)
     {
         if (!config.Ui.AutoLaunch)
@@ -30,6 +43,11 @@ public static class UiLauncher
             log.Info("[UI] ui.autoLaunch=false，不自動開啟 UI");
             return;
         }
+        OpenInner(config, log);
+    }
+
+    static void OpenInner(ServiceConfig config, FileLogger log)
+    {
         if (!OperatingSystem.IsWindows())
         {
             log.Info("[UI] 非 Windows，不自動開啟 UI（瀏覽器自行開 http://127.0.0.1:" +
