@@ -30,6 +30,22 @@ public sealed class LogConfig
 }
 
 /// <summary>
+/// 啟動自檢窗（自動鎖噪訊晶片）：服務啟動後 windowSeconds 內被觸發 ≥ minPackets 包的格子
+/// 自動加入 runtime 黑名單（依據：開機時場上理應無人）。窗期間不發布任何觸控事件。
+/// 全欄位有預設值、缺欄位 / null 容錯。詳見 docs/DEPLOY.md。
+/// </summary>
+public sealed class AutoLockConfig
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>自檢窗長度（秒）。≤ 0 視為停用。</summary>
+    public int WindowSeconds { get; set; } = 10;
+
+    /// <summary>窗內封包數達此值才鎖（噪訊晶片 ~80ms 重送，10 秒約 125 包；低於門檻不鎖）。</summary>
+    public int MinPackets { get; set; } = 10;
+}
+
+/// <summary>
 /// 鎖定晶片格（噪訊晶片過濾）：face = 面 index、cell = [col, row]（晶片格座標）。
 /// 對應 Unity 專案 SensorTestManager 的 locked[]，config 化版本。
 /// </summary>
@@ -84,6 +100,9 @@ public sealed class ServiceConfig
     /// </summary>
     public List<LockedCellConfig> LockedCells { get; set; } = new();
 
+    /// <summary>啟動自檢窗（自動鎖噪訊晶片）。缺欄位 / null = 預設啟用（10s、≥10 包）。</summary>
+    public AutoLockConfig AutoLock { get; set; } = new();
+
     public UdpOutputConfig UdpOutput { get; set; } = new();
     public WebSocketOutputConfig WebSocketOutput { get; set; } = new();
     public TuioOutputConfig TuioOutput { get; set; } = new();
@@ -112,6 +131,7 @@ public sealed class ServiceConfig
         var json = File.ReadAllText(path);
         var cfg = JsonSerializer.Deserialize<ServiceConfig>(json, JsonOptions) ?? new ServiceConfig();
         cfg.LockedCells ??= new List<LockedCellConfig>();   // "lockedCells": null 容錯
+        cfg.AutoLock ??= new AutoLockConfig();              // "autoLock": null 容錯
         return cfg;
     }
 }

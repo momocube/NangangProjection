@@ -40,18 +40,19 @@ public sealed class WebSocketHub : ITouchSink
     readonly TcpListener _listener;
     readonly FileLogger _log;
     readonly byte[] _venueJson;
-    readonly byte[] _helloJson;
+    readonly Func<byte[]> _helloProvider;
     readonly string? _testPagePath;
     readonly List<Client> _clients = new();
     readonly object _clientsGate = new();
     readonly CancellationTokenSource _cts = new();
     Thread? _acceptThread;
 
-    public WebSocketHub(int port, byte[] venueJson, byte[] helloJson, string? testPagePath, FileLogger log)
+    /// <summary>helloProvider：每個 client 連上時呼叫一次，產生當下的 hello（鎖定清單 / 自檢狀態是動態的）。</summary>
+    public WebSocketHub(int port, byte[] venueJson, Func<byte[]> helloProvider, string? testPagePath, FileLogger log)
     {
         _log = log;
         _venueJson = venueJson;
-        _helloJson = helloJson;
+        _helloProvider = helloProvider;
         _testPagePath = testPagePath;
         _listener = new TcpListener(IPAddress.Any, port);
     }
@@ -199,8 +200,8 @@ public sealed class WebSocketHub : ITouchSink
         lock (_clientsGate) _clients.Add(client);
         _log.Info($"[WebSocketHub] client 連入（{tcp.Client.RemoteEndPoint}），目前 {ClientCount} 個");
 
-        // hello：venue 輪廓下發（testpage 啟動繪製用）
-        SendFrame(client, 0x1, _helloJson);
+        // hello：venue 輪廓 + 當下鎖定清單 / 自檢狀態下發（testpage 啟動繪製用）
+        SendFrame(client, 0x1, _helloProvider());
 
         try { ClientReadLoop(client); }
         catch { /* 斷線 */ }

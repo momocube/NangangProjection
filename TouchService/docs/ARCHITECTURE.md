@@ -33,7 +33,12 @@ SensorFaceRouter（Core/SensorFaceRouter.cs）— raw 座標 → 7 面線性分�
   ▼
 SensorFaceConfig（Core/SensorFaceConfig.cs）— raw → canvas px / cell（校正數學，逐 bit 對等 Unity）
   ▼
-LockedCellFilter（Core/LockedCellFilter.cs）— 噪訊晶片黑名單（config lockedCells，O(1) HashSet）
+LockedCellFilter（Core/LockedCellFilter.cs）— 噪訊晶片黑名單（config lockedCells + runtime
+  │   auto/manual 鎖定共用，來源以 LockSource 區分；熱路徑 O(1) volatile snapshot HashSet）
+  ▼
+AutoLockSelfCheck（Core/AutoLockSelfCheck.cs）— 啟動自檢窗（預設 10s）：窗內的點只做
+  │   per-cell 計數、不進 tracker、不發布（keepalive 照發）；窗結束時 ≥ minPackets 的
+  │   格子加入上面的 filter（auto 來源）。窗結束後此節點變 no-op，行為完全恢復正常
   ▼
 TouchTracker（Tracking/TouchTracker.cs）— 最近鄰貪婪配對 → touch ID 生命週期（down/move/up）
   ▼
@@ -65,6 +70,7 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
 | WS server 自寫 RFC6455 | 不用 HttpListener/Kestrel | Windows 部署免 netsh urlacl、單 port 兼營 /venue 與 testpage、零依賴 | 不支援壓縮擴充；場館內網用，勿直接暴露公網 |
 | checksum 不含 frame byte | 對等 Unity 解析 | 實測 448 真實封包全數通過 | frame byte 目前沒人用，可未來做硬體丟包偵測 |
 | 鎖晶片 | config lockedCells（face+cell），路由後、追蹤前丟棄 | 現場有噪訊晶片持續發訊（Unity 版有同功能但 runtime 手動、無持久化） | 這是遮瑕不是修復；座標要回報硬體商 |
+| autoLock 自檢窗 | 啟動後 10s 內被觸發 ≥10 包的格子自動鎖（enabled 預設 true） | **開機重啟時場上理應無人**——此時還在發訊的格子幾乎必然是故障晶片；噪訊 ~80ms 重送 10s 約 125 包，門檻 10 遠低於噪訊、高於誤踩 | 窗期間不發布任何事件（keepalive 照發）；重啟時有人站場上會誤鎖（stdin `unlock` 救，DEPLOY.md 有 SOP）；`savelocks` 才會持久化到 config |
 
 ## 4. 場域可攜性（venue profile）
 
@@ -74,7 +80,7 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（103 個，必須全綠才能交付）
+## 5. 測試結構（120 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -83,6 +89,7 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
 | TouchTrackerTests | 80ms 重送不假離手、160ms gap@170 不假離手、>170 up、丟包注入 |
 | TouchIdContinuityTests | 移動不換 ID、兩點交錯/交叉不互換 |
 | LockedCellsTests | 鎖定格不產生事件、相鄰格不受影響、config 容錯 |
+| AutoLockTests | 自檢窗：達門檻鎖/未達不鎖、窗內零發布、keepalive 照發、停用=現狀、lock/unlock/locks/savelocks 指令、savelocks roundtrip、WS hello lockedCells + locks push（時間注入，無 sleep） |
 | FrameSerializerTests | schema 欄位、alive、seq |
 | WebSocketHubTests | RFC6455 對打（.NET ClientWebSocket）、三種 frame 長度編碼 |
 | WiresharkReaderTests | capture 解析（630 點全 checksum 通過全可路由） |
@@ -106,7 +113,10 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
    → 240ms）。現場改閥值設定後要重驗 releaseTimeoutMs。
 4. 踩兩磚之間時 px 在磚界抖動是物理現象（兩晶片輪流回報）——服務端不平滑（保真實），
    視覺端用黏滯判定處理（見 `testpage/colorpad.html` 的 HYST 實作）。
-5. 噪訊晶片清單（lockedCells）需現場累積維護；`touches` stdin 指令是查座標的工具。
+5. 噪訊晶片以**啟動自檢窗（autoLock）自動鎖定為主**、stdin `lock` 手動補充；
+   `savelocks` 寫回 config 持久化。自檢的盲點：間歇性發作的晶片若窗內剛好沒發訊
+   就抓不到（用 `touches` 找、`lock` 補）；反向風險：重啟時有人站場上會被誤鎖
+   （`unlock` 救）。`stats` 的 dropped by lock / auto-locked cells 可驗證過濾生效。
 
 ## 7. 歷史脈絡（考古入口）
 

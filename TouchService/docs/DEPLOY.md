@@ -42,6 +42,7 @@ TouchService/
   "keepaliveIntervalMs": 1000,
   "moveMinDistancePx": 0,
   "lockedCells":      [],
+  "autoLock":        { "enabled": true,  "windowSeconds": 10, "minPackets": 10 },
   "udpOutput":       { "enabled": true,  "endpoints": [ "127.0.0.1:20110" ] },
   "webSocketOutput": { "enabled": true,  "port": 20111 },
   "tuioOutput":      { "enabled": false, "endpoint": "127.0.0.1:3333" },
@@ -60,6 +61,9 @@ TouchService/
 | `keepaliveIntervalMs` | 1000 | 無事件時的全狀態 snapshot 週期 |
 | `moveMinDistancePx` | 0 | move 事件最小位移門檻（0 = 任何座標變化都發） |
 | `lockedCells` | `[]` | 鎖定晶片清單（噪訊晶片過濾）：`[{"face":2,"cell":[7,13]}]`，face = 面 index、cell = [col,row]（晶片格）。命中的點在進 touch tracker 前丟棄。鎖定 SOP 見下方「現場發現噪訊晶片怎麼辦」 |
+| `autoLock.enabled` | true | 啟動自檢窗（自動鎖噪訊晶片）。**開機時場上理應無人**——窗內還在發訊號的格子幾乎必然是故障晶片 |
+| `autoLock.windowSeconds` | 10 | 自檢窗長度（秒）。窗期間**不發布任何觸控事件**（keepalive 照發）；≤ 0 視為停用 |
+| `autoLock.minPackets` | 10 | 窗內封包數達此值才鎖。噪訊晶片 ~80ms 重送、10 秒約 125 包，門檻 10 遠低於噪訊、又高於短暫誤踩 |
 | `udpOutput.endpoints` | 127.0.0.1:20110 | raw UDP JSON 收端清單（可多個，`host:port`） |
 | `webSocketOutput.port` | 20111 | WS + HTTP（/venue、testpage）監聽 port |
 | `tuioOutput` | 停用 | **v1 未實作**，enabled=true 會啟動失敗（防呆） |
@@ -91,12 +95,20 @@ TouchService.exe                  ← 使用同目錄 config.json
 TouchService.exe --config D:\cybercube\config.json
 ```
 
+> **重啟注意**：啟動後前 `autoLock.windowSeconds`（預設 10）秒是自檢窗——
+> 這段期間**不發布觸控事件**，且場上有人站著會被當噪訊晶片誤鎖。
+> 重啟時請淨空場地；誤鎖用 `unlock` 指令救（見下表），不必再重啟。
+
 啟動後 console / stdin 指令：
 
 | 指令 | 作用 |
 |---|---|
-| `stats` | 吐統計（pkt rate、parse errors、down/move/up、dropped by lock、處理延遲、WS client 數） |
+| `stats` | 吐統計（pkt rate、parse errors、down/move/up、dropped by lock、auto-locked 計數、處理延遲、WS client 數） |
 | `touches` | 列出當下所有活躍 touch（id / face / cell / px / 存活秒數），找噪訊晶片用 |
+| `locks` | 列出目前所有鎖定（face / cell / 來源 config\|auto\|manual / auto 鎖定的封包數） |
+| `lock <face> <col> <row>` | 手動加鎖（runtime 即時生效，來源 manual；例 `lock 2 7 13`） |
+| `unlock <face> <col> <row>` | 解鎖（任何來源都可解；解 config 來源只影響本次執行、不改檔，重啟會鎖回） |
+| `savelocks` | 把目前 runtime 全部鎖定（config+auto+manual 合併去重）寫回 config.json 的 lockedCells，其他欄位原樣保留 |
 | `probe` | dump latency CSV 到 log 目錄（環形 buffer 最近 ~16k 筆事件） |
 | `quit` | 優雅關閉 |
 
@@ -126,35 +138,51 @@ SensorSimulator.exe replay capture-multitouch-floor.txt --target 127.0.0.1:20001
 # 瀏覽器：開 http://127.0.0.1:20111/ → 連線 → 看觸點與事件流
 ```
 
-## 現場發現噪訊晶片怎麼辦（lockedCells 鎖定 SOP）
+## 現場發現噪訊晶片怎麼辦（自動為主、手動補充）
 
 症狀：沒人踩卻一直有觸點、或同一格觸點反覆 up / down 換 ID 重生——通常是該格晶片故障持續發訊號。
+
+### 第一線：重啟服務，讓啟動自檢自動鎖（autoLock，預設開）
+
+服務啟動後前 `windowSeconds`（預設 10 秒）是**自檢窗**：窗內被觸發 ≥ `minPackets`
+（預設 10）包的格子自動鎖定。噪訊晶片是持續發訊的，重啟一次就會被抓到。
+
+1. **確認場上沒人**（重要！窗內站在場上的人會被當成噪訊晶片誤鎖）
+2. 重啟 TouchService
+3. 看 console / log：每秒一行「自檢中…剩 N 秒」倒數，窗結束印醒目結果——
+   鎖了哪些 face / cell / 各自封包數；一顆都沒鎖會印「自檢通過」
+4. 打 `locks` 確認清單（auto 來源會帶封包數）
+5. 滿意的話打 **`savelocks`** 把結果寫回 config.json——下次啟動即使自檢沒抓到
+   （例如晶片間歇性發作）也會從 config 鎖住
+
+> **誤鎖救援**：重啟時有人站在場上被誤鎖 → `unlock <face> <col> <row>` 立刻解，
+> 不用再重啟。反過來自檢漏抓（窗內剛好沒發作）→ 用下方手動流程補。
+> 不想要自檢（例如除錯硬體時要看原始觸發）→ config `autoLock.enabled: false`。
+
+### 補充：手動鎖定（服務跑著的時候發現）
 
 1. 在服務 console（stdin）打 **`touches`** —— 列出當下所有活躍 touch
    （id / face / cell / px / 存活秒數，存活久的排最上面）
 2. 確認場上沒人，找出可疑筆：**存活秒數持續累加、cell 固定不動**
    （真人腳踩會移動、且離腳後 ~170ms 就 up）
-3. 抄下該筆的 `face` 與 `cell`
-4. 打開 config.json，把座標填進 `lockedCells`（可多筆）：
+3. 打 **`lock <face> <col> <row>`** 即時鎖定（不用重啟）
+4. 打 **`savelocks`** 寫回 config.json 持久化（或手動編輯 `lockedCells`：
+   `[{ "face": 2, "cell": [7, 13] }]`，重啟生效）
+5. 驗證：`locks` 看清單；`stats` 的 `dropped by lock` 持續上升 = 過濾生效；
+   testpage 上鎖定格顯示為暗紅色 X 格
 
-   ```json
-   "lockedCells": [
-     { "face": 2, "cell": [7, 13] }
-   ]
-   ```
-
-5. 重啟服務（`lockedCells` 只在啟動時讀取，改 config 不會熱生效）
-6. 驗證：啟動 log 出現「鎖定晶片 N 顆」與清單；之後打 `stats`，
-   `dropped by lock` 持續上升 = 過濾生效，該格的點不會再進 touch 追蹤
-
-> 填錯座標不會壞事：超出場域範圍的項啟動時會在 log 印警告（永遠不會命中）；
-> 格式不完整的項自動跳過、不擋啟動。鎖定只影響那一格（16×32cm 地磚的一塊晶片），
-> 相鄰格踩踏不受影響。
+> 填錯座標不會壞事：config 裡超出場域範圍的項啟動時會在 log 印警告（永遠不會命中）；
+> 格式不完整的項自動跳過、不擋啟動；`lock` 指令則直接拒絕超範圍座標。
+> 鎖定只影響那一格（16×32cm 地磚的一塊晶片），相鄰格踩踏不受影響。
+> 鎖定是遮瑕不是修復——座標記得回報硬體商。
 
 ## 健康檢查清單（進場後）
 
-1. `stats` → `datagrams` 持續上升、`parse errors = 0`、`unrouted = 0`
-2. testpage 踩一腳：down 紅點即時出現（體感無延遲）、放開 ~170ms 後淡出
-3. `unrouted > 0` 持續增加 → 校正範圍沒蓋到實際 raw 值 → 走 CALIBRATION.md 四角測試
-4. 觸點閃爍（按住卻 up/down 交替）→ 重送 gap 超過 timeout → `releaseTimeoutMs` 調高 20ms 再觀察
-5. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方 lockedCells 鎖定 SOP
+1. 重啟後等自檢窗結束（預設 10 秒，console 有倒數），看自檢結果 log——
+   有自動鎖定的格子先確認不是有人站在場上造成的誤鎖（`unlock` 可救）
+2. `stats` → `datagrams` 持續上升、`parse errors = 0`、`unrouted = 0`
+3. testpage 踩一腳：down 紅點即時出現（體感無延遲）、放開 ~170ms 後淡出；
+   鎖定格顯示為暗紅 X，圖例有「鎖定晶片」
+4. `unrouted > 0` 持續增加 → 校正範圍沒蓋到實際 raw 值 → 走 CALIBRATION.md 四角測試
+5. 觸點閃爍（按住卻 up/down 交替）→ 重送 gap 超過 timeout → `releaseTimeoutMs` 調高 20ms 再觀察
+6. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方「自動為主、手動補充」SOP

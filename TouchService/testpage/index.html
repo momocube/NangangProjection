@@ -75,6 +75,7 @@
         <span><i class="dot" style="background:var(--down)"></i>down</span>
         <span><i class="dot" style="background:var(--move)"></i>move</span>
         <span><i class="dot" style="background:var(--up)"></i>up（淡出）</span>
+        <span><i class="dot" style="background:#8b2020;border-radius:2px"></i>鎖定晶片</span>
       </div>
     </section>
     <section>
@@ -84,6 +85,8 @@
       <div class="stat"><span>down / move / up</span><b id="stCounts">0 / 0 / 0</b></div>
       <div class="stat"><span>延遲（服務→頁面，近似）</span><b><span id="stLatency">-</span> ms</b></div>
       <div class="stat"><span>seq</span><b id="stSeq">-</b></div>
+      <div class="stat"><span>鎖定晶片</span><b id="stLocks">0</b></div>
+      <div class="stat"><span>啟動自檢</span><b id="stAutoLock">-</b></div>
     </section>
     <h2 style="padding:10px 14px 0">事件流</h2>
     <ul id="eventLog"></ul>
@@ -97,6 +100,8 @@ const state = {
   ws: null,
   venue: null,            // hello：{venue, canvas:{w,h}, faces:[{name,originX,...}]}
   touches: new Map(),     // id → {px:[x,y], face, phase, lastSeen, fadeStart}
+  locks: [],              // hello / locks push：[{face, cell:[col,row], source, packets}]
+  autoLockUntil: null,    // 自檢窗本地倒數結束時刻（Date.now() 基準）；null = 沒在自檢
   counts: { down: 0, move: 0, up: 0 },
   msgTimes: [],           // 1s 視窗訊息速率
   clockOffsetMin: null,   // min(localRecv - serverT)：時鐘差基線，估延遲用
@@ -150,9 +155,16 @@ function onMessage(msg) {
   if (msg.type === "hello") {
     state.venue = msg;
     state.touches.clear();
+    applyLocks(msg, now);
     $("stVenue").textContent = msg.venue;
     $("stCanvas").textContent = `${msg.canvas.w} × ${msg.canvas.h}`;
     $("stTimeout").textContent = `${msg.releaseTimeoutMs} ms`;
+    return;
+  }
+
+  // 鎖定變動推播（自檢結束 / lock / unlock 指令）
+  if (msg.type === "locks") {
+    applyLocks(msg, now);
     return;
   }
 
@@ -180,6 +192,14 @@ function onMessage(msg) {
   const alive = new Set(msg.alive);
   for (const [id, t] of state.touches)
     if (!alive.has(id) && t.phase !== "up") { t.phase = "up"; t.fadeStart = now; }
+}
+
+// hello / locks 訊息共用：更新鎖定清單與自檢窗倒數
+function applyLocks(msg, now) {
+  if (Array.isArray(msg.lockedCells)) state.locks = msg.lockedCells;
+  state.autoLockUntil = msg.autoLockActive
+    ? now + (msg.autoLockRemainingSeconds || 0) * 1000
+    : null;
 }
 
 // ── 事件流面板 ───────────────────────────────────────────────────────────────
@@ -244,6 +264,24 @@ function draw() {
                  X(f.originX) + 4 * devicePixelRatio, Y(f.originY) + 13 * devicePixelRatio);
   }
 
+  // 鎖定晶片：暗紅色格 + X 記號（縮放與面/格繪製同一座標系）
+  for (const l of state.locks) {
+    const f = v.faces[l.face];
+    if (!f) continue;
+    const x = X(f.originX + l.cell[0] * f.cellW);
+    const y = Y(f.originY + l.cell[1] * f.cellH);
+    const w = f.cellW * s, h = f.cellH * s;
+    ctx.fillStyle = "rgba(139,32,32,0.85)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "rgba(255,90,90,0.9)";
+    ctx.lineWidth = Math.max(devicePixelRatio, 1.5 * s);
+    ctx.strokeRect(x, y, w, h);
+    ctx.beginPath();   // X 記號
+    ctx.moveTo(x, y); ctx.lineTo(x + w, y + h);
+    ctx.moveTo(x + w, y); ctx.lineTo(x, y + h);
+    ctx.stroke();
+  }
+
   // 觸點：down 紅 / move 黃 / up 淡出
   const r = Math.max(5 * devicePixelRatio, 24 * s);
   ctx.textAlign = "center";
@@ -281,6 +319,22 @@ setInterval(() => {
   $("stCounts").textContent = `${state.counts.down || 0} / ${state.counts.move || 0} / ${state.counts.up || 0}`;
   $("stLatency").textContent = state.latencyMs === null ? "-" : state.latencyMs.toFixed(0);
   $("stSeq").textContent = state.lastSeq ?? "-";
+  $("stLocks").textContent = state.locks.length;
+
+  // 自檢窗倒數（hello 給起點、本地倒數；locks push 會校正/清除）
+  if (state.autoLockUntil !== null) {
+    const remain = Math.ceil((state.autoLockUntil - now) / 1000);
+    if (remain > 0) {
+      $("stAutoLock").textContent = `自檢中 ${remain} 秒`;
+      $("stAutoLock").style.color = "var(--move)";
+    } else {
+      state.autoLockUntil = null;   // 本地到期；正式結果等 locks push
+    }
+  }
+  if (state.autoLockUntil === null) {
+    $("stAutoLock").textContent = "未進行";   // 已結束或停用（自檢中才會顯示倒數）
+    $("stAutoLock").style.color = "";
+  }
 }, 250);
 </script>
 </body>

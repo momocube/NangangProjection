@@ -121,8 +121,11 @@
 1. **`alive` 是唯一真相源**：每包都帶。任何你手上的 touch ID 不在 `alive` 裡，
    就視為已離手並清掉——**即使你沒收到它的 `up` 事件**（網路丟包時 up 可能丟，
    alive 對帳保證不會殘留鬼點）。
-2. **忽略未知欄位**：未來會新增欄位（相容性變更），你的 parser 不可因為多了
-   欄位而報錯。`v` 變成 2 才是破壞性變更。
+2. **忽略未知欄位與帶 `type` 的非 frame 訊息**：未來會新增欄位（相容性變更），
+   你的 parser 不可因為多了欄位而報錯；`v` 變成 2 才是破壞性變更。
+   另外**任何帶 `type` 欄位的訊息都不是觸控 frame**——目前有 `hello`（連上第一包）
+   與 `locks`（鎖定晶片清單變動推播，監控頁用的，遊戲端可直接忽略），
+   未來可能新增其他 type，一律「不認識就跳過」。
 3. **`up` 天生比 `down` 慢 ~170ms**：硬體沒有「離手訊號」，只有重送停止，
    服務必須等 170ms 確認沒有後續訊號才發 `up`。這是物理限制不是 bug。
    `down` 則是零等待即時送達。遊戏邏輯請優先掛在 `down` 上。
@@ -170,9 +173,11 @@ class TouchClient {
       this._lastMsg = Date.now();
       let msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
-      if (msg.type === 'hello') {
-        this.hello = msg;
-        this.h.onHello && this.h.onHello(msg);
+      if (msg.type) {   // 帶 type 的訊息都不是觸控 frame（hello / locks / 未來新增）
+        if (msg.type === 'hello') {
+          this.hello = msg;
+          this.h.onHello && this.h.onHello(msg);
+        }
         return;
       }
       for (const e of (msg.events || [])) {

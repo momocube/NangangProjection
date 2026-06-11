@@ -136,11 +136,48 @@ up  ── 最後封包後 releaseTimeoutMs（預設 170ms）無新封包
   "faces": [
     { "index": 0, "name": "Wall Left", "originX": 0, "originY": 640,
       "width": 640, "height": 2048, "cols": 20, "rows": 128, "cellW": 32, "cellH": 16 }
-  ]
+  ],
+  "lockedCells": [
+    { "face": 2, "cell": [7, 13], "source": "auto", "packets": 125 }
+  ],
+  "autoLockActive": false,
+  "autoLockRemainingSeconds": 0
 }
 ```
 
-- 之後每包都是 frame（schema 同上）
+hello 的鎖定相關欄位（v1 相容性新增，2026-06）：
+
+| 欄位 | 說明 |
+|---|---|
+| `lockedCells[]` | 當下所有被鎖定（過濾中）的晶片格。鎖定格不會產生任何觸控事件 |
+| `lockedCells[].source` | 鎖定來源：`config`（config.json）/ `auto`（啟動自檢窗）/ `manual`（stdin lock 指令） |
+| `lockedCells[].packets` | `auto` 來源 = 自檢窗內收到的封包數；其他來源固定 0 |
+| `autoLockActive` | 啟動自檢窗是否進行中（true 期間服務**不發布任何觸控事件**，keepalive 照發） |
+| `autoLockRemainingSeconds` | 自檢窗剩餘秒數（無條件進位；非自檢中 = 0） |
+
+- 之後每包都是 frame（schema 同上），**除了** `type:"locks"` 推播（見下）
+
+### locks 推播（鎖定變動通知）
+
+鎖定清單變動時（啟動自檢窗結束、stdin `lock` / `unlock` 指令），服務對**所有**
+WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
+
+```json
+{
+  "type": "locks",
+  "lockedCells": [
+    { "face": 2, "cell": [7, 13], "source": "auto", "packets": 125 }
+  ],
+  "autoLockActive": false,
+  "autoLockRemainingSeconds": 0
+}
+```
+
+- `lockedCells` 為**全量清單**（不是 delta），欄位同 hello——收到直接整包替換即可
+- 一般訂閱端（遊戲 / 美術程式）**可以無視**這個訊息：鎖定格本來就不會有事件。
+  它存在的目的是讓監控頁（testpage）即時顯示鎖定狀態
+- 訂閱端 parser 規則：**帶 `type` 欄位的訊息都不是觸控 frame**（目前有 hello / locks，
+  未來可能新增），未知 type 一律忽略
 - 同 port 的 HTTP：`GET /venue` 回完整場域 profile（含 raw 校準值，CORS `*`）、
   `GET /` 回內建 testpage
 - 實作為最小 RFC 6455（text frame、close、ping/pong），不支援壓縮擴充；

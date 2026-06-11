@@ -8,6 +8,11 @@
   "keepaliveIntervalMs": 1000,
   "moveMinDistancePx": 0,
   "lockedCells": [],
+  "autoLock": {
+    "enabled": true,
+    "windowSeconds": 10,
+    "minPackets": 10
+  },
   "udpOutput": {
     "enabled": true,
     "endpoints": [ "127.0.0.1:20110" ]

@@ -58,7 +58,7 @@ public sealed class StatsCollector
         _windowStartMs = nowMs;
     }
 
-    public string Snapshot(int activeTouches, int wsClients)
+    public string Snapshot(int activeTouches, int wsClients, int autoLockedCells = 0)
     {
         long datagrams = Interlocked.Read(ref _datagrams);
         long processed = Interlocked.Read(ref _processUsTotal);
@@ -71,6 +71,7 @@ public sealed class StatsCollector
         sb.AppendLine($"parse errors     : {Interlocked.Read(ref _parseErrors)}");
         sb.AppendLine($"points           : {Interlocked.Read(ref _points)}  (unrouted {Interlocked.Read(ref _pointsUnrouted)})");
         sb.AppendLine($"dropped by lock  : {Interlocked.Read(ref _droppedByLock)}  (lockedCells 噪訊晶片過濾)");
+        sb.AppendLine($"auto-locked cells: {autoLockedCells}  (啟動自檢窗自動鎖定，詳見 locks 指令)");
         sb.AppendLine($"touch down/move/up: {Interlocked.Read(ref _downs)} / {Interlocked.Read(ref _moves)} / {Interlocked.Read(ref _ups)}");
         sb.AppendLine($"active touches   : {activeTouches}");
         sb.AppendLine($"frames published : {Interlocked.Read(ref _framesPublished)}");

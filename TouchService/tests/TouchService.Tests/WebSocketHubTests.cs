@@ -28,7 +28,7 @@ public class WebSocketHubTests : IDisposable
         var hub = new WebSocketHub(
             port: 0,
             venueJson: Encoding.UTF8.GetBytes("""{"venue":"test"}"""),
-            helloJson: hello ?? Encoding.UTF8.GetBytes("""{"type":"hello","venue":"test"}"""),
+            helloProvider: () => hello ?? Encoding.UTF8.GetBytes("""{"type":"hello","venue":"test"}"""),
             testPagePath: null,
             _log);
         hub.Start();

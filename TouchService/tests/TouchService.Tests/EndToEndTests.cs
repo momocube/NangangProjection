@@ -58,6 +58,7 @@ public class EndToEndTests
             MatchRadiusPx = 96,
             FlushIntervalMs = 5,
             KeepaliveIntervalMs = 200,
+            AutoLock = new AutoLockConfig { Enabled = false },   // E2E 驗證正常發布路徑，不走自檢窗
             UdpOutput = new UdpOutputConfig
             {
                 Enabled = true,
@@ -256,6 +257,7 @@ public class EndToEndTests
         {
             ListenPort = 0,
             VenueProfile = Path.Combine(AppContext.BaseDirectory, "venues", "704.json"),
+            AutoLock = new AutoLockConfig { Enabled = false },   // E2E 驗證正常發布路徑，不走自檢窗
             UdpOutput = new UdpOutputConfig
             {
                 Enabled = true,

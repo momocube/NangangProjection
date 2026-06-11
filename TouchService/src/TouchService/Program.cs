@@ -6,8 +6,8 @@ namespace TouchService;
 
 /// <summary>
 /// TouchService 進入點：headless console。
-/// 啟動讀 config → 收 UDP → 發布（raw UDP JSON + WebSocket）。
-/// stdin 指令：stats（吐統計）、touches（活躍 touch 清單，找噪訊晶片）、probe（dump latency CSV）、quit。
+/// 啟動讀 config → 自檢窗（autoLock）→ 收 UDP → 發布（raw UDP JSON + WebSocket）。
+/// stdin 指令：stats / touches / locks / lock / unlock / savelocks / probe / quit。
 /// </summary>
 public static class Program
 {
@@ -33,7 +33,7 @@ public static class Program
 
         log.Info($"[TouchService] v1 啟動，config：{configPath}");
 
-        using var host = new TouchServiceHost(config, baseDir, log);
+        using var host = new TouchServiceHost(config, baseDir, log, configPath);
         try
         {
             host.Start();
@@ -47,7 +47,9 @@ public static class Program
         var quit = new ManualResetEventSlim(false);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; quit.Set(); };
 
-        Console.WriteLine("指令：stats（統計）/ touches（活躍 touch 清單，找噪訊晶片）/ probe（dump latency CSV）/ quit（離開）");
+        Console.WriteLine("指令：stats（統計）/ touches（活躍 touch）/ locks（鎖定清單）/ " +
+                          "lock|unlock <face> <col> <row>（手動鎖/解鎖）/ savelocks（鎖定寫回 config）/ " +
+                          "probe（dump latency CSV）/ quit（離開）");
 
         // stdin 指令迴圈（stdin 關閉時改等 Ctrl+C / SIGTERM）
         var stdinThread = new Thread(() =>
@@ -55,13 +57,33 @@ public static class Program
             string? line;
             while ((line = Console.ReadLine()) != null)
             {
-                switch (line.Trim().ToLowerInvariant())
+                var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                switch (parts.Length == 0 ? "" : parts[0].ToLowerInvariant())
                 {
                     case "stats":
                         Console.WriteLine(host.StatsSnapshot());
                         break;
                     case "touches":
                         Console.WriteLine(host.TouchesSnapshot());
+                        break;
+                    case "locks":
+                        Console.WriteLine(host.LocksSnapshot());
+                        break;
+                    case "lock" or "unlock":
+                        if (parts.Length != 4 ||
+                            !int.TryParse(parts[1], out int face) ||
+                            !int.TryParse(parts[2], out int col) ||
+                            !int.TryParse(parts[3], out int row))
+                        {
+                            Console.WriteLine($"用法：{parts[0].ToLowerInvariant()} <face> <col> <row>（例：{parts[0].ToLowerInvariant()} 2 7 13）");
+                            break;
+                        }
+                        Console.WriteLine(parts[0].ToLowerInvariant() == "lock"
+                            ? host.LockCell(face, col, row)
+                            : host.UnlockCell(face, col, row));
+                        break;
+                    case "savelocks":
+                        Console.WriteLine(host.SaveLocks());
                         break;
                     case "probe":
                         var path = LatencyProbe.DumpCsv(logDir);
@@ -73,7 +95,7 @@ public static class Program
                     case "":
                         break;
                     default:
-                        Console.WriteLine("未知指令。可用：stats / touches / probe / quit");
+                        Console.WriteLine("未知指令。可用：stats / touches / locks / lock / unlock / savelocks / probe / quit");
                         break;
                 }
             }
