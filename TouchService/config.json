@@ -1,0 +1,27 @@
+{
+  "listenPort": 20001,
+  "venueProfile": "venues/704.json",
+  "releaseTimeoutMs": 170,
+  "matchRadiusPx": 96,
+  "maxSlots": 128,
+  "flushIntervalMs": 5,
+  "keepaliveIntervalMs": 1000,
+  "moveMinDistancePx": 0,
+  "udpOutput": {
+    "enabled": true,
+    "endpoints": [ "127.0.0.1:20110" ]
+  },
+  "webSocketOutput": {
+    "enabled": true,
+    "port": 20111
+  },
+  "tuioOutput": {
+    "enabled": false,
+    "endpoint": "127.0.0.1:3333"
+  },
+  "log": {
+    "level": "Info",
+    "dir": "logs",
+    "console": true
+  }
+}

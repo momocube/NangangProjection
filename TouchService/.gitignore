@@ -1,0 +1,8 @@
+# 服務執行時產物（現場跑 exe 會在工作目錄生成）
+logs/
+publish/
+
+# repo 根 .gitignore 為 Unity 擋掉 *.csproj / *.sln（Unity 自動生成檔），
+# TouchService 的是手寫真相源，必須進版控——在子樹內解除
+!*.csproj
+!*.sln

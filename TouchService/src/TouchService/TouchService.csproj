@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>TouchService</RootNamespace>
+    <AssemblyName>TouchService</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- 發布目標為 Windows 單檔執行檔；開發測試在 Linux 跑 -->
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+</Project>
