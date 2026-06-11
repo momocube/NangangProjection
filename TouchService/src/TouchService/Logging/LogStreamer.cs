@@ -36,8 +36,12 @@ public sealed class LogStreamer : IDisposable
             _ring.Enqueue(bytes);
             while (_ring.Count > Capacity) _ring.Dequeue();
         }
-        _pending.Enqueue(bytes);
-        _signal.Set();
+        // 未 Attach（webSocketOutput 停用）不進 pending——否則佇列無人消化會無限長大
+        if (_hub != null)
+        {
+            _pending.Enqueue(bytes);
+            _signal.Set();
+        }
     }
 
     /// <summary>{"type":"log","ts":...,"level":"Info","line":"..."}（純函式，測試對拍）。</summary>
