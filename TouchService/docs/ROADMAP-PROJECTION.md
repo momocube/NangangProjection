@@ -43,3 +43,21 @@
 2. 一面牆一個視窗，還是一面牆可以切多區？
 3. 操作介面要做在哪：獨立小視窗？還是併進 TouchService UI 加一個 tab（跨 exe 用 API 溝通）？
 4. 人員權限：誰可以改投影配置（同 config API 的 loopback-only 原則？）
+
+## 追加（2026-06-11 23:15，Luke 提出）
+
+### 第三模式：多點觸控（v8 候選）
+- touchMode 加 `multitouch`：Windows Touch Injection API（InitializeTouchInjection /
+  InjectTouchInput）把 TouchService 的多點資料注入成真實 Windows 觸控
+- 落點下的視窗原生收 touch 事件（瀏覽器 touchstart 直接動），多人多牆同時操作成立
+- 映射與面勾選沿用滑鼠模式那套（canvas→screen）；注意注入生命週期：觸點需持續
+  餵更新（Windows 對 stale contact 會自動 cancel），由 flush timer 以固定頻率重注入
+- 解掉滑鼠模式的單游標限制 → 投影程式 v1 直接受益
+- 只能現場 Windows 實機驗證
+
+### 新場域複製（已支援，記流程）
+- 硬體協議不變；寫新 `venues/XXX.json`（畫布 + 各面 rawMin/Max/翻轉/origin）；
+  config 指向；重啟——程式零修改，下游訂閱端經 hello 自動適應
+- 要重驗：該場域重送週期（閥值不同會變 → releaseTimeoutMs 重調）、硬體同款確認
+- 未來甜頭：**校正精靈**——UI 引導踩指定角落自動算 rawMin/Max 寫 JSON，
+  校正從工程師半天變現場人員十分鐘
