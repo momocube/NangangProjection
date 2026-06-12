@@ -11,6 +11,8 @@
 - 觸控邏輯**移植自** Unity 專案 `NangangProjection`（封包解析、座標公式、
   slot 配對都與 Unity 端對拍），但去掉視覺 / 手勢 / OS 點擊模擬，只留純觸控語意
 - 一句話：**「14,272 顆晶片 → 乾淨的 multi-touch 事件流」**
+- 姊妹工具：**`WallProjector/`（repo 根目錄）**——牆面投影管理（顯示層；把網頁投到
+  特定牆面 + 90° 旋轉轉正），是本服務 /venue + /config 的普通 client，見其 README.md
 
 ## 目錄結構
 

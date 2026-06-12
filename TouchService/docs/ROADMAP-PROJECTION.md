@@ -1,6 +1,17 @@
-# 投影程式設計備忘（未動工，2026-06-11 深夜記錄）
+# 投影程式設計備忘（2026-06-11 深夜記錄）
 
 > Luke 提出、待 v7 現場驗證後一起細化。**獨立的新 exe**，不是 TouchService 的功能。
+>
+> **✅ V1 已實作（2026-06-12）：`WallProjector/`（repo 根目錄，獨立程式）**
+> - 下方「v1 功能草圖」全項落地＋牆面旋轉（wrap 頁 CSS rotate）＋管理頁（port 20121）
+>   ＋watchdog＋autoRestore；64 個測試（rect 對拍 MapCanvasToScreen）；
+>   `_dist/WallProjector-win64-v1.zip`。文件：`WallProjector/README.md`
+> - **決定：rotation 放 WallProjector 自己的 projections.json，不動 TouchService**
+>   ——本文件下方「venue JSON 加欄位 viewRotation」維持未來式（多場域時才遷；
+>   屆時 WallProjector 改為優先讀 /venue 的 viewRotation、config 值作 override）
+> - TouchService 程式碼零修改（V1 約定守住）；WallProjector 只是 /venue + /config
+>   的普通 HTTP client，不可達時 cache/fallback 降級
+> - 視窗對位/watchdog 等 Windows 行為的現場驗證清單在 WallProjector/README.md
 
 ## 需求（Luke 原述整理）
 
