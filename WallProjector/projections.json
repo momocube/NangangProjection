@@ -1,0 +1,16 @@
+{
+  "httpPort": 20121,
+  "touchServiceBaseUrl": "http://127.0.0.1:20111",
+  "autoRestore": true,
+  "restartOnCrash": true,
+  "topmost": true,
+  "browserProfileDir": "profiles",
+  "fallback": {
+    "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+    "content": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 },
+    "venueFile": null
+  },
+  "projections": [
+    { "face": 4, "url": "https://example.com/", "rotation": 90, "enabled": false }
+  ]
+}

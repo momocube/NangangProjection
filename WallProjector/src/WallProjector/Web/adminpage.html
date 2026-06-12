@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>WallProjector 牆面投影管理</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #14161c; --panel: #1d2027; --line: #2e3340;
+    --text: #d8dce6; --dim: #79808f; --accent: #5b8dee;
+    --err: #ff4d4d; --warn: #ffd24d; --ok: #5dd97c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Consolas", "Microsoft JhengHei", monospace;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 600; }
+  .badge { padding: 2px 10px; border-radius: 10px; border: 1px solid var(--line); color: var(--dim); }
+  .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .badge.err { color: var(--err); border-color: var(--err); }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  header button, td button {
+    background: var(--accent); border: 0; color: #fff; border-radius: 4px;
+    padding: 5px 14px; cursor: pointer; font: inherit;
+  }
+  header button.ghost { background: transparent; border: 1px solid var(--line); color: var(--dim); }
+  #screenInfo { color: var(--dim); }
+  #warnBar {
+    display: none; padding: 8px 16px; background: #3a2a12; color: var(--warn);
+    border-bottom: 1px solid var(--line); white-space: pre-wrap;
+  }
+  main { padding: 16px; max-width: 1280px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: middle; }
+  th { background: var(--panel); color: var(--dim); font-weight: 600; }
+  tr.floor td { background: #181a21; }
+  td .name { font-weight: 600; }
+  td .geo { color: var(--dim); font-size: 12px; }
+  td input[type=text] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 8px; font: inherit; width: 100%; min-width: 220px;
+  }
+  td select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 8px; font: inherit;
+  }
+  td button.stop { background: #8a3030; }
+  td button:disabled { opacity: .45; cursor: default; }
+  .st { padding: 2px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; }
+  .st.running { background: #1d3a25; color: var(--ok); }
+  .st.stopped { background: #262a33; color: var(--dim); }
+  .st.restarting { background: #3a3212; color: var(--warn); }
+  .st.failed { background: #3a1d1d; color: var(--err); }
+  .errline { color: var(--err); font-size: 12px; margin-top: 3px; white-space: pre-wrap; }
+  .floorTag { color: var(--warn); font-size: 11px; border: 1px solid var(--warn);
+    border-radius: 3px; padding: 0 5px; margin-left: 6px; }
+  footer { padding: 8px 16px 24px; color: var(--dim); font-size: 12px; line-height: 1.7; }
+  #toast {
+    position: fixed; right: 16px; bottom: 16px; max-width: 480px; display: none;
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 6px;
+    padding: 10px 14px; white-space: pre-wrap; z-index: 10;
+  }
+  #toast.err { border-color: var(--err); color: var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <h1>WallProjector 牆面投影</h1>
+  <span id="tsBadge" class="badge">TouchService …</span>
+  <span id="screenInfo"></span>
+  <button class="ghost" onclick="post('/api/reconnect',{})">重新連線 TouchService</button>
+  <button onclick="post('/api/restore',{})">還原全部 enabled</button>
+</header>
+<div id="warnBar"></div>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:200px">面</th>
+        <th style="width:170px">投影螢幕 rect</th>
+        <th>URL</th>
+        <th style="width:110px">旋轉</th>
+        <th style="width:100px">狀態</th>
+        <th style="width:150px">操作</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<footer>
+  ・旋轉預設值是依十字展開方位的合理猜測（左右臂 ±90、上下臂 0/180、地板 0）——
+  <b>以現場實看為準，下拉即調</b>（變更會立即重啟該槽套用）。<br>
+  ・地板面通常投牆面內容才需要本工具；地板列僅供完整性。<br>
+  ・寫入操作僅接受本機（loopback）；URL 輸入後按「啟動」或直接離開輸入框儲存。<br>
+  ・目標站若以 X-Frame-Options / CSP 拒絕嵌入，投影視窗會顯示明確錯誤——V1 限制，v2 路線為 CDP 注入（README）。
+</footer>
+<div id="toast"></div>
+<script>
+'use strict';
+let state = null;
+
+function el(id) { return document.getElementById(id); }
+
+function toast(msg, isErr) {
+  const t = el('toast');
+  t.textContent = msg;
+  t.className = isErr ? 'err' : '';
+  t.style.display = 'block';
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.display = 'none'; }, 4000);
+}
+
+async function post(path, body) {
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(body) });
+    const j = await r.json();
+    toast(j.message || (j.ok ? 'OK' : '失敗'), !j.ok);
+    await refresh();
+  } catch (e) { toast('請求失敗：' + e, true); }
+}
+
+function saveSlot(face) {
+  const url = el('url-' + face).value.trim();
+  const rotation = parseInt(el('rot-' + face).value, 10);
+  return post('/api/slot', { face, url, rotation });
+}
+
+function startSlot(face) {
+  const url = el('url-' + face).value.trim();
+  const rotation = parseInt(el('rot-' + face).value, 10);
+  if (!url) { toast('請先填 URL', true); return; }
+  // 先存再啟動（slot 更新 enabled 槽會自動重啟套用；未 enabled 用 start）
+  post('/api/slot', { face, url, rotation, enabled: true });
+}
+
+function rotSelect(face, current, guess) {
+  let h = `<select id="rot-${face}" onchange="onRotChange(${face})">`;
+  for (const r of [0, 90, 180, 270]) {
+    const mark = r === guess ? '（預設猜測）' : '';
+    h += `<option value="${r}" ${r === current ? 'selected' : ''}>${r}°${mark}</option>`;
+  }
+  return h + '</select>';
+}
+
+function onRotChange(face) {
+  const f = (state?.faces || []).find(x => x.index === face);
+  if (f && f.slot && f.slot.url) saveSlot(face);   // 有設定的槽：下拉即調（即時生效）
+}
+
+function onUrlBlur(face) {
+  const f = (state?.faces || []).find(x => x.index === face);
+  const prev = f && f.slot ? f.slot.url : '';
+  const now = el('url-' + face).value.trim();
+  if (now !== prev && (now || prev)) saveSlot(face);   // 變了才存（空→空不打）
+}
+
+function render() {
+  if (!state) return;
+  const ts = state.touchService;
+  const badge = el('tsBadge');
+  if (ts.reachable) { badge.className = 'badge ok'; badge.textContent = `TouchService 已連線（${ts.venue}）`; }
+  else if (ts.source === 'cache') { badge.className = 'badge warn'; badge.textContent = 'TouchService 離線（用 cache）'; }
+  else { badge.className = 'badge err'; badge.textContent = 'TouchService 不可達'; }
+
+  el('screenInfo').textContent =
+    `screen (${ts.screen.x},${ts.screen.y}) ${ts.screen.width}×${ts.screen.height}` +
+    `　content offset(${ts.content.offsetX},${ts.content.offsetY}) scale(${ts.content.scaleX},${ts.content.scaleY})` +
+    (ts.canvas ? `　canvas ${ts.canvas.width}×${ts.canvas.height}` : '');
+
+  const warn = el('warnBar');
+  if (ts.warning) { warn.style.display = 'block'; warn.textContent = '⚠ ' + ts.warning; }
+  else warn.style.display = 'none';
+
+  const rows = el('rows');
+  const focusedId = document.activeElement && document.activeElement.id;
+  const editing = {};
+  for (const f of state.faces) {
+    const input = el('url-' + f.index);
+    if (input && (focusedId === input.id || input.value !== input.defaultValue)) editing[f.index] = input.value;
+  }
+
+  rows.innerHTML = state.faces.map(f => {
+    const slot = f.slot || { url: '', rotation: f.guessRotation, enabled: false };
+    const urlVal = editing[f.index] !== undefined ? editing[f.index] : slot.url;
+    const rect = f.screenRect ? `(${f.screenRect.x},${f.screenRect.y}) ${f.screenRect.w}×${f.screenRect.h}` : '—';
+    const canvas = f.canvas ? `canvas (${f.canvas.x},${f.canvas.y}) ${f.canvas.w}×${f.canvas.h}` : '';
+    const stTxt = { running: '運行中', stopped: '已停', restarting: '重啟中', failed: '失敗' }[f.status] || f.status;
+    const running = f.status === 'running' || f.status === 'restarting';
+    return `<tr class="${f.floor ? 'floor' : ''}">
+      <td><span class="name">${f.index}　${escapeHtml(f.name)}</span>${f.floor ? '<span class="floorTag">地板——通常投牆面</span>' : ''}
+          <div class="geo">${canvas}</div></td>
+      <td>${rect}</td>
+      <td><input type="text" id="url-${f.index}" value="${escapeAttr(urlVal)}"
+            placeholder="https://…" onblur="onUrlBlur(${f.index})"></td>
+      <td>${rotSelect(f.index, slot.rotation, f.guessRotation)}</td>
+      <td><span class="st ${f.status}">${stTxt}</span>
+          ${f.lastError ? `<div class="errline">${escapeHtml(f.lastError)}</div>` : ''}</td>
+      <td>
+        <button onclick="startSlot(${f.index})">${running ? '重啟' : '啟動'}</button>
+        <button class="stop" onclick="post('/api/stop',{face:${f.index}})" ${running || slot.enabled ? '' : 'disabled'}>停止</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // restore focus
+  if (focusedId && el(focusedId)) {
+    const inp = el(focusedId);
+    inp.focus();
+    if (inp.setSelectionRange && editing[focusedId.replace('url-', '')] !== undefined) {
+      const v = inp.value.length;
+      try { inp.setSelectionRange(v, v); } catch {}
+    }
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/state');
+    state = await r.json();
+    render();
+  } catch (e) {
+    el('tsBadge').className = 'badge err';
+    el('tsBadge').textContent = 'WallProjector 連線中斷';
+  }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
