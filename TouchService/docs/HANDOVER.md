@@ -121,6 +121,15 @@ schema 完整定義 / touch 生命週期 / timeout 取值依據 → `docs/PROTOC
 | 座標公式逐 bit 對拍 Unity | 投影（Unity）與觸控（本服務）的格子判定必須一致，quirk 也保留 |
 | simulator 用真實 capture | 離場驗證的基準是現場 Wireshark 資料，不是想像的理想封包 |
 
+## 交接時點的未驗證項（2026-06-12，接手者請知悉）
+
+| 項目 | 狀態 | 說明 |
+|---|---|---|
+| **v8 校正精靈（實機）** | ⚠️ 未在實機驗證 | 開發機 simulator + E2E 全過，但沒在真硬體上走過完整流程。第一次實機使用**必讀 CALIBRATION.md 開頭的安全守則**（先備份 `config.json` + `venues\`，場域名別填 704）。精靈只寫這兩個檔、重啟才生效，備份在就 100% 可還原 |
+| **WallProjector 視窗對位** | ⚠️ 已知問題調查中 | 2026-06-12 現場回報：投影視窗等比例錯位（牆面/地板各佔一半）。疑為 DPI 縮放 / 瀏覽器 DIP 座標問題，修正與診斷工具在後續版本（見 WallProjector/README.md 最新版說明） |
+| **WallProjector v2 CDP / 本地檔案模式** | ⚠️ 部分驗證 | 真 chromium headless E2E 過；現場逐項清單在 WallProjector/README.md |
+| 滑鼠模式 / 托盤 / 多點注入類 | Windows-only | 行為改動後只能實機驗（Linux 開發機測不到 P/Invoke 行為） |
+
 ## 維運 FAQ
 
 - **觸點閃爍**（按住卻 up/down 交替）→ `releaseTimeoutMs` +20ms 觀察；
