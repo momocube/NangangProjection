@@ -14,6 +14,13 @@ public sealed class TouchServiceState
     public string Source { get; init; } = "fallback";
     public bool Reachable { get; init; }
     public string? Warning { get; init; }
+
+    /// <summary>screen rect 來源："touchservice"（沿用滑鼠校正，預設）/
+    /// "override"（projections.json 的 screenOverride，見 <see cref="CalibrationOverride"/>）。</summary>
+    public string ScreenSource { get; init; } = "touchservice";
+
+    /// <summary>content 校正來源（同上，對應 contentOverride）。</summary>
+    public string ContentSource { get; init; } = "touchservice";
 }
 
 /// <summary>

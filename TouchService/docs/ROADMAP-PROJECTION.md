@@ -28,6 +28,17 @@
 >   （含**真 chromium headless CDP E2E**：注入後 getComputedStyle 矩陣驗證 +
 >   導航存活）；`_dist/WallProjector-win64-v2.zip`；TouchService 仍零修改
 > - 下方「V2（任意視窗）Windows.Graphics.Capture 合成」**改編號為 V3**（仍未做）
+>
+> **✅ V3 已實作（2026-06-12）：DPI 修正 + 自我診斷（704 現場「視窗等比例錯位」回報）**
+> - 症狀：投影視窗等比例錯位（貼滿牆 → 牆一半地板一半），滑鼠模式卻準 →
+>   根因：WallProjector 是 DPI-unaware process，投影螢幕縮放 ≠ 100% 時 SetWindowPos
+>   座標被 DPI 虛擬化（×縮放倍數）；疊加 Chromium `--window-position` 單位是 DIP、
+>   CDP 模式 pid 比對可能失敗（Edge launcher）→ 精確對位沒跑到停在粗對位
+> - 修法：入口宣告 Per-Monitor V2 DPI awareness（三層 fallback）＋對位後 GetWindowRect
+>   讀回驗證（±2px，管理頁紅字）＋螢幕清單診斷（rect + 縮放%）＋ CDP title 標記注入
+>   （pid 比對備援）＋ screenOverride/contentOverride 逃生口；167 個測試；
+>   `_dist/WallProjector-win64-v3.zip`；TouchService 仍零修改
+> - 註：本段佔用 V3 編號——「任意視窗 Windows.Graphics.Capture 合成」再順延為 V4（仍未做）
 
 ## 需求（Luke 原述整理）
 

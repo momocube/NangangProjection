@@ -6,6 +6,8 @@
   "topmost": true,
   "browserProfileDir": "profiles",
   "cdpBasePort": 9333,
+  "screenOverride": null,
+  "contentOverride": null,
   "fallback": {
     "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
     "content": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 },

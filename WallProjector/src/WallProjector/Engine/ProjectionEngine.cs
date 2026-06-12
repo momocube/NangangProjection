@@ -37,6 +37,10 @@ public sealed class ProjectionEngine : IDisposable
         public long NextRestartTick;
         public WindowRect? Rect;
         public bool Positioned;
+        /// <summary>對位後 GetWindowRect 讀回的實際 rect（null = 未對位/讀回失敗）。</summary>
+        public WindowRect? ActualRect;
+        /// <summary>實際 rect 與目標不符（±2px 容差）——管理頁紅字、現場一眼可辨。</summary>
+        public bool RectMismatch;
         /// <summary>cdp 模式：旋轉已注入成功（rotation=0 啟動即視為完成）。</summary>
         public bool CdpInjected;
         /// <summary>wrap 模式：header 預檢偵測到目標站擋 iframe（管理頁據此提示切 CDP）。</summary>
@@ -50,6 +54,7 @@ public sealed class ProjectionEngine : IDisposable
     readonly Dictionary<int, SlotRuntime> _runtimes = new();
     readonly Timer _watchdog;
     readonly Func<string, string?> _frameChecker;
+    readonly Func<IReadOnlyList<MonitorEnumerator.MonitorInfo>> _monitors;
     TouchServiceState _ts;
     Func<TouchServiceState>? _reconnect;
     string? _browserExe;
@@ -62,7 +67,8 @@ public sealed class ProjectionEngine : IDisposable
     const long AttemptResetUptimeMs = 60_000;   // 存活超過 1 分鐘視為穩定，退避歸零
 
     public ProjectionEngine(ProjectorConfig config, string configPath, TouchServiceState ts, Logger log,
-                            Func<string, string?>? frameChecker = null)
+                            Func<string, string?>? frameChecker = null,
+                            Func<IReadOnlyList<MonitorEnumerator.MonitorInfo>>? monitorProvider = null)
     {
         _config = config;
         _configPath = configPath;
@@ -72,6 +78,8 @@ public sealed class ProjectionEngine : IDisposable
         _frameChecker = frameChecker ??
             (url => FrameBlockChecker.Check(url, $"http://127.0.0.1:{HttpPort}",
                                             TimeSpan.FromSeconds(4), _log));
+        // 螢幕清單診斷（V3）：預設真列舉（非 Windows 回空），測試可注入假清單釘 JSON 形狀
+        _monitors = monitorProvider ?? MonitorEnumerator.Enumerate;
         _watchdog = new Timer(_ => WatchdogTick(), null, 2000, 2000);
     }
 
@@ -410,7 +418,18 @@ public sealed class ProjectionEngine : IDisposable
                         : new { width = _ts.Venue.Canvas.Width, height = _ts.Venue.Canvas.Height },
                     screen = new { x = _ts.Screen.X, y = _ts.Screen.Y, width = _ts.Screen.Width, height = _ts.Screen.Height },
                     content = new { offsetX = _ts.Content.OffsetX, offsetY = _ts.Content.OffsetY, scaleX = _ts.Content.ScaleX, scaleY = _ts.Content.ScaleY },
+                    // V3：screen/content 是 TouchService 的值還是 projections.json override（逃生口）
+                    screenSource = _ts.ScreenSource,
+                    contentSource = _ts.ContentSource,
                 },
+                // V3 診斷：每顆螢幕的物理 rect + 縮放%（PMv2 宣告後拿到的就是物理值）
+                // ——管理頁據此讓現場直接對照「screen 設定 vs 螢幕物理事實」
+                monitors = _monitors().Select(m => new
+                {
+                    index = m.Index, name = m.Name,
+                    x = m.X, y = m.Y, width = m.Width, height = m.Height,
+                    primary = m.Primary, dpi = m.Dpi, scalePercent = m.ScalePercent,
+                }).ToArray(),
                 faces,
             };
             return JsonSerializer.Serialize(state);
@@ -448,6 +467,9 @@ public sealed class ProjectionEngine : IDisposable
             cdpInjected = rt?.CdpInjected ?? false,
             embedBlocked = slot?.Mode == SlotConfig.ModeWrap ? rt?.EmbedBlockReason : null,
             fileError,
+            // V3 對位驗證：對位後讀回的實際 rect 與「是否與目標不符」（管理頁紅字）
+            actualRect = rt?.ActualRect is { } ar ? (object)new { x = ar.X, y = ar.Y, w = ar.Width, h = ar.Height } : null,
+            rectMismatch = rt?.RectMismatch ?? false,
             status = (rt?.Status ?? SlotStatus.Stopped).ToString().ToLowerInvariant(),
             restartAttempts = rt?.RestartAttempts ?? 0,
             lastError = rt?.LastError,
@@ -602,22 +624,34 @@ public sealed class ProjectionEngine : IDisposable
         rt.LastStartTick = Environment.TickCount64;
         rt.Rect = rect;
         rt.Positioned = false;
-        rt.CdpInjected = mode == SlotConfig.ModeCdp && slot.Rotation == 0;   // rotation=0 不需注入
+        rt.ActualRect = null;
+        rt.RectMismatch = false;
+        rt.CdpInjected = mode == SlotConfig.ModeCdp && slot.Rotation == 0;   // rotation=0 不需注旋轉
 
         // 視窗對位走背景（EnumWindows 輪詢最多 15s，不能佔住 _gate）。
-        // CDP 模式視窗 title 是目標站自己的（沒有 [WP-slot-N] 標記）→ 以 pid 比對。
+        // CDP 模式視窗 title 是目標站自己的 → 以 pid 比對為主；title 標記由 CDP 注入
+        // 作備援（pid 比對在 Edge launcher 行為下可能失敗，見 InjectCdpAsync）。
+        // 對位後實際 rect 讀回存進 runtime——管理頁顯示「預期 / 實際」。
         bool topmost = _config.Topmost;
         int procId = proc.Id;
         Task.Run(() =>
         {
-            bool ok = WindowPositioner.TryPosition(WrapPageBuilder.TitleMarker(face), rect, topmost, _log,
-                                                   pid: mode == SlotConfig.ModeCdp ? procId : null);
-            lock (_gate) { if (Runtime(face).Process == proc) Runtime(face).Positioned = ok; }
+            var result = WindowPositioner.TryPosition(WrapPageBuilder.TitleMarker(face), rect, topmost, _log,
+                                                      pid: mode == SlotConfig.ModeCdp ? procId : null);
+            lock (_gate)
+            {
+                var cur = Runtime(face);
+                if (cur.Process != proc) return;   // 已被重啟/停止，別動新狀態
+                cur.Positioned = result.Positioned;
+                cur.ActualRect = result.ActualRect;
+                cur.RectMismatch = result.RectMismatch;
+            }
         });
 
-        // CDP 旋轉注入走背景（連線輪詢最多 15s）；失敗 → 明確 Failed，不靜默
-        if (mode == SlotConfig.ModeCdp && slot.Rotation != 0)
-            InjectCdpRotationAsync(face, proc, cdpPort!.Value, slot.Rotation);
+        // CDP 模式一律走注入（V3）：title 標記每槽必注（rotation=0 也要——對位備援）、
+        // 旋轉 CSS 只在 rotation≠0 注；旋轉注入失敗 → 明確 Failed，不靜默
+        if (mode == SlotConfig.ModeCdp)
+            InjectCdpAsync(face, proc, cdpPort!.Value, slot.Rotation);
 
         return (true, $"face {face} [{faceInfo.Name}] 已啟動 @ ({rect.X},{rect.Y}) {rect.Width}x{rect.Height} " +
                       $"rot={slot.Rotation} mode={mode}" +
@@ -628,27 +662,54 @@ public sealed class ProjectionEngine : IDisposable
     public int CdpPortFor(int face, SlotConfig slot) => slot.CdpPort ?? _config.CdpBasePort + face;
 
     /// <summary>
-    /// 背景：等 CDP port 起來 → 注入旋轉（addScriptToEvaluateOnNewDocument 讓 SPA
-    /// 導航後旋轉存活 + Runtime.evaluate 立即套用當前頁）。
-    /// 失敗（port 沒起來 / timeout / CDP 錯誤）→ 槽標 Failed + 收掉瀏覽器——
-    /// 寧可黑屏 + 管理頁紅字，不讓內容歪著掛在牆上沒人發現。
+    /// 背景：等 CDP port 起來 → 注入 title 標記（每槽必注——對位的 pid 比對備援）
+    /// → rotation≠0 再注入旋轉（addScriptToEvaluateOnNewDocument 讓 SPA 導航後
+    /// 存活 + Runtime.evaluate 立即套用當前頁）。
+    ///
+    /// 失敗的嚴重性分兩級：
+    /// - 旋轉注入失敗 → 槽標 Failed + 收掉瀏覽器——寧可黑屏 + 管理頁紅字，
+    ///   不讓內容歪著掛在牆上沒人發現。
+    /// - title 標記失敗（rotation=0 時的 CDP 連線失敗也算）→ 只 WARN——內容
+    ///   本身正確，對位還有 pid 路徑，不值得為標記殺掉好好播著的內容。
     /// </summary>
-    void InjectCdpRotationAsync(int face, Process proc, int cdpPort, int rotation)
+    void InjectCdpAsync(int face, Process proc, int cdpPort, int rotation)
     {
         Task.Run(async () =>
         {
             try
             {
                 await using var cdp = await CdpClient.ConnectAsync(cdpPort, TimeSpan.FromSeconds(15));
-                await CdpInjector.InjectRotationAsync(cdp, rotation);
-                lock (_gate)
+
+                try
                 {
-                    if (Runtime(face).Process == proc) Runtime(face).CdpInjected = true;
+                    await CdpInjector.InjectTitleMarkerAsync(cdp, WrapPageBuilder.TitleMarker(face));
+                    _log.Info($"[CDP] face {face} title 標記已注入（port {cdpPort}）——視窗對位 pid 比對失敗時的備援");
                 }
-                _log.Info($"[CDP] face {face} 旋轉 {rotation}° 已注入（port {cdpPort}）");
+                catch (Exception ex)
+                {
+                    _log.Warn($"[CDP] face {face} title 標記注入失敗（port {cdpPort}）：{ex.Message}" +
+                              "——視窗對位僅剩 pid 比對");
+                }
+
+                if (rotation != 0)
+                {
+                    await CdpInjector.InjectRotationAsync(cdp, rotation);
+                    lock (_gate)
+                    {
+                        if (Runtime(face).Process == proc) Runtime(face).CdpInjected = true;
+                    }
+                    _log.Info($"[CDP] face {face} 旋轉 {rotation}° 已注入（port {cdpPort}）");
+                }
             }
             catch (Exception ex)
             {
+                if (rotation == 0)
+                {
+                    // rotation=0 連 CDP 只是為了 title 標記——失敗不影響內容正確性，不收瀏覽器
+                    _log.Warn($"[CDP] face {face} 連線失敗（port {cdpPort}）：{ex.Message}" +
+                              "——title 標記未注入（rotation=0，內容不受影響，對位走 pid 比對）");
+                    return;
+                }
                 _log.Error($"[CDP] face {face} 旋轉注入失敗（port {cdpPort}）：{ex.Message}");
                 lock (_gate)
                 {

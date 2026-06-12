@@ -6,16 +6,22 @@ using WallProjector.Web;
 namespace WallProjector;
 
 /// <summary>
-/// WallProjector 入口——CyberCube 光域牆面投影管理工具 V1。
+/// WallProjector 入口——CyberCube 光域牆面投影管理工具 V3。
 /// 顯示層（視窗擺位 + 旋轉 wrap），輸入層是 TouchService（滑鼠模式）——完全解耦，
 /// 本工具不碰任何輸入。
+/// V3：Per-Monitor V2 DPI awareness（修等比例錯位）+ 對位驗證 + 螢幕診斷 + override 逃生口。
 /// </summary>
 public static class Program
 {
-    const string Version = "2.0.0";
+    const string Version = "3.0.0";
 
     public static int Main(string[] args)
     {
+        // V3 核心修正：Per-Monitor V2 DPI awareness——必須在任何視窗/螢幕 API 之前宣告。
+        // 沒宣告時投影螢幕縮放 ≠ 100% 會讓 SetWindowPos 座標被 DPI 虛擬化 →
+        // 視窗等比例錯位（704 現場：貼滿牆的視窗變成牆一半、地板一半）。
+        string dpiResult = DpiAwareness.Apply();
+
         string configPath = "projections.json";
         for (int i = 0; i < args.Length; i++)
         {
@@ -44,16 +50,30 @@ public static class Program
 
         var log = new Logger();
         log.Info($"WallProjector v{Version} — 牆面投影管理工具（顯示層；輸入層 = TouchService）");
+        log.Info($"[DPI] {dpiResult}");
         log.Info($"[Config] {configPath}");
+
+        // V3 診斷：啟動就把所有螢幕的物理 rect + 縮放% 打進 log——
+        // 等比例錯位的第一嫌疑是縮放，現場看 log 第一眼就能對照
+        if (OperatingSystem.IsWindows())
+        {
+            var monitors = MonitorEnumerator.Enumerate();
+            if (monitors.Count == 0) log.Warn("[Monitor] 列舉不到任何螢幕（EnumDisplayMonitors 失敗？）");
+            foreach (var m in monitors)
+                log.Info($"[Monitor] #{m.Index} {m.Name} ({m.X},{m.Y}) {m.Width}x{m.Height} " +
+                         $"縮放 {m.ScalePercent}%{(m.Primary ? "（主螢幕）" : "")}");
+        }
 
         var config = ProjectorConfig.Load(configPath, log);
 
         var cachePath = Path.Combine(Path.GetDirectoryName(configPath)!, "touchservice-cache.json");
         var tsClient = new TouchServiceClient(config.TouchServiceBaseUrl, cachePath, config.Fallback, log);
-        var ts = tsClient.Resolve();
+        // override 逃生口（V3）包在 Resolve 外層——TouchServiceClient 保持純粹
+        TouchServiceState ResolveWithOverride() => CalibrationOverride.Apply(tsClient.Resolve(), config, log);
+        var ts = ResolveWithOverride();
 
         using var engine = new ProjectionEngine(config, configPath, ts, log);
-        engine.SetReconnect(tsClient.Resolve);
+        engine.SetReconnect(ResolveWithOverride);
 
         // vendored 資源（pdf.js）：config 旁優先（repo 開發），再 exe 旁（dist 部署）
         var assetsDirs = new[]

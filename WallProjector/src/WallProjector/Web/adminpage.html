@@ -31,6 +31,9 @@
   }
   header button.ghost { background: transparent; border: 1px solid var(--line); color: var(--dim); }
   #screenInfo { color: var(--dim); }
+  #screenInfo .ovr { color: var(--warn); }
+  #monitorInfo { color: var(--dim); }
+  #monitorInfo .scaleBad { color: var(--warn); font-weight: 600; }
   #warnBar {
     display: none; padding: 8px 16px; background: #3a2a12; color: var(--warn);
     border-bottom: 1px solid var(--line); white-space: pre-wrap;
@@ -84,6 +87,7 @@
   <h1>WallProjector 牆面投影</h1>
   <span id="tsBadge" class="badge">TouchService …</span>
   <span id="screenInfo"></span>
+  <span id="monitorInfo"></span>
   <button class="ghost" onclick="post('/api/reconnect',{})">重新連線 TouchService</button>
   <button onclick="post('/api/restore',{})">還原全部 enabled</button>
 </header>
@@ -112,7 +116,10 @@
   <b>以現場實看為準，下拉即調</b>（變更會立即重啟該槽套用）。<br>
   ・地板面通常投牆面內容才需要本工具；地板列僅供完整性。<br>
   ・寫入操作僅接受本機（loopback）；輸入後按「啟動」或直接離開輸入框儲存。<br>
-  ・嵌入模式偵測到目標站擋 iframe 時，該列會出現「切到 CDP」一鍵切換；CDP 模式注入失敗會標「失敗」紅字（不靜默）。
+  ・嵌入模式偵測到目標站擋 iframe 時，該列會出現「切到 CDP」一鍵切換；CDP 模式注入失敗會標「失敗」紅字（不靜默）。<br>
+  ・<b>對位驗證（V3）</b>：「投影螢幕 rect」欄的「實際」行＝對位後讀回的視窗實際位置，
+  紅字＝與預期不符——先對照上方<b>螢幕清單的縮放%</b>（等比例錯位幾乎都是 DPI 縮放 ≠ 100%）；
+  screen/content 帶 <b>[override]</b> 標記時表示 projections.json 的覆寫逃生口生效中（README 有使用時機）。
 </footer>
 <div id="toast"></div>
 <script>
@@ -214,10 +221,21 @@ function render() {
   else if (ts.source === 'cache') { badge.className = 'badge warn'; badge.textContent = 'TouchService 離線（用 cache）'; }
   else { badge.className = 'badge err'; badge.textContent = 'TouchService 不可達'; }
 
-  el('screenInfo').textContent =
-    `screen (${ts.screen.x},${ts.screen.y}) ${ts.screen.width}×${ts.screen.height}` +
-    `　content offset(${ts.content.offsetX},${ts.content.offsetY}) scale(${ts.content.scaleX},${ts.content.scaleY})` +
+  // screen/content 來源標示：override = projections.json 逃生口生效中（醒目提醒，避免忘在 config 裡）
+  const srcTag = s => s === 'override' ? ' <span class="ovr">[override]</span>' : '';
+  el('screenInfo').innerHTML =
+    `screen (${ts.screen.x},${ts.screen.y}) ${ts.screen.width}×${ts.screen.height}${srcTag(ts.screenSource)}` +
+    `　content offset(${ts.content.offsetX},${ts.content.offsetY}) scale(${ts.content.scaleX},${ts.content.scaleY})${srcTag(ts.contentSource)}` +
     (ts.canvas ? `　canvas ${ts.canvas.width}×${ts.canvas.height}` : '');
+
+  // 螢幕清單（物理 rect + 縮放%）放 screen 設定旁——現場直接對照「設定 vs 物理事實」；
+  // 縮放 ≠ 100% 用警告色標出（等比例錯位的第一嫌疑）
+  el('monitorInfo').innerHTML = (state.monitors || []).length === 0 ? '' :
+    '｜螢幕：' + state.monitors.map(m =>
+      `#${m.index} ${escapeHtml(m.name)} (${m.x},${m.y}) ${m.width}×${m.height} ` +
+      (m.scalePercent === 100 ? `縮放${m.scalePercent}%` :
+        `<span class="scaleBad">縮放${m.scalePercent}%</span>`) +
+      (m.primary ? '（主）' : '')).join('　');
 
   const warn = el('warnBar');
   if (ts.warning) { warn.style.display = 'block'; warn.textContent = '⚠ ' + ts.warning; }
@@ -236,7 +254,14 @@ function render() {
                              mode: 'wrap', loop: true, muted: true, controls: false };
     const mode = slot.mode || 'wrap';
     const urlVal = editing[f.index] !== undefined ? editing[f.index] : slot.url;
-    const rect = f.screenRect ? `(${f.screenRect.x},${f.screenRect.y}) ${f.screenRect.w}×${f.screenRect.h}` : '—';
+    let rect = f.screenRect ? `(${f.screenRect.x},${f.screenRect.y}) ${f.screenRect.w}×${f.screenRect.h}` : '—';
+    // 對位驗證（V3）：對位後讀回的實際 rect——不吻合紅字（先看上方螢幕縮放%）
+    if (f.actualRect) {
+      const a = `(${f.actualRect.x},${f.actualRect.y}) ${f.actualRect.w}×${f.actualRect.h}`;
+      rect += f.rectMismatch
+        ? `<div class="errline">實際 ${a} ⚠ 與預期不符</div>`
+        : `<div class="geo">實際 ${a} ✓</div>`;
+    }
     const canvas = f.canvas ? `canvas (${f.canvas.x},${f.canvas.y}) ${f.canvas.w}×${f.canvas.h}` : '';
     const stTxt = { running: '運行中', stopped: '已停', restarting: '重啟中', failed: '失敗' }[f.status] || f.status;
     const running = f.status === 'running' || f.status === 'restarting';

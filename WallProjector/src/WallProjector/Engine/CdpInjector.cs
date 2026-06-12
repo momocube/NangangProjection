@@ -65,4 +65,54 @@ public static class CdpInjector
         await cdp.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, ct);
         await cdp.SendAsync("Runtime.evaluate", new { expression = script }, ct);
     }
+
+    /// <summary>
+    /// 生成 title 標記注入 JS（純函式，golden 測試對象）。
+    ///
+    /// 為什麼需要：CDP 模式視窗 title 是目標站自己的（沒有 [WP-slot-N]），對位本來
+    /// 只剩 pid 比對——但 Edge 可能有 launcher 行為（視窗實際屬 child process），
+    /// pid 比對失敗時視窗就停在 --window-position 的 DIP 粗對位上。把標記注進
+    /// document.title 後，EnumWindows 的 title 比對對 CDP 模式也有效（視窗無邊框，
+    /// title 使用者看不到）。
+    ///
+    /// 為什麼不能只 append 一次：目標站（YouTube 等 SPA）載入完與站內導航都會
+    /// **重設 document.title**，一次性 append 馬上被洗掉——所以掛 1s 的守護
+    /// interval 補回（檢查不在才補，可重入、無限重打也無害）。
+    /// </summary>
+    public static string BuildTitleMarkerScript(string marker)
+    {
+        var js = JsEscape(marker);
+        return $$"""
+            (function () {
+              var m = '{{js}}';
+              var apply = function () {
+                try {
+                  if (document.title.indexOf(m) === -1) document.title = document.title + ' ' + m;
+                } catch (e) {}
+              };
+              apply();
+              if (document.readyState === 'loading')
+                document.addEventListener('DOMContentLoaded', apply);
+              setInterval(apply, 1000);
+            })();
+            """;
+    }
+
+    /// <summary>
+    /// 對已連線的 page target 注入 title 標記：addScriptToEvaluateOnNewDocument
+    /// 讓導航後的新 document 也帶標記 + Runtime.evaluate 立即打在當前頁。
+    /// 失敗往外丟——呼叫端決定嚴重性（對位還有 pid 備援，通常只 WARN 不致命）。
+    /// </summary>
+    public static async Task InjectTitleMarkerAsync(CdpClient cdp, string marker,
+                                                    CancellationToken ct = default)
+    {
+        var script = BuildTitleMarkerScript(marker);
+        await cdp.SendAsync("Page.enable", null, ct);
+        await cdp.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, ct);
+        await cdp.SendAsync("Runtime.evaluate", new { expression = script }, ct);
+    }
+
+    /// <summary>單引號 JS 字串的最小跳脫（marker 目前是 [WP-slot-N]，防未來變動）。</summary>
+    static string JsEscape(string s) =>
+        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
 }

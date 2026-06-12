@@ -1,10 +1,14 @@
-# WallProjector — 牆面投影管理工具（V2）
+# WallProjector — 牆面投影管理工具（V3）
 
 > 給現場人員：要把內容投到某面牆上，開管理頁**選牆面、選模式、貼網址或檔案路徑、按啟動**就完成。
 > 不用再手動拖視窗對位；左右牆臂的 90° 旋轉由工具處理，人看是正的。
 >
 > V2 新增：**CDP 模式**（YouTube 等擋 iframe 的網站也能投）、**本地檔案模式**
 > （影片 / PDF / 圖片，PowerPoint 另存 PDF 即可投簡報）。
+>
+> V3 新增：**DPI 縮放修正**（修「視窗等比例錯位」——本該貼滿牆的視窗變成牆一半、
+> 地板一半）＋**自我診斷**（對位驗證、螢幕清單與縮放%、screenOverride 逃生口、
+> CDP 模式 title 標記備援）。詳見下方「V3：DPI 修正與自我診斷」。
 
 ## 這是什麼
 
@@ -66,6 +70,74 @@ CyberCube 光域場域的投影螢幕顯示整個場域 canvas（2688×3840）�
 3. 管理頁該面選**本地檔案**、貼路徑、按啟動
 4. 翻頁：摸牆面左右兩側的 ‹ › 大按鈕（TouchService 滑鼠模式）
 
+## V3：DPI 修正與自我診斷
+
+### 等比例錯位 = DPI 縮放（troubleshooting 必讀）
+
+**症狀**：投影視窗整體「等比例」放大／偏移——本該貼滿某面牆的視窗，變成
+「牆面佔一半、地板佔一半」；同機 TouchService 滑鼠模式的對位卻是準的。
+
+**因果**：V2 以前 WallProjector 沒宣告 DPI awareness，是 DPI-unaware process。
+投影輸出螢幕的 Windows 縮放 ≠ 100%（4K 輸出預設 150~300% 很常見）時，
+Windows 會把這種 process 的所有視窗座標 API（SetWindowPos / GetWindowRect /
+EnumWindows）**DPI 虛擬化**——程式設的是物理像素值，OS 當成邏輯像素再乘上
+縮放倍數，視窗實際落點與尺寸 = 設定值 × 縮放倍數 → 等比例錯位。
+滑鼠模式不受影響是因為 SendInput 用 0–65535 正規化座標、不經 DPI 虛擬化——
+所以「滑鼠準、視窗歪」正是 DPI 問題的指紋。
+另外 Chromium 的 `--window-position`/`--window-size` 參數單位本來就是 DIP
+（邏輯像素），粗對位同樣會被縮放放大——精確對位一律以 SetWindowPos 為準。
+
+**V3 修法**：入口宣告 **Per-Monitor V2 DPI awareness**（`SetProcessDpiAwarenessContext`，
+失敗依序 fallback `SetProcessDpiAwareness`／`SetProcessDPIAware`），宣告後本
+process 拿到的全是物理像素，SetWindowPos 不再被虛擬化。啟動 log 第二行
+`[DPI] ...` 會印實際生效層級——**現場排錯先看這行**，正常應為
+`Per-Monitor V2（SetProcessDpiAwarenessContext）`。
+
+### 對位驗證（有沒有對準 = 看得到的數據）
+
+每槽對位（SetWindowPos）後立即 `GetWindowRect` 讀回實際 rect 與目標比對（±2px）：
+
+- log：吻合 INFO（`實際讀回吻合`）、不吻合 WARN（目標/實際兩個 rect 都印——
+  差值若呈固定倍數，就是 DPI 縮放沒修到）
+- 管理頁「投影螢幕 rect」欄：對位後顯示「實際 (x,y) w×h」，**不符紅字**
+- `/api/state` 的 face entry：`actualRect` + `rectMismatch`
+- 對位 timeout（找不到視窗）時，log 會列出當下所有可見頂層視窗的 title + pid
+  （最多 20 個）——一看就知道視窗到底叫什麼、屬於誰
+
+### 螢幕清單診斷
+
+啟動 log（`[Monitor] ...`）與管理頁 header、`/api/state` 的 `monitors` 都會列出
+每顆螢幕的**物理 rect + 縮放%**（管理頁縮放 ≠ 100% 以警告色標示）。
+現場直接對照「screen 設定 vs 螢幕物理事實」：screen rect 應落在投影螢幕的
+物理 rect 內；對不上就是校正或縮放問題。
+
+### screenOverride / contentOverride（逃生口）
+
+`projections.json` 新增兩個可選欄位（預設 `null` = 沿用 TouchService，現行為）：
+
+```jsonc
+"screenOverride":  { "x": 0, "y": 0, "width": 3840, "height": 2160 },
+"contentOverride": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 }
+```
+
+**使用時機**：TouchService 的 `mouseMode.screen/content` 是**為滑鼠校的**。
+若該機器上「滑鼠空間」與「視窗擺放空間」不一致（例如滑鼠校正刻意帶偏移、
+或歷史校正殘值），現場可以只覆寫 WallProjector 用的值，**不動滑鼠校正**。
+正常情況兩者同一座標系、不需要 override——先修 DPI / 校正，override 是最後手段。
+生效時管理頁 screen/content 旁會出現 **[override]** 警告標記、log 每次 resolve
+都會 WARN（避免忘在 config 裡）、`/api/state` 的 `touchService.screenSource` /
+`contentSource` = `"override"`。
+
+### CDP 模式對位備援（title 標記注入）
+
+CDP 模式視窗 title 是目標站自己的，對位本來只靠 pid 比對——但 Edge 可能有
+launcher 行為（視窗實際屬 child process），pid 比對失敗時視窗就停在粗對位上
+（V2 現場錯位的疊加嫌疑之一）。V3 起 CDP 模式（**含 rotation=0**）一律經
+DevTools 把 `[WP-slot-N]` 標記注入 `document.title`（視窗無邊框，使用者看不到；
+1s 守護 interval 防站方 JS 重設 title 洗掉）——EnumWindows 的 title 比對從此
+對 CDP 模式也有效。rotation=0 槽的 CDP 連線失敗只 WARN 不收瀏覽器
+（內容本身正確，對位還有 pid 路徑）。
+
 ## 跟 TouchService 的關係
 
 ```
@@ -95,20 +167,22 @@ WallProjector/
 ├── projections.json             ← 設定範本（欄位見下）
 ├── assets/                      ← vendored pdf.js（pdf.min.mjs + pdf.worker.min.mjs，離線可用）
 ├── src/WallProjector/
-│   ├── Core/                    ← venue 解析、canvas→螢幕映射（對拍 TouchService）、TS client
-│   ├── Engine/                  ← 投影引擎：瀏覽器殼、Win32 視窗對位、watchdog、
-│   │                               CdpClient/CdpInjector（CDP 連線與旋轉注入）
+│   ├── Core/                    ← venue 解析、canvas→螢幕映射（對拍 TouchService）、TS client、
+│   │                               DpiAwareness（PMv2 宣告）、MonitorEnumerator（螢幕診斷）、
+│   │                               CalibrationOverride（override 逃生口）
+│   ├── Engine/                  ← 投影引擎：瀏覽器殼、Win32 視窗對位（含讀回驗證）、watchdog、
+│   │                               CdpClient/CdpInjector（CDP 連線、旋轉與 title 標記注入）
 │   ├── Web/                     ← 自寫 HTTP server（含 Range）、wrap/media 頁生成、
 │   │                               RotationCss（旋轉數學唯一真相源）、管理 API、管理頁（內嵌）
-│   └── Program.cs               ← 入口 + stdin 指令
-└── tests/WallProjector.Tests/   ← 148 個測試（xunit；含真 chromium CDP E2E）
+│   └── Program.cs               ← 入口（DPI 宣告第一行）+ stdin 指令
+└── tests/WallProjector.Tests/   ← 167 個測試（xunit；含真 chromium CDP E2E）
 ```
 
 ## 快速上手（開發機，Linux 可建可測）
 
 ```bash
 dotnet build WallProjector.sln
-dotnet test  WallProjector.sln          # 148 個測試（CDP E2E 需要 chromium/chrome，沒有會 Skip）
+dotnet test  WallProjector.sln          # 167 個測試（CDP E2E 需要 chromium/chrome，沒有會 Skip）
 dotnet run --project src/WallProjector  # 跑起來（無 TouchService 時走 fallback 並警示）
 # 瀏覽器開 http://127.0.0.1:20121/
 ```
@@ -116,7 +190,7 @@ dotnet run --project src/WallProjector  # 跑起來（無 TouchService 時走 fa
 ## 部署（場館機）
 
 1. 與 TouchService **同一台機器**（管理 API 都只准 loopback 寫入；wrap/media 頁 origin 也是 127.0.0.1）
-2. 解壓 `WallProjector-win64-v2.zip` 到任意資料夾（如 `C:\WallProjector\`）——
+2. 解壓 `WallProjector-win64-v3.zip` 到任意資料夾（如 `C:\WallProjector\`）——
    **assets 資料夾要跟 exe 放一起**（PDF 投影需要）
 3. **開機順序：TouchService 先、WallProjector 後**——WallProjector 啟動時抓
    /venue + /config；先後順序錯了會落到 cache/fallback（功能照常，但佈局若有變動不會反映，
@@ -141,6 +215,8 @@ dotnet run --project src/WallProjector  # 跑起來（無 TouchService 時走 fa
   "topmost": true,              // 投影視窗 HWND_TOPMOST 置頂
   "browserProfileDir": "profiles",   // 每槽獨立 browser profile（相對 config 所在目錄）
   "cdpBasePort": 9333,          // cdp 模式 debug port 基準（槽 port = base + face，槽可用 cdpPort 覆寫）
+  "screenOverride": null,       // V3 逃生口：覆寫投影 screen rect（null = 沿用 TouchService；見「V3」段）
+  "contentOverride": null,      // V3 逃生口：覆寫投影 content 校正（同上）
   "fallback": {                 // TouchService 不可達且無 cache 時的後備值
     "screen":  { "x": 0, "y": 0, "width": 1920, "height": 1080 },
     "content": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 },
@@ -227,8 +303,22 @@ dotnet run --project src/WallProjector  # 跑起來（無 TouchService 時走 fa
 ## Windows 現場驗證清單（Linux 測不到的部分）
 
 > 程式邏輯（rect 數學、三模式頁面生成、CDP 注入腳本與真 chromium E2E、Range、
-> config、API、fallback 鏈）已由 148 個單元/整合測試 + Linux smoke test 覆蓋；
+> config、API、fallback 鏈、override 解析與套用、rect 比對容差、title 標記注入）
+> 已由 167 個單元/整合測試 + Linux smoke test 覆蓋；
 > 以下 process/視窗行為**只能 Windows 實機驗**：
+
+**V3 新增（704 錯位修正——優先驗這組）**
+- [ ] **檢查投影螢幕 Windows 縮放%**：管理頁 header 螢幕清單（或啟動 log `[Monitor]` 行）
+      ——投影輸出螢幕若 ≠ 100% 會以警告色標示，這就是 V2 等比例錯位的主嫌
+- [ ] 啟動 log `[DPI]` 行 = `Per-Monitor V2（SetProcessDpiAwarenessContext）`（場館機 Win10 1703+ 應拿到第一層）
+- [ ] 縮放 ≠ 100% 的投影螢幕上啟動槽 → 視窗貼滿目標牆面（V2 會等比例錯位的情境）
+- [ ] 管理頁每槽「實際 (x,y) w×h」與預期 rect 吻合（綠勾）；刻意改壞 screen 設定 → 紅字「與預期不符」
+- [ ] CDP 模式（含 rotation=0）：log 出現「title 標記已注入」；用工作管理員確認視窗
+      title 尾端帶 `[WP-slot-N]`（EnumWindows 備援路徑活著）
+- [ ] CDP 模式站內導航（點 YouTube 其他影片）→ title 標記在新頁面仍存在（1s 內補回）
+- [ ] 對位 timeout 情境（手動把 timeout 調短或殺視窗）→ log 列出可見頂層視窗清單（title + pid）
+- [ ] screenOverride 填值 → 管理頁 screen 旁出現 [override] 標記、視窗用 override 的 rect、
+      TouchService 滑鼠校正不受影響
 
 **V1 既有（V2 重驗一輪）**
 - [ ] Edge 標準路徑找到並以 `--app=` 啟動（無 Edge 時 fallback Chrome）
@@ -241,8 +331,8 @@ dotnet run --project src/WallProjector  # 跑起來（無 TouchService 時走 fa
 - [ ] 關 WallProjector（quit / Ctrl+C / 關 console）→ 所有投影瀏覽器一起關閉
 - [ ] 多槽同開（如左牆 + 右牆 + 下牆）：各自獨立 process、互不影響
 - [ ] 開機順序測試：先開 WallProjector 再開 TouchService → cache 警示 → 「重新連線」恢復
-- [ ] DPI 縮放 ≠ 100% 的機器：rect 是否仍精確（瀏覽器 --window-position 受 DPI 影響時
-      以 SetWindowPos 結果為準）
+- [x] ~~DPI 縮放 ≠ 100% 的機器：rect 是否仍精確~~ → **V2 現場驗出錯位（704，2026-06-12）**，
+      V3 以 Per-Monitor V2 DPI awareness 修正——重驗項目見上方 V3 清單
 
 **V2 新增**
 - [ ] **CDP 模式（Edge）**：YouTube 網址 + rotation 90 → 直開原站、內容轉正、
@@ -267,5 +357,6 @@ dotnet publish src/WallProjector/WallProjector.csproj -c Release -r win-x64 \
   -o publish/win-x64
 ```
 
-產物：單檔 `WallProjector.exe`（含 runtime）。`_dist/WallProjector-win64-v2.zip`
-= exe + projections.json 範本 + **assets/（pdf.js 兩檔）** + 本 README。v1 zip 保留。
+產物：單檔 `WallProjector.exe`（含 runtime，約 35MB——若只有 9MB 表示漏了
+`-p:SelfContained=true`，是 framework-dependent 壞檔）。`_dist/WallProjector-win64-v3.zip`
+= exe + projections.json 範本 + **assets/（pdf.js 兩檔）** + 本 README。v1/v2 zip 保留。

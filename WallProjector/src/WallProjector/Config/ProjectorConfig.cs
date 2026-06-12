@@ -32,6 +32,14 @@ public sealed class ProjectorConfig
     /// （每槽必須獨立 port——每槽本來就是獨立瀏覽器 process）。</summary>
     public int CdpBasePort { get; set; } = 9333;
 
+    /// <summary>投影螢幕 rect 覆寫（逃生口，V3）：null = 沿用 TouchService mouseMode.screen（現行為）。
+    /// 使用時機：TouchService 的 screen 是為滑鼠校的——若該機器上滑鼠空間與視窗擺放
+    /// 空間不一致，現場只改這裡，不動滑鼠校正（見 CalibrationOverride / README）。</summary>
+    public ScreenRectConfig? ScreenOverride { get; set; }
+
+    /// <summary>content 校正覆寫（同上）：null = 沿用 TouchService mouseMode.content。</summary>
+    public ContentRectConfig? ContentOverride { get; set; }
+
     public FallbackConfig Fallback { get; set; } = new();
     public List<SlotConfig> Projections { get; set; } = new();
 

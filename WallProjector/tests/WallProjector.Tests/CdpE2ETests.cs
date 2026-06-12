@@ -186,6 +186,53 @@ public class CdpE2ETests : IDisposable
         Assert.Equal("", probe.Marker);
     }
 
+    [SkippableFact]
+    public async Task 真chromium_title標記注入_導航與site改title後存活()
+    {
+        var browserExe = FindBrowser();
+        Skip.If(browserExe == null, "此環境沒有 chromium/chrome——CDP E2E 需要真瀏覽器");
+
+        int port = LaunchHeadless(browserExe!, "data:text/html,<title>Site Title</title><h1>page1</h1>");
+        await using var cdp = await CdpClient.ConnectAsync(port, TimeSpan.FromSeconds(20));
+        await CdpInjector.InjectTitleMarkerAsync(cdp, "[WP-slot-5]");
+
+        // 1) 當前頁立即帶標記（Runtime.evaluate 路徑）
+        Assert.Contains("[WP-slot-5]", await QueryTitle(cdp));
+
+        // 2) 站方 JS 重設 title（YouTube SPA 行為的等價物）→ 1s 守護 interval 補回
+        await cdp.SendAsync("Runtime.evaluate", new { expression = "document.title = 'rewritten'" });
+        Assert.Contains("[WP-slot-5]", await PollTitleFor(cdp, "[WP-slot-5]"));
+
+        // 3) 導航到全新 document → addScriptToEvaluateOnNewDocument 重打
+        await cdp.SendAsync("Page.navigate", new { url = "data:text/html,<title>Page Two</title><h1>page2</h1>" });
+        var after = await PollTitleFor(cdp, "[WP-slot-5]");
+        Assert.Contains("[WP-slot-5]", after);
+        Assert.Contains("Page Two", after);   // 標記是 append，不是蓋掉原 title
+    }
+
+    static async Task<string> QueryTitle(CdpClient cdp)
+    {
+        var r = await cdp.SendAsync("Runtime.evaluate", new
+        {
+            expression = "document.title",
+            returnByValue = true,
+        });
+        return r.GetProperty("result").GetProperty("value").GetString() ?? "";
+    }
+
+    /// <summary>輪詢 title 直到包含預期字串（守護 interval 是 1s 週期，最多等 5s）。</summary>
+    static async Task<string> PollTitleFor(CdpClient cdp, string expected)
+    {
+        string title = "";
+        for (int i = 0; i < 25; i++)
+        {
+            await Task.Delay(200);
+            title = await QueryTitle(cdp);
+            if (title.Contains(expected)) return title;
+        }
+        return title;
+    }
+
     [Fact]
     public async Task port沒起來_明確TimeoutException不靜默()
     {
