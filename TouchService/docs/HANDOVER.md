@@ -126,8 +126,7 @@ schema 完整定義 / touch 生命週期 / timeout 取值依據 → `docs/PROTOC
 | 項目 | 狀態 | 說明 |
 |---|---|---|
 | **v8 校正精靈（實機）** | ⚠️ 未在實機驗證 | 開發機 simulator + E2E 全過，但沒在真硬體上走過完整流程。第一次實機使用**必讀 CALIBRATION.md 開頭的安全守則**（先備份 `config.json` + `venues\`，場域名別填 704）。精靈只寫這兩個檔、重啟才生效，備份在就 100% 可還原 |
-| **WallProjector 視窗對位** | ⚠️ 已知問題調查中 | 2026-06-12 現場回報：投影視窗等比例錯位（牆面/地板各佔一半）。疑為 DPI 縮放 / 瀏覽器 DIP 座標問題，修正與診斷工具在後續版本（見 WallProjector/README.md 最新版說明） |
-| **WallProjector v2 CDP / 本地檔案模式** | ⚠️ 部分驗證 | 真 chromium headless E2E 過；現場逐項清單在 WallProjector/README.md |
+| **WallProjector（投影）** | ❌ 現場尚不可用，**轉交接手者** | 兩個未解決問題：(1) 視窗位置錯位（等比例）——v3 已含 DPI 修正 + 自我診斷（管理頁縮放%/預期vs實際 rect），交接前未完成現場驗證循環；(2) YouTube 無法播放——根因未定位，**建議改用 file 模式播本地 mp4（現成、穩定）**。完整分析與排查步驟：`WallProjector/docs/ARCHITECTURE.md`「交接時點已知問題」段 |
 | 滑鼠模式 / 托盤 / 多點注入類 | Windows-only | 行為改動後只能實機驗（Linux 開發機測不到 P/Invoke 行為） |
 
 ## 維運 FAQ
