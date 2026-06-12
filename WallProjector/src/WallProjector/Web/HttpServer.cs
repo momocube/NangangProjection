@@ -13,10 +13,25 @@ namespace WallProjector.Web;
 /// </summary>
 public sealed class HttpServer : IDisposable
 {
-    public sealed record Request(string Method, string Path, string Query, string Body, bool IsLoopback);
+    public sealed record Request(string Method, string Path, string Query, string Body, bool IsLoopback)
+    {
+        /// <summary>request headers（key 不分大小寫；/media raw 的 Range 等用）。</summary>
+        public IReadOnlyDictionary<string, string> Headers { get; init; } =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public string? Header(string name) =>
+            Headers.TryGetValue(name, out var v) ? v : null;
+    }
 
     public sealed record Response(string Status, string ContentType, byte[] Body)
     {
+        /// <summary>非 null = body 改從檔案串流（影片等大檔不進記憶體）：路徑 + 起點 + 長度。</summary>
+        public (string Path, long Offset, long Length)? FileBody { get; init; }
+
+        /// <summary>額外 response headers（Accept-Ranges / Content-Range 等）。</summary>
+        public IReadOnlyList<(string Name, string Value)> ExtraHeaders { get; init; } =
+            Array.Empty<(string, string)>();
+
         public static Response Json(string status, string json) =>
             new(status, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json));
         public static Response Html(string status, string html) =>
@@ -24,6 +39,12 @@ public sealed class HttpServer : IDisposable
         public static Response Text(string status, string text) =>
             new(status, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(text));
         public static Response NotFound() => Text("404 Not Found", "not found");
+
+        public static Response File(string status, string contentType, string path,
+                                    long offset, long length,
+                                    params (string Name, string Value)[] extraHeaders) =>
+            new(status, contentType, Array.Empty<byte>())
+            { FileBody = (path, offset, length), ExtraHeaders = extraHeaders };
     }
 
     readonly TcpListener _listener;
@@ -75,7 +96,7 @@ public sealed class HttpServer : IDisposable
             var request = ReadHttpRequest(stream);
             if (request == null) { tcp.Close(); return; }
 
-            var (method, rawPath, body) = request.Value;
+            var (method, rawPath, body, headers) = request.Value;
             string path = StripQuery(rawPath);
             string query = QueryOf(rawPath);
 
@@ -88,7 +109,7 @@ public sealed class HttpServer : IDisposable
             {
                 try
                 {
-                    resp = _handler(new Request(method, path, query, body, IsLoopback(tcp)));
+                    resp = _handler(new Request(method, path, query, body, IsLoopback(tcp)) { Headers = headers });
                 }
                 catch (Exception ex)
                 {
@@ -128,7 +149,8 @@ public sealed class HttpServer : IDisposable
         return IPAddress.IsLoopback(addr);
     }
 
-    static (string Method, string Path, string Body)? ReadHttpRequest(NetworkStream stream)
+    static (string Method, string Path, string Body, Dictionary<string, string> Headers)?
+        ReadHttpRequest(NetworkStream stream)
     {
         var buf = new byte[64 * 1024];   // headers + body 上限 64KB（slot patch 遠小於此）
         int len = 0;
@@ -149,12 +171,16 @@ public sealed class HttpServer : IDisposable
         if (reqParts.Length < 3) return null;
 
         int contentLength = 0;
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 1; i < lines.Length; i++)
         {
             int idx = lines[i].IndexOf(':');
             if (idx <= 0) continue;
-            if (lines[i][..idx].Trim().Equals("content-length", StringComparison.OrdinalIgnoreCase) &&
-                (!int.TryParse(lines[i][(idx + 1)..].Trim(), out contentLength) ||
+            string name = lines[i][..idx].Trim();
+            string value = lines[i][(idx + 1)..].Trim();
+            headers[name] = value;   // 重複 header 取最後一個（本工具用到的都單值）
+            if (name.Equals("content-length", StringComparison.OrdinalIgnoreCase) &&
+                (!int.TryParse(value, out contentLength) ||
                  contentLength < 0 || headerEnd + 4 + contentLength > buf.Length))
                 return null;
         }
@@ -167,7 +193,7 @@ public sealed class HttpServer : IDisposable
             len += n;
         }
         var body = contentLength > 0 ? Encoding.UTF8.GetString(buf, bodyStart, contentLength) : "";
-        return (reqParts[0], reqParts[1], body);
+        return (reqParts[0], reqParts[1], body, headers);
     }
 
     static int IndexOfCrlfCrlf(byte[] buf, int len)
@@ -180,15 +206,38 @@ public sealed class HttpServer : IDisposable
 
     static void WriteHttpResponse(NetworkStream stream, Response resp)
     {
-        var header = $"HTTP/1.1 {resp.Status}\r\n" +
-                     $"Content-Type: {resp.ContentType}\r\n" +
-                     $"Content-Length: {resp.Body.Length}\r\n" +
-                     "Access-Control-Allow-Origin: *\r\n" +
-                     "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
-                     "Access-Control-Allow-Headers: Content-Type\r\n" +
-                     "Connection: close\r\n\r\n";
-        stream.Write(Encoding.ASCII.GetBytes(header));
-        stream.Write(resp.Body);
+        long contentLength = resp.FileBody?.Length ?? resp.Body.Length;
+        var sb = new StringBuilder()
+            .Append($"HTTP/1.1 {resp.Status}\r\n")
+            .Append($"Content-Type: {resp.ContentType}\r\n")
+            .Append($"Content-Length: {contentLength}\r\n");
+        foreach (var (name, value) in resp.ExtraHeaders)
+            sb.Append($"{name}: {value}\r\n");
+        sb.Append("Access-Control-Allow-Origin: *\r\n" +
+                  "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
+                  "Access-Control-Allow-Headers: Content-Type, Range\r\n" +
+                  "Connection: close\r\n\r\n");
+        stream.Write(Encoding.ASCII.GetBytes(sb.ToString()));
+
+        if (resp.FileBody is { } fb)
+        {
+            // 大檔（影片）分塊串流，不整檔進記憶體；client 斷線（seek 換 range）丟例外由外層收掉
+            using var fs = new FileStream(fb.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            fs.Seek(fb.Offset, SeekOrigin.Begin);
+            var chunk = new byte[64 * 1024];
+            long remaining = fb.Length;
+            while (remaining > 0)
+            {
+                int n = fs.Read(chunk, 0, (int)Math.Min(chunk.Length, remaining));
+                if (n <= 0) break;
+                stream.Write(chunk, 0, n);
+                remaining -= n;
+            }
+        }
+        else
+        {
+            stream.Write(resp.Body);
+        }
         stream.Flush();
     }
 

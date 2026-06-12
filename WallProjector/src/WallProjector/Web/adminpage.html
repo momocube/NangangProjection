@@ -57,7 +57,17 @@
   .st.stopped { background: #262a33; color: var(--dim); }
   .st.restarting { background: #3a3212; color: var(--warn); }
   .st.failed { background: #3a1d1d; color: var(--err); }
+  .modeTag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 3px;
+    font-size: 11px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .modeTag.cdp { color: var(--accent); border-color: var(--accent); }
+  .modeTag.file { color: var(--ok); border-color: var(--ok); }
   .errline { color: var(--err); font-size: 12px; margin-top: 3px; white-space: pre-wrap; }
+  .warnline { color: var(--warn); font-size: 12px; margin-top: 3px; white-space: pre-wrap; }
+  .warnline button { background: var(--warn); color: #14161c; border: 0; border-radius: 3px;
+    padding: 2px 8px; margin-left: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+  .hintline { color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .fileOpts { color: var(--dim); font-size: 12px; margin-top: 4px; display: flex; gap: 12px; }
+  .fileOpts label { cursor: pointer; user-select: none; }
   .floorTag { color: var(--warn); font-size: 11px; border: 1px solid var(--warn);
     border-radius: 3px; padding: 0 5px; margin-left: 6px; }
   footer { padding: 8px 16px 24px; color: var(--dim); font-size: 12px; line-height: 1.7; }
@@ -82,11 +92,12 @@
   <table>
     <thead>
       <tr>
-        <th style="width:200px">面</th>
-        <th style="width:170px">投影螢幕 rect</th>
-        <th>URL</th>
-        <th style="width:110px">旋轉</th>
-        <th style="width:100px">狀態</th>
+        <th style="width:190px">面</th>
+        <th style="width:160px">投影螢幕 rect</th>
+        <th style="width:120px">模式</th>
+        <th>URL / 檔案路徑</th>
+        <th style="width:100px">旋轉</th>
+        <th style="width:120px">狀態</th>
         <th style="width:150px">操作</th>
       </tr>
     </thead>
@@ -94,11 +105,14 @@
   </table>
 </main>
 <footer>
+  ・<b>模式</b>：<b>網頁嵌入</b>＝iframe 包覆（一般網頁）；<b>網頁CDP</b>＝直開原站＋注入旋轉
+  （YouTube 等擋 iframe 的站用這個）；<b>本地檔案</b>＝影片 mp4/webm/mov、PDF、圖片 png/jpg/webp
+  （PowerPoint 先另存 PDF 再投，SOP 見 README）。<br>
   ・旋轉預設值是依十字展開方位的合理猜測（左右臂 ±90、上下臂 0/180、地板 0）——
   <b>以現場實看為準，下拉即調</b>（變更會立即重啟該槽套用）。<br>
   ・地板面通常投牆面內容才需要本工具；地板列僅供完整性。<br>
-  ・寫入操作僅接受本機（loopback）；URL 輸入後按「啟動」或直接離開輸入框儲存。<br>
-  ・目標站若以 X-Frame-Options / CSP 拒絕嵌入，投影視窗會顯示明確錯誤——V1 限制，v2 路線為 CDP 注入（README）。
+  ・寫入操作僅接受本機（loopback）；輸入後按「啟動」或直接離開輸入框儲存。<br>
+  ・嵌入模式偵測到目標站擋 iframe 時，該列會出現「切到 CDP」一鍵切換；CDP 模式注入失敗會標「失敗」紅字（不靜默）。
 </footer>
 <div id="toast"></div>
 <script>
@@ -126,18 +140,33 @@ async function post(path, body) {
   } catch (e) { toast('請求失敗：' + e, true); }
 }
 
-function saveSlot(face) {
-  const url = el('url-' + face).value.trim();
-  const rotation = parseInt(el('rot-' + face).value, 10);
-  return post('/api/slot', { face, url, rotation });
+function slotPayload(face) {
+  const p = {
+    face,
+    url: el('url-' + face).value.trim(),
+    rotation: parseInt(el('rot-' + face).value, 10),
+    mode: el('mode-' + face).value,
+  };
+  const lp = el('loop-' + face), mu = el('muted-' + face), co = el('controls-' + face);
+  if (lp) p.loop = lp.checked;
+  if (mu) p.muted = mu.checked;
+  if (co) p.controls = co.checked;
+  return p;
 }
 
+function saveSlot(face) { return post('/api/slot', slotPayload(face)); }
+
 function startSlot(face) {
-  const url = el('url-' + face).value.trim();
-  const rotation = parseInt(el('rot-' + face).value, 10);
-  if (!url) { toast('請先填 URL', true); return; }
+  const p = slotPayload(face);
+  if (!p.url) { toast(p.mode === 'file' ? '請先填檔案路徑' : '請先填 URL', true); return; }
   // 先存再啟動（slot 更新 enabled 槽會自動重啟套用；未 enabled 用 start）
-  post('/api/slot', { face, url, rotation, enabled: true });
+  p.enabled = true;
+  post('/api/slot', p);
+}
+
+function switchToCdp(face) {
+  // 嵌入被擋 → 一鍵切 CDP（保留 URL / 旋轉；enabled 槽會自動重啟套用）
+  post('/api/slot', { face, mode: 'cdp' });
 }
 
 function rotSelect(face, current, guess) {
@@ -149,9 +178,25 @@ function rotSelect(face, current, guess) {
   return h + '</select>';
 }
 
+const MODE_NAMES = { wrap: '網頁嵌入', cdp: '網頁CDP', file: '本地檔案' };
+
+function modeSelect(face, current) {
+  let h = `<select id="mode-${face}" onchange="onModeChange(${face})">`;
+  for (const m of ['wrap', 'cdp', 'file'])
+    h += `<option value="${m}" ${m === current ? 'selected' : ''}>${MODE_NAMES[m]}</option>`;
+  return h + '</select>';
+}
+
 function onRotChange(face) {
   const f = (state?.faces || []).find(x => x.index === face);
   if (f && f.slot && f.slot.url) saveSlot(face);   // 有設定的槽：下拉即調（即時生效）
+}
+
+function onModeChange(face) { saveSlot(face); }    // 模式切換立即存（含空 URL，先記住模式）
+
+function onOptChange(face) {
+  const f = (state?.faces || []).find(x => x.index === face);
+  if (f && f.slot && f.slot.url) saveSlot(face);
 }
 
 function onUrlBlur(face) {
@@ -187,20 +232,47 @@ function render() {
   }
 
   rows.innerHTML = state.faces.map(f => {
-    const slot = f.slot || { url: '', rotation: f.guessRotation, enabled: false };
+    const slot = f.slot || { url: '', rotation: f.guessRotation, enabled: false,
+                             mode: 'wrap', loop: true, muted: true, controls: false };
+    const mode = slot.mode || 'wrap';
     const urlVal = editing[f.index] !== undefined ? editing[f.index] : slot.url;
     const rect = f.screenRect ? `(${f.screenRect.x},${f.screenRect.y}) ${f.screenRect.w}×${f.screenRect.h}` : '—';
     const canvas = f.canvas ? `canvas (${f.canvas.x},${f.canvas.y}) ${f.canvas.w}×${f.canvas.h}` : '';
     const stTxt = { running: '運行中', stopped: '已停', restarting: '重啟中', failed: '失敗' }[f.status] || f.status;
     const running = f.status === 'running' || f.status === 'restarting';
+
+    const placeholder = mode === 'file' ? 'C:\\簡報\\intro.pdf 或 D:\\影片\\demo.mp4…' : 'https://…';
+    let inputExtra = '';
+    if (mode === 'file') {
+      inputExtra =
+        `<div class="hintline">影片 mp4/webm/mov・PDF・圖片 png/jpg/webp（絕對路徑或相對 projections.json）；PPT 先另存 PDF</div>` +
+        `<div class="fileOpts">
+           <label><input type="checkbox" id="loop-${f.index}" ${slot.loop ? 'checked' : ''} onchange="onOptChange(${f.index})"> 循環</label>
+           <label><input type="checkbox" id="muted-${f.index}" ${slot.muted ? 'checked' : ''} onchange="onOptChange(${f.index})"> 靜音</label>
+           <label><input type="checkbox" id="controls-${f.index}" ${slot.controls ? 'checked' : ''} onchange="onOptChange(${f.index})"> 控制列</label>
+         </div>`;
+      if (f.fileError) inputExtra += `<div class="errline">⚠ ${escapeHtml(f.fileError)}</div>`;
+    } else if (mode === 'wrap' && f.embedBlocked) {
+      inputExtra = `<div class="warnline">⚠ 此站擋嵌入（${escapeHtml(f.embedBlocked)}）
+        <button onclick="switchToCdp(${f.index})">切到 CDP 模式</button></div>`;
+    } else if (mode === 'cdp') {
+      inputExtra = `<div class="hintline">直開原站＋CDP 注入旋轉（port ${f.cdpPort ?? '?'}）——擋 iframe 的站用這個</div>`;
+    }
+
+    const modeTagCls = mode === 'cdp' ? 'modeTag cdp' : mode === 'file' ? 'modeTag file' : 'modeTag';
+    const cdpPending = mode === 'cdp' && running && slot.rotation !== 0 && !f.cdpInjected
+      ? '<div class="hintline">CDP 注入中…</div>' : '';
+
     return `<tr class="${f.floor ? 'floor' : ''}">
       <td><span class="name">${f.index}　${escapeHtml(f.name)}</span>${f.floor ? '<span class="floorTag">地板——通常投牆面</span>' : ''}
           <div class="geo">${canvas}</div></td>
       <td>${rect}</td>
+      <td>${modeSelect(f.index, mode)}</td>
       <td><input type="text" id="url-${f.index}" value="${escapeAttr(urlVal)}"
-            placeholder="https://…" onblur="onUrlBlur(${f.index})"></td>
+            placeholder="${placeholder}" onblur="onUrlBlur(${f.index})">${inputExtra}</td>
       <td>${rotSelect(f.index, slot.rotation, f.guessRotation)}</td>
-      <td><span class="st ${f.status}">${stTxt}</span>
+      <td><span class="st ${f.status}">${stTxt}</span><span class="${modeTagCls}">${MODE_NAMES[mode] || mode}</span>
+          ${cdpPending}
           ${f.lastError ? `<div class="errline">${escapeHtml(f.lastError)}</div>` : ''}</td>
       <td>
         <button onclick="startSlot(${f.index})">${running ? '重啟' : '啟動'}</button>

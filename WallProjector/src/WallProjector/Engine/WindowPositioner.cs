@@ -5,9 +5,13 @@ using WallProjector.Core;
 namespace WallProjector.Engine;
 
 /// <summary>
-/// Win32 視窗精確對位：EnumWindows 找到 title 含 slot 標記的視窗 →
+/// Win32 視窗精確對位：EnumWindows 找到 title 含 slot 標記**或屬於指定 pid**的視窗 →
 /// 去 WS_CAPTION / WS_THICKFRAME（真 kiosk，--window-size 含邊框不精確）→
 /// SetWindowPos 到牆面 rect（HWND_TOPMOST 依 config）。
+///
+/// pid 比對是 CDP 模式必需：CDP 直開目標站（不經 wrap 頁），視窗 title 是目標站
+/// 自己的、沒有 [WP-slot-N] 標記——但每槽獨立 --user-data-dir 保證我們 launch 的
+/// process 就是瀏覽器主 process，視窗屬它所有，pid 比對可靠。
 ///
 /// 非 Windows：no-op（log 後回 false）——Linux 開發機可建可測，現場行為屬
 /// Windows 驗證清單（見 README）。
@@ -16,10 +20,11 @@ public static class WindowPositioner
 {
     /// <summary>
     /// 啟動後輪詢找視窗（瀏覽器開窗有延遲），找到即對位。
+    /// 比對條件：title 含 titleMarker，或（pid 非 null 時）視窗屬該 process。
     /// 回 true = 已找到並完成 SetWindowPos。
     /// </summary>
     public static bool TryPosition(string titleMarker, WindowRect rect, bool topmost, Logger log,
-                                   int timeoutMs = 15000, int pollMs = 250)
+                                   int timeoutMs = 15000, int pollMs = 250, int? pid = null)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -30,7 +35,7 @@ public static class WindowPositioner
         var deadline = Environment.TickCount64 + timeoutMs;
         while (Environment.TickCount64 < deadline)
         {
-            var hwnd = FindWindowByTitleMarker(titleMarker);
+            var hwnd = FindWindow(titleMarker, pid);
             if (hwnd != IntPtr.Zero)
             {
                 ApplyKioskStyle(hwnd, rect, topmost, log);
@@ -38,7 +43,8 @@ public static class WindowPositioner
             }
             Thread.Sleep(pollMs);
         }
-        log.Warn($"[Window] {timeoutMs}ms 內找不到標題含 {titleMarker} 的視窗——" +
+        log.Warn($"[Window] {timeoutMs}ms 內找不到標題含 {titleMarker}" +
+                 (pid.HasValue ? $" 或 pid={pid.Value}" : "") + " 的視窗——" +
                  "視窗仍以 --window-position/--window-size 粗對位（含邊框）");
         return false;
     }
@@ -57,17 +63,28 @@ public static class WindowPositioner
     const uint SWP_FRAMECHANGED = 0x0020;
     const uint SWP_SHOWWINDOW = 0x0040;
 
-    static IntPtr FindWindowByTitleMarker(string marker)
+    static IntPtr FindWindow(string marker, int? pid)
     {
         IntPtr found = IntPtr.Zero;
         EnumWindows((hwnd, _) =>
         {
             if (!IsWindowVisible(hwnd)) return true;
             int len = GetWindowTextLengthW(hwnd);
-            if (len <= 0) return true;
-            var sb = new StringBuilder(len + 1);
-            GetWindowTextW(hwnd, sb, sb.Capacity);
-            if (sb.ToString().Contains(marker, StringComparison.Ordinal))
+            if (len <= 0) return true;   // 無標題（Chromium 的訊息視窗等）：跳過
+
+            bool match = false;
+            if (pid.HasValue)
+            {
+                GetWindowThreadProcessId(hwnd, out uint winPid);
+                match = winPid == (uint)pid.Value;
+            }
+            if (!match)
+            {
+                var sb = new StringBuilder(len + 1);
+                GetWindowTextW(hwnd, sb, sb.Capacity);
+                match = sb.ToString().Contains(marker, StringComparison.Ordinal);
+            }
+            if (match)
             {
                 found = hwnd;
                 return false;   // 停止列舉
@@ -97,6 +114,9 @@ public static class WindowPositioner
 
     [DllImport("user32.dll")]
     static extern bool IsWindowVisible(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern int GetWindowTextW(IntPtr hwnd, StringBuilder lpString, int nMaxCount);

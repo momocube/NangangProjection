@@ -60,8 +60,11 @@ public static class BrowserLauncher
         return null;
     }
 
-    /// <summary>組出 --app kiosk 啟動參數（公開純函式，方便檢視/測試）。</summary>
-    public static string BuildArgs(string url, string profileDir, WindowRect rect) =>
+    /// <summary>組出 --app kiosk 啟動參數（公開純函式，方便檢視/測試）。
+    /// cdpPort 非 null = CDP 模式：開 remote debugging port 供旋轉注入
+    /// （Chromium 136+ 要求自訂 --user-data-dir 才生效——我們每槽本來就有獨立 profile）。</summary>
+    public static string BuildArgs(string url, string profileDir, WindowRect rect, int? cdpPort = null) =>
+        (cdpPort.HasValue ? $"--remote-debugging-port={cdpPort.Value} " : "") +
         $"--app={url} " +
         $"--user-data-dir=\"{profileDir}\" " +
         "--no-first-run --no-default-browser-check --disable-session-crashed-bubble " +
@@ -69,12 +72,13 @@ public static class BrowserLauncher
         "--autoplay-policy=no-user-gesture-required " +
         $"--window-position={rect.X},{rect.Y} --window-size={rect.Width},{rect.Height}";
 
-    public static Process? Launch(string browserExe, string url, string profileDir, WindowRect rect, Logger log)
+    public static Process? Launch(string browserExe, string url, string profileDir, WindowRect rect, Logger log,
+                                  int? cdpPort = null)
     {
         try
         {
             Directory.CreateDirectory(profileDir);
-            var psi = new ProcessStartInfo(browserExe, BuildArgs(url, profileDir, rect))
+            var psi = new ProcessStartInfo(browserExe, BuildArgs(url, profileDir, rect, cdpPort))
             {
                 UseShellExecute = false,
             };
@@ -85,7 +89,8 @@ public static class BrowserLauncher
                 return null;
             }
             log.Info($"[Browser] 已啟動 pid={proc.Id}：{Path.GetFileName(browserExe)} → {url} " +
-                     $"@ ({rect.X},{rect.Y}) {rect.Width}x{rect.Height}");
+                     $"@ ({rect.X},{rect.Y}) {rect.Width}x{rect.Height}" +
+                     (cdpPort.HasValue ? $"（CDP port {cdpPort.Value}）" : ""));
             return proc;
         }
         catch (Exception ex)

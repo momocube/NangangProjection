@@ -12,6 +12,22 @@
 > - TouchService 程式碼零修改（V1 約定守住）；WallProjector 只是 /venue + /config
 >   的普通 HTTP client，不可達時 cache/fallback 降級
 > - 視窗對位/watchdog 等 Windows 行為的現場驗證清單在 WallProjector/README.md
+>
+> **✅ V2 已實作（2026-06-12）：CDP 模式 + 本地檔案模式（V1 現場回報的兩個缺口）**
+> - 每槽 `mode: wrap | cdp | file`（缺欄位 = wrap，V1 config 向後相容）
+> - **cdp**：解 X-Frame-Options/CSP 擋 iframe（YouTube 等）——直開原站
+>   `--remote-debugging-port=<每槽獨立>`，ClientWebSocket 連 CDP 注入旋轉 CSS 到
+>   html 元素（`Page.addScriptToEvaluateOnNewDocument` + `Runtime.evaluate`，
+>   SPA 導航後旋轉存活）；連線失敗 → 槽標失敗紅字 + 收瀏覽器，不靜默；
+>   wrap 模式預檢偵測被擋 → 管理頁「切到 CDP」一鍵切換
+> - **file**：影片 mp4/webm/mov（`<video>` loop/muted/controls 槽選項）、PDF
+>   （vendored pdf.js 離線可用、觸控翻頁）、圖片——`/media/<face>` 端點 +
+>   Range request（seek 必需）+ 路徑白名單（只伺服 config 明示檔案）；
+>   PPT 投影 SOP = 另存 PDF（README）
+> - 旋轉數學三模式同源（`Web/RotationCss.cs` 單一真相源）；148 個測試
+>   （含**真 chromium headless CDP E2E**：注入後 getComputedStyle 矩陣驗證 +
+>   導航存活）；`_dist/WallProjector-win64-v2.zip`；TouchService 仍零修改
+> - 下方「V2（任意視窗）Windows.Graphics.Capture 合成」**改編號為 V3**（仍未做）
 
 ## 需求（Luke 原述整理）
 
@@ -81,8 +97,10 @@
 - **解法分層**：
   - V1（網頁）：投影工具自管瀏覽器殼（無邊框 kiosk）擺到牆面 rect，內容包
     CSS rotate 容器（寬高對調）。瀏覽器 hit-testing 原生支援 transform——
-    觸控/滑鼠座標自動反算，零額外處理。外站擋 iframe 時改 CDP 注入旋轉 CSS
-  - V2（任意視窗）：Windows.Graphics.Capture 擷取 + 旋轉合成 + 輸入反向轉發（重，後排）
+    觸控/滑鼠座標自動反算，零額外處理。✅ 已實作
+  - V2（擋 iframe 的外站 + 本地檔案）：CDP 注入旋轉 CSS（直開原站）＋
+    /media 本地檔案投影（影片/PDF/圖片）。✅ 已實作（2026-06-12，見頂部）
+  - V3（任意視窗）：Windows.Graphics.Capture 擷取 + 旋轉合成 + 輸入反向轉發（重，後排，未做）
 - **venue JSON 加欄位**：每面 `viewRotation`（0/90/180/270，對人的正向），
   投影工具從 /venue 讀，多場域沿用——旋轉是場域屬性不是工具設定
 - TouchService 不動：它的座標是物理位置真相，旋轉純屬顯示層

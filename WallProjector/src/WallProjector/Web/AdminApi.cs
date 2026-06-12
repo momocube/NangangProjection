@@ -8,14 +8,18 @@ namespace WallProjector.Web;
 /// 管理 HTTP API + 管理頁路由。
 ///
 /// 端點：
-///   GET  /              管理頁（內嵌 HTML）
-///   GET  /wrap/{face}   投影 wrap 頁（瀏覽器殼載入的內容）
-///   GET  /api/state     全狀態 JSON（唯讀、不限 loopback——內網監看 OK，同 TouchService GET /config 慣例）
-///   POST /api/slot      更新槽設定 {face, url?, rotation?, enabled?}（寫回 projections.json、即時生效）
-///   POST /api/start     啟動槽 {face}（設 enabled=true）
-///   POST /api/stop      停止槽 {face}（設 enabled=false）
-///   POST /api/restore   還原所有 enabled 槽
-///   POST /api/reconnect 重新探測 TouchService
+///   GET  /                 管理頁（內嵌 HTML）
+///   GET  /wrap/{face}      投影 wrap 頁（wrap 模式瀏覽器殼載入的內容）
+///   GET  /media/{face}     file 模式播放/檢視頁（影片/圖片/PDF 依副檔名分流）
+///   GET  /media/{face}/raw file 模式檔案 bytes（支援 Range——影片 seek 必需）
+///   GET  /assets/{name}    vendored 靜態資源（pdf.js 兩檔；白名單 + 防遍歷）
+///   GET  /api/state        全狀態 JSON（唯讀、不限 loopback——內網監看 OK，同 TouchService GET /config 慣例）
+///   POST /api/slot         更新槽設定 {face, url?, rotation?, enabled?, mode?, loop?, muted?, controls?}
+///                          （寫回 projections.json、即時生效）
+///   POST /api/start        啟動槽 {face}（設 enabled=true）
+///   POST /api/stop         停止槽 {face}（設 enabled=false）
+///   POST /api/restore      還原所有 enabled 槽
+///   POST /api/reconnect    重新探測 TouchService
 ///
 /// **寫入操作僅 loopback**（同 TouchService 慣例），非 loopback 一律 403。
 /// </summary>
@@ -23,8 +27,14 @@ public sealed class AdminApi
 {
     readonly ProjectionEngine _engine;
     readonly Lazy<byte[]> _adminPage = new(LoadAdminPage);
+    readonly string[] _assetsDirs;
 
-    public AdminApi(ProjectionEngine engine) => _engine = engine;
+    /// <summary>assetsDirs：vendored 資源（pdf.js）的搜尋目錄，依序找（config 旁 → exe 旁）。</summary>
+    public AdminApi(ProjectionEngine engine, string[]? assetsDirs = null)
+    {
+        _engine = engine;
+        _assetsDirs = assetsDirs ?? new[] { Path.Combine(AppContext.BaseDirectory, "assets") };
+    }
 
     public HttpServer.Response Handle(HttpServer.Request req)
     {
@@ -35,6 +45,22 @@ public sealed class AdminApi
                 ? _engine.WrapPage(wface)
                 : HttpServer.Response.NotFound();
         }
+
+        // media 頁 + raw bytes（file 模式）
+        if (req.Method == "GET" && req.Path.StartsWith("/media/", StringComparison.Ordinal))
+        {
+            var rest = req.Path["/media/".Length..];
+            if (int.TryParse(rest, out int mface))
+                return _engine.MediaPage(mface);
+            if (rest.EndsWith("/raw", StringComparison.Ordinal) &&
+                int.TryParse(rest[..^"/raw".Length], out int rface))
+                return _engine.MediaRaw(rface, req.Header("Range"));
+            return HttpServer.Response.NotFound();   // 其餘形狀（含 ../ 遍歷嘗試）一律 404
+        }
+
+        // vendored 靜態資源（pdf.js）
+        if (req.Method == "GET" && req.Path.StartsWith("/assets/", StringComparison.Ordinal))
+            return ServeAsset(req.Path["/assets/".Length..]);
 
         switch (req.Method, req.Path)
         {
@@ -47,7 +73,7 @@ public sealed class AdminApi
             case ("POST", "/api/slot"):
             {
                 if (!req.IsLoopback) return Forbidden();
-                int face; string? url; int? rotation; bool? enabled;
+                int face; string? url, mode; int? rotation; bool? enabled, loop, muted, controls;
                 try
                 {
                     using var doc = JsonDocument.Parse(req.Body);
@@ -56,13 +82,18 @@ public sealed class AdminApi
                     url = root.TryGetProperty("url", out var u) ? u.GetString() : null;
                     rotation = root.TryGetProperty("rotation", out var r) ? r.GetInt32() : null;
                     enabled = root.TryGetProperty("enabled", out var e) ? e.GetBoolean() : null;
+                    mode = root.TryGetProperty("mode", out var m) ? m.GetString() : null;
+                    loop = root.TryGetProperty("loop", out var lp) ? lp.GetBoolean() : null;
+                    muted = root.TryGetProperty("muted", out var mu) ? mu.GetBoolean() : null;
+                    controls = root.TryGetProperty("controls", out var co) ? co.GetBoolean() : null;
                 }
                 catch (Exception ex)
                 {
                     return Result("400 Bad Request", false,
-                        $"body 需為 {{\"face\":N, \"url\"?, \"rotation\"?, \"enabled\"?}}：{ex.Message}");
+                        $"body 需為 {{\"face\":N, \"url\"?, \"rotation\"?, \"enabled\"?, \"mode\"?, " +
+                        $"\"loop\"?, \"muted\"?, \"controls\"?}}：{ex.Message}");
                 }
-                var (ok, msg) = _engine.UpdateSlot(face, url, rotation, enabled);
+                var (ok, msg) = _engine.UpdateSlot(face, url, rotation, enabled, mode, loop, muted, controls);
                 return Result(ok ? "200 OK" : "400 Bad Request", ok, msg);
             }
 
@@ -110,6 +141,40 @@ public sealed class AdminApi
             error = Result("400 Bad Request", false, $"body 需為 {{\"face\":N}}：{ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// vendored 靜態資源（pdf.js 兩檔）。防遍歷：檔名不得含路徑分隔符 / ..，
+    /// resolve 後再驗證仍在 assets 目錄內（雙保險）。
+    /// </summary>
+    HttpServer.Response ServeAsset(string name)
+    {
+        if (name.Length == 0 || name.Contains("..") ||
+            name.Contains('/') || name.Contains('\\'))
+            return HttpServer.Response.NotFound();
+
+        foreach (var dir in _assetsDirs)
+        {
+            try
+            {
+                string full = Path.GetFullPath(Path.Combine(dir, name));
+                string dirFull = Path.GetFullPath(dir);
+                if (!full.StartsWith(dirFull + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                    continue;   // resolve 後跑出 assets 目錄：拒絕
+                if (!File.Exists(full)) continue;
+
+                string contentType = Path.GetExtension(full).ToLowerInvariant() switch
+                {
+                    ".mjs" or ".js" => "text/javascript; charset=utf-8",
+                    ".css" => "text/css; charset=utf-8",
+                    ".map" => "application/json; charset=utf-8",
+                    _ => "application/octet-stream",
+                };
+                return HttpServer.Response.File("200 OK", contentType, full, 0, new FileInfo(full).Length);
+            }
+            catch { /* 非法路徑字元等：試下一個目錄 */ }
+        }
+        return HttpServer.Response.NotFound();
     }
 
     static HttpServer.Response Forbidden() =>

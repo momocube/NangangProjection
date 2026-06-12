@@ -17,7 +17,8 @@ public class AdminApiTests : IDisposable
     readonly string _dir = Directory.CreateTempSubdirectory("wp-api-tests").FullName;
     readonly Logger _log = new() { MinLevel = Logger.Level.Error };
 
-    (AdminApi Api, ProjectionEngine Engine, string ConfigPath) Make(bool withVenue = true)
+    (AdminApi Api, ProjectionEngine Engine, string ConfigPath) Make(
+        bool withVenue = true, Func<string, string?>? frameChecker = null)
     {
         var configPath = Path.Combine(_dir, $"projections-{Guid.NewGuid():N}.json");
         var config = new ProjectorConfig();
@@ -30,8 +31,9 @@ public class AdminApiTests : IDisposable
             Reachable = withVenue,
             Warning = withVenue ? null : "TouchService 不可達",
         };
-        // frameChecker 注入 null 檢查（測試不打網路）
-        var engine = new ProjectionEngine(config, configPath, ts, _log, frameChecker: _ => null);
+        // frameChecker 預設注入 null 檢查（測試不打網路）
+        var engine = new ProjectionEngine(config, configPath, ts, _log,
+                                          frameChecker: frameChecker ?? (_ => null));
         return (new AdminApi(engine), engine, configPath);
     }
 
@@ -171,6 +173,138 @@ public class AdminApiTests : IDisposable
         var resp = api.Handle(Req("POST", "/api/stop", """{ "face": 4 }"""));
         Assert.Equal("200 OK", resp.Status);
         Assert.False(ProjectorConfig.Load(configPath).GetSlot(4)!.Enabled);
+    }
+
+    // ── V2：模式切換 ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void mode切換_roundtrip_寫回config並反映在state()
+    {
+        var (api, engine, configPath) = Make();
+        using var _e = engine;
+
+        // wrap（預設）→ cdp
+        var resp = api.Handle(Req("POST", "/api/slot",
+            """{ "face": 4, "url": "https://yt.example/watch", "mode": "cdp", "rotation": 90 }"""));
+        Assert.Equal("200 OK", resp.Status);
+        Assert.Equal("cdp", ProjectorConfig.Load(configPath).GetSlot(4)!.Mode);
+
+        var face4 = Parse(api.Handle(Req("GET", "/api/state"))).GetProperty("faces")[4];
+        Assert.Equal("cdp", face4.GetProperty("mode").GetString());
+        Assert.Equal("cdp", face4.GetProperty("slot").GetProperty("mode").GetString());
+        Assert.Equal(9333 + 4, face4.GetProperty("cdpPort").GetInt32());   // cdpBasePort + face
+
+        // cdp → file（url 換成檔案路徑）
+        api.Handle(Req("POST", "/api/slot", """{ "face": 4, "mode": "file", "url": "demo.mp4" }"""));
+        var saved = ProjectorConfig.Load(configPath).GetSlot(4)!;
+        Assert.Equal("file", saved.Mode);
+        Assert.Equal("demo.mp4", saved.Url);
+
+        face4 = Parse(api.Handle(Req("GET", "/api/state"))).GetProperty("faces")[4];
+        Assert.Equal("file", face4.GetProperty("mode").GetString());
+        Assert.Equal(JsonValueKind.Null, face4.GetProperty("cdpPort").ValueKind);   // 非 cdp 不給 port
+        // 檔案不存在 → state 一眼可辨
+        Assert.Contains("檔案不存在", face4.GetProperty("fileError").GetString());
+
+        // file → wrap（回 V1 行為）
+        api.Handle(Req("POST", "/api/slot", """{ "face": 4, "mode": "wrap", "url": "https://example.com/" }"""));
+        Assert.Equal("wrap", ProjectorConfig.Load(configPath).GetSlot(4)!.Mode);
+    }
+
+    [Fact]
+    public void mode非法值_400()
+    {
+        var (api, engine, _) = Make();
+        using var _e = engine;
+        var resp = api.Handle(Req("POST", "/api/slot",
+            """{ "face": 4, "url": "https://x.example/", "mode": "kiosk" }"""));
+        Assert.Equal("400 Bad Request", resp.Status);
+        Assert.Contains("wrap/cdp/file", Parse(resp).GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public void file模式選項_loop_muted_controls_寫回config()
+    {
+        var (api, engine, configPath) = Make();
+        using var _e = engine;
+        api.Handle(Req("POST", "/api/slot",
+            """{ "face": 1, "mode": "file", "url": "a.mp4", "loop": false, "muted": false, "controls": true }"""));
+
+        var slot = ProjectorConfig.Load(configPath).GetSlot(1)!;
+        Assert.False(slot.Loop);
+        Assert.False(slot.Muted);
+        Assert.True(slot.Controls);
+
+        var face1 = Parse(api.Handle(Req("GET", "/api/state"))).GetProperty("faces")[1]
+            .GetProperty("slot");
+        Assert.False(face1.GetProperty("loop").GetBoolean());
+        Assert.True(face1.GetProperty("controls").GetBoolean());
+    }
+
+    [Fact]
+    public async Task wrap模式_預檢偵測嵌入被擋_state提示建議切CDP()
+    {
+        // frameChecker 注入「被擋」結果（不打網路）
+        var (api, engine, _) = Make(frameChecker: _ => "X-Frame-Options: DENY（一律拒絕嵌入）");
+        using var _e = engine;
+
+        api.Handle(Req("POST", "/api/slot", """{ "face": 4, "url": "https://blocked.example/" }"""));
+
+        // 預檢走背景 task——輪詢 state 直到 embedBlocked 出現
+        string? blocked = null;
+        for (int i = 0; i < 40 && blocked == null; i++)
+        {
+            await Task.Delay(50);
+            var f = Parse(api.Handle(Req("GET", "/api/state"))).GetProperty("faces")[4];
+            blocked = f.GetProperty("embedBlocked").ValueKind == JsonValueKind.String
+                ? f.GetProperty("embedBlocked").GetString() : null;
+        }
+        Assert.NotNull(blocked);
+        Assert.Contains("X-Frame-Options", blocked);
+
+        // 一鍵切 CDP 後提示消失（CDP 不經 iframe，嵌入限制無關）
+        api.Handle(Req("POST", "/api/slot", """{ "face": 4, "mode": "cdp" }"""));
+        var after = Parse(api.Handle(Req("GET", "/api/state"))).GetProperty("faces")[4];
+        Assert.Equal(JsonValueKind.Null, after.GetProperty("embedBlocked").ValueKind);
+    }
+
+    [Fact]
+    public void file槽_啟動_檔案不存在_明確失敗不開瀏覽器()
+    {
+        var (api, engine, _) = Make();
+        using var _e = engine;
+        api.Handle(Req("POST", "/api/slot",
+            """{ "face": 4, "mode": "file", "url": "/nonexistent/dir/movie.mp4" }"""));
+
+        var resp = api.Handle(Req("POST", "/api/start", """{ "face": 4 }"""));
+        Assert.Equal("400 Bad Request", resp.Status);
+        Assert.Contains("檔案不存在", Parse(resp).GetProperty("message").GetString());
+
+        var f = Parse(api.Handle(Req("GET", "/api/state"))).GetProperty("faces")[4];
+        Assert.Equal("failed", f.GetProperty("status").GetString());
+        Assert.Contains("檔案不存在", f.GetProperty("lastError").GetString());
+    }
+
+    [Fact]
+    public void cdp槽_url非http_明確失敗()
+    {
+        var (api, engine, _) = Make();
+        using var _e = engine;
+        api.Handle(Req("POST", "/api/slot",
+            """{ "face": 4, "mode": "cdp", "url": "notaurl" }"""));
+
+        var resp = api.Handle(Req("POST", "/api/start", """{ "face": 4 }"""));
+        Assert.Equal("400 Bad Request", resp.Status);
+        Assert.Contains("http", Parse(resp).GetProperty("message").GetString()!);
+    }
+
+    [Fact]
+    public void cdpPort配發_槽指定優先_否則basePort加face()
+    {
+        var (api, engine, _) = Make();
+        using var _e = engine;
+        Assert.Equal(9333 + 6, engine.CdpPortFor(6, new SlotConfig { Face = 6 }));
+        Assert.Equal(9999, engine.CdpPortFor(6, new SlotConfig { Face = 6, CdpPort = 9999 }));
     }
 
     // ── loopback 限制 ───────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ namespace WallProjector;
 /// </summary>
 public static class Program
 {
-    const string Version = "1.0.0";
+    const string Version = "2.0.0";
 
     public static int Main(string[] args)
     {
@@ -55,7 +55,13 @@ public static class Program
         using var engine = new ProjectionEngine(config, configPath, ts, log);
         engine.SetReconnect(tsClient.Resolve);
 
-        var api = new AdminApi(engine);
+        // vendored 資源（pdf.js）：config 旁優先（repo 開發），再 exe 旁（dist 部署）
+        var assetsDirs = new[]
+        {
+            Path.Combine(Path.GetDirectoryName(configPath)!, "assets"),
+            Path.Combine(AppContext.BaseDirectory, "assets"),
+        };
+        var api = new AdminApi(engine, assetsDirs);
         using var http = new HttpServer(config.HttpPort, api.Handle, log);
         try
         {
@@ -134,9 +140,11 @@ public static class Program
           --config <path>   指定 projections.json（預設：cwd 或 exe 旁）
 
         做什麼：
-          把網頁投到場域特定牆面——從 TouchService 拿十字佈局（GET /venue）與投影螢幕
+          把內容投到場域特定牆面——從 TouchService 拿十字佈局（GET /venue）與投影螢幕
           校正（GET /config 的 mouseMode.screen/content），算出牆面在投影螢幕上的 rect，
-          用 Edge/Chrome --app 無邊框視窗擺上去；左右牆臂內容經 wrap 頁 CSS rotate 轉正。
+          用 Edge/Chrome --app 無邊框視窗擺上去；左右牆臂內容 CSS rotate 轉正。
+          三模式（每槽 mode 欄位）：wrap=網頁 iframe 包覆（預設）、cdp=直開原站 +
+          DevTools 注入旋轉（X-Frame-Options 擋不到）、file=本地影片/PDF/圖片。
           觸控由 TouchService 滑鼠模式提供，本工具不碰輸入。
 
         管理頁：http://127.0.0.1:20121/（port 由 projections.json httpPort 設定）

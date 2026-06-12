@@ -5,12 +5,15 @@
   "restartOnCrash": true,
   "topmost": true,
   "browserProfileDir": "profiles",
+  "cdpBasePort": 9333,
   "fallback": {
     "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
     "content": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 },
     "venueFile": null
   },
   "projections": [
-    { "face": 4, "url": "https://example.com/", "rotation": 90, "enabled": false }
+    { "face": 4, "url": "https://example.com/", "rotation": 90, "mode": "wrap", "enabled": false },
+    { "face": 0, "url": "https://www.youtube.com/watch?v=xxxx", "rotation": 270, "mode": "cdp", "enabled": false },
+    { "face": 1, "url": "C:\\media\\demo.mp4", "rotation": 0, "mode": "file", "loop": true, "muted": true, "controls": false, "enabled": false }
   ]
 }

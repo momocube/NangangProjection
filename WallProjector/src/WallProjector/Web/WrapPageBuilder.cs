@@ -4,14 +4,7 @@ namespace WallProjector.Web;
 
 /// <summary>
 /// wrap 頁生成：把目標 URL iframe 進來，外層容器套 CSS rotate。
-///
-/// 旋轉數學（rotation = 順時針度數；視窗 W×H）：
-/// - 0：容器 100vw×100vh，無 transform。
-/// - 90：容器 **100vh×100vw（寬高對調）**、transform-origin: top left、
-///   `rotate(90deg) translateY(-100vw)`——先在局部座標上移 100vw 再順時針轉 90°，
-///   旋轉後的 bounding box 恰好等於視窗（推導見 README 旋轉章節 / 單元測試釘值）。
-/// - 180：容器 100vw×100vh、`rotate(180deg)`（預設 origin center，原地翻轉）。
-/// - 270：容器 100vh×100vw、transform-origin: top left、`rotate(270deg) translateX(-100vh)`。
+/// 旋轉數學集中在 <see cref="RotationCss"/>（wrap / media / CDP 三路共用）。
 ///
 /// 觸控不需反算：瀏覽器 hit-testing 原生處理 CSS transform，TouchService 滑鼠模式
 /// 點在螢幕座標上，瀏覽器自己把事件路由進旋轉後的 iframe。
@@ -26,15 +19,7 @@ public static class WrapPageBuilder
     public static string Build(int face, string faceName, string url, int rotation,
                                string? blockReason = null)
     {
-        string stageCss = rotation switch
-        {
-            90 => "width:100vh;height:100vw;transform-origin:top left;" +
-                  "transform:rotate(90deg) translateY(-100vw);",
-            180 => "width:100vw;height:100vh;transform:rotate(180deg);",
-            270 => "width:100vh;height:100vw;transform-origin:top left;" +
-                   "transform:rotate(270deg) translateX(-100vh);",
-            _ => "width:100vw;height:100vh;",
-        };
+        string stageCss = RotationCss.StageCss(rotation);
 
         string urlAttr = WebUtility.HtmlEncode(url);
         string nameText = WebUtility.HtmlEncode(faceName);
@@ -50,8 +35,8 @@ public static class WrapPageBuilder
                  <p class="url">{urlAttr}</p>
                  <p>{WebUtility.HtmlEncode(blockReason)}</p>
                  <p class="hint">該站以 X-Frame-Options / CSP frame-ancestors 禁止 iframe 嵌入。<br>
-                    V1 無法投影此站——v2 路線為 CDP 注入旋轉 CSS（直接開原站分頁、不經 iframe），
-                    詳見 WallProjector/README.md。</p>
+                    請到管理頁把此面的模式切成「網頁CDP」——CDP 模式直接開原站分頁（不經 iframe）
+                    並注入旋轉 CSS，不受嵌入限制。詳見 WallProjector/README.md。</p>
                </div>
                """;
 

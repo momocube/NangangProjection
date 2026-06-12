@@ -131,6 +131,87 @@ public class ProjectorConfigTests : IDisposable
         Assert.Equal("https://new.example/", cfg.GetSlot(2)!.Url);
     }
 
+    // ── V2：mode 欄位（向後相容是硬需求——V1 的 projections.json 不改即用）──
+
+    [Fact]
+    public void V1檔案無mode欄位_預設wrap_照常工作()
+    {
+        // V1 發布的範本原樣（無 mode / loop / muted / controls / cdpBasePort）
+        var path = Write("v1.json", """
+            {
+              "httpPort": 20121,
+              "topmost": true,
+              "projections": [
+                { "face": 4, "url": "https://example.com/", "rotation": 90, "enabled": true }
+              ]
+            }
+            """);
+        var cfg = ProjectorConfig.Load(path);
+
+        var slot = cfg.GetSlot(4)!;
+        Assert.Equal(SlotConfig.ModeWrap, slot.Mode);
+        Assert.Equal("https://example.com/", slot.Url);
+        Assert.Equal(90, slot.Rotation);
+        Assert.True(slot.Enabled);
+        // file 模式選項預設
+        Assert.True(slot.Loop);
+        Assert.True(slot.Muted);
+        Assert.False(slot.Controls);
+        Assert.Null(slot.CdpPort);
+        Assert.Equal(9333, cfg.CdpBasePort);
+    }
+
+    [Fact]
+    public void mode非法值_視為wrap並照常載入()
+    {
+        var path = Write("badmode.json",
+            """{ "projections": [{ "face": 0, "url": "https://x.example/", "mode": "kiosk" }] }""");
+        var cfg = ProjectorConfig.Load(path);
+        Assert.Equal(SlotConfig.ModeWrap, cfg.GetSlot(0)!.Mode);
+    }
+
+    [Theory]
+    [InlineData(null, "wrap")]
+    [InlineData("", "wrap")]
+    [InlineData("wrap", "wrap")]
+    [InlineData("CDP", "cdp")]
+    [InlineData(" file ", "file")]
+    [InlineData("bogus", "wrap")]
+    public void mode正規化(string? input, string expected) =>
+        Assert.Equal(expected, SlotConfig.NormalizeMode(input));
+
+    [Fact]
+    public void roundtrip_V2欄位全保留()
+    {
+        var cfg = new ProjectorConfig
+        {
+            CdpBasePort = 9500,
+            Projections =
+            {
+                new SlotConfig { Face = 1, Url = "https://yt.example/", Rotation = 90,
+                                 Mode = SlotConfig.ModeCdp, CdpPort = 9999, Enabled = true },
+                new SlotConfig { Face = 2, Url = @"D:\media\demo.mp4", Rotation = 270,
+                                 Mode = SlotConfig.ModeFile, Loop = false, Muted = false, Controls = true },
+            },
+        };
+        var path = Path.Combine(_dir, "v2-roundtrip.json");
+        cfg.Save(path);
+
+        var loaded = ProjectorConfig.Load(path);
+        Assert.Equal(9500, loaded.CdpBasePort);
+
+        var cdp = loaded.GetSlot(1)!;
+        Assert.Equal(SlotConfig.ModeCdp, cdp.Mode);
+        Assert.Equal(9999, cdp.CdpPort);
+
+        var file = loaded.GetSlot(2)!;
+        Assert.Equal(SlotConfig.ModeFile, file.Mode);
+        Assert.Equal(@"D:\media\demo.mp4", file.Url);
+        Assert.False(file.Loop);
+        Assert.False(file.Muted);
+        Assert.True(file.Controls);
+    }
+
     [Fact]
     public void upsert_新face建立並排序()
     {
