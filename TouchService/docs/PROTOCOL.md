@@ -177,7 +177,7 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
 - 一般訂閱端（遊戲 / 美術程式）**可以無視**這個訊息：鎖定格本來就不會有事件。
   它存在的目的是讓監控頁（testpage）即時顯示鎖定狀態
 - 訂閱端 parser 規則：**帶 `type` 欄位的訊息都不是觸控 frame**（目前有 hello / locks /
-  log，未來可能新增），未知 type 一律忽略
+  log / raw / calibration，未來可能新增），未知 type 一律忽略
 
 ### log 推播（僅 loopback；UI 終端用，2026-06 v6 新增）
 
@@ -197,6 +197,30 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
   `type` 的訊息，但 log 內容也不該外流到內網）
 - loopback client 連上時先補發最近 **300 行** ring buffer，之後即時推
 - 這是 UI「終端」tab 的資料源，**不屬於對外協議**——LAN 訂閱端永遠看不到此 type
+
+### raw 推播（僅 loopback；校正精靈用，2026-06 v8 新增）
+
+校正工作階段進行中（`POST /calibration/start` 後、stop / 15 分鐘逾時前），
+服務把每個解析成功的 raw 點（**路由成功與否都推**）發給 **loopback WS client**：
+
+```json
+{ "type": "raw", "x": 5448, "y": 348, "src": "192.168.1.31", "port": 49152, "face": 2, "n": 3 }
+```
+
+| 欄位 | 說明 |
+|---|---|
+| `x` `y` | 感應模組封包內的原始 raw 座標（未經校正映射） |
+| `src` `port` | 來源模組的 IP / port（一個模組一個來源） |
+| `face` | 以**目前**場域 profile 路由到的面 index；路由不到（新場域校正中常態）= `null` |
+| `n` | 該來源**同座標連續重送**次數——精靈的穩定偵測依據（n ≥ 3 = 穩定，自動取值） |
+
+- 節流：同座標前 3 包照推（讓 UI 看到穩定進度 n=1,2,3）、之後壓到每秒 1 包心跳；
+  座標一變立即推；全域上限 ~30 msg/s（per-source 隔離——別的模組在叫的噪訊
+  晶片不會打斷正在踩的角落晶片的連續計數）
+- 工作階段狀態變化（start / stop / 逾時）另推 `{"type":"calibration","active":bool}`
+- 非校正階段零訊息、零成本；**校正期間觸控發布完全照常**（raw 推播是額外 tap）
+- 與 log 同一條安全線：**僅 loopback**，內部訊號不外流內網；不屬於對外協議
+
 - 同 port 的 HTTP：`GET /venue` 回完整場域 profile（含 raw 校準值，CORS `*`）、
   `GET /` 回內建 testpage
 - 實作為最小 RFC 6455（text frame、close、ping/pong），不支援壓縮擴充；
@@ -209,12 +233,18 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
   訂閱端不需要也無法感知目前模式。
 - **config API 是本機管理介面、不屬於對外協議**：與 WS 同 port 另有
   `GET /config`、`POST /config`、`GET /monitors`、`GET /history`、
-  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/save`、`POST /command`
-  八個 HTTP 端點（給內建設定/診斷/終端頁用）。**寫入類端點、/monitors 與 /command
-  僅接受 loopback 來源**（非 loopback 一律 403）；`GET /history`（疑似噪訊排行，
-  `?top=N` 預設 50）與 `GET /config` 為唯讀、不限 loopback——場館內網監看 OK。
+  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/save`、`POST /command`、
+  `POST /calibration/start`、`POST /calibration/stop`、`GET /calibration/status`、
+  `POST /calibration/save` 等 HTTP 端點（給內建設定/診斷/終端/校正頁用）。
+  **寫入類端點、/monitors、/command 與 /calibration/\* 僅接受 loopback 來源**
+  （非 loopback 一律 403）；`GET /history`（疑似噪訊排行，`?top=N` 預設 50）
+  與 `GET /config` 為唯讀、不限 loopback——場館內網監看 OK。
   皆不在 v1 承諾範圍內、欄位可能隨版本調整，訂閱端不要依賴。
   端點細節見 `DEPLOY.md`「啟動 UI」。
+- **`/calibration/*`（v8）**：校正精靈的工作階段控制與兩角校正寫檔——
+  start/stop 開關 raw 推播（見上方 raw 推播段；15 分鐘無 stop 自動結束）、
+  save 寫 `venues/<名>.json` + 更新 config `venueProfile`（**重啟生效**，
+  驗證全過才動檔案）。流程見 `CALIBRATION.md`。
 - **`POST /command`（v6）**：UI 終端的指令通道——body `{"cmd":"history 20"}` →
   回 `{"output":"..."}`。與 stdin 走同一個 CommandProcessor，輸出文字一致；
   搭配上方 log 推播（type:"log"，僅 loopback），UI 終端 = console 的完整替代。

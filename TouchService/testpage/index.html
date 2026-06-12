@@ -132,6 +132,36 @@
   }
   #termDenied { padding: 30px; text-align: center; color: var(--dim); display: none; }
   #btnPauseScroll.paused { background: var(--move); color: #000; }
+
+  /* ── 校正 tab（v8 校正精靈）────────────────────────────────────────────── */
+  #tab-calib { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
+  #calibDenied { padding: 30px; text-align: center; color: var(--dim); display: none; }
+  .calBadge {
+    display: inline-block; padding: 2px 12px; border-radius: 10px;
+    background: #444a58; color: var(--text);
+  }
+  .calBadge.on { background: var(--ok); color: #000; font-weight: 600; }
+  #calStepText { font-size: 15px; font-weight: 600; color: #fff; margin: 6px 0; }
+  #calRawBig {
+    font: 700 40px/1.2 "Consolas", monospace; letter-spacing: 2px;
+    color: #fff; padding: 10px 0; min-height: 58px;
+  }
+  #calRawBig.stable { color: var(--ok); }
+  #calRawBig .dimmed { color: var(--dim); font-size: 18px; letter-spacing: 0; }
+  .calCornerVal { color: var(--ok); font-weight: 600; }
+  #calPreviewWrap {
+    position: relative; height: 300px; background: #0d0f13;
+    border: 1px solid var(--line); border-radius: 6px; margin: 6px 0;
+  }
+  #calPreview { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #calJsonPreview {
+    background: #0d0f13; border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 12px; font: 12px/1.45 "Consolas", monospace;
+    white-space: pre; overflow-x: auto; max-height: 320px; overflow-y: auto;
+  }
+  #calSaveResult { display: none; padding: 8px 12px; border-radius: 4px; margin-top: 8px; white-space: pre-wrap; }
+  #calSaveResult.ok { display: block; background: rgba(93,217,124,.15); color: var(--ok); }
+  #calSaveResult.err { display: block; background: rgba(255,77,77,.15); color: var(--down); }
 </style>
 </head>
 <body>
@@ -142,6 +172,7 @@
     <button id="tabBtnSettings">設定</button>
     <button id="tabBtnDiag">診斷</button>
     <button id="tabBtnTerm">終端</button>
+    <button id="tabBtnCalib">校正</button>
   </nav>
   <label>WS 位址 <input id="wsUrl" value=""></label>
   <button id="btnConn" class="conn">連線</button>
@@ -345,6 +376,112 @@
   </div>
 </div>
 
+<!-- ── 校正 tab（v8 校正精靈：新場域兩角校正，僅限本機）──────────────────── -->
+<div id="tab-calib">
+  <div id="calibDenied">
+    校正僅限本機 —— raw 訊號串流與場域寫檔只開放給服務所在機器（http://127.0.0.1:20111/）。<br>
+    此頁從其他機器開啟，僅能使用監控／診斷功能。
+  </div>
+  <div class="settings" id="calibBody" style="max-width:980px">
+    <fieldset>
+      <legend>校正精靈（新場域兩角校正）</legend>
+      <div class="hint">
+        新場域（例：單面牆）不用手算校正值：填好面的格數 → 開始校正 →
+        依引導踩「左上角第一顆晶片」與「右下角最後一顆晶片」→ 精靈自動算出
+        rawMin/Max 與 flip → 儲存後重啟服務即生效。多面場域逐面累積（origin 手填，
+        進階說明見 <b>docs/CALIBRATION.md</b>）。校正期間服務照常發布，不影響營運。
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label>工作階段</label>
+        <span class="calBadge" id="calSessionBadge">未開始</span>
+        <button class="btn" id="btnCalStart">開始校正</button>
+        <button class="btn minor" id="btnCalStop">停止</button>
+        <span class="hint">開始後 15 分鐘無動作自動結束；重按「開始校正」可延長。</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>1 · 場域與面</legend>
+      <div class="row">
+        <label>場域名稱</label>
+        <input type="text" id="calVenue" placeholder="例：office-wall" style="width:220px">
+        <span class="hint">存檔名 venues/&lt;名稱&gt;.json（不可含 / \ : * ? " &lt; &gt; |）</span>
+      </div>
+      <div class="row">
+        <label>面名稱</label>
+        <input type="text" id="calFaceName" value="Wall" style="width:220px">
+      </div>
+      <div class="row">
+        <label>格數 cols × rows</label>
+        <input type="number" id="calCols" min="1" max="1024" style="width:90px" placeholder="cols">
+        <span>×</span>
+        <input type="number" id="calRows" min="1" max="1024" style="width:90px" placeholder="rows">
+        <span class="hint">畫面 X / Y 方向的晶片格數（一磚 = 2×4 或 4×2 格）</span>
+      </div>
+      <div class="row">
+        <label>晶片方向</label>
+        <select id="calOrientation" style="min-width:260px">
+          <option value="vertical">vertical（直，每格 32×16 px）</option>
+          <option value="horizontal">horizontal（橫，每格 16×32 px）</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>origin（多面進階）</label>
+        <input type="number" id="calOriginX" min="0" value="0" style="width:90px">
+        <input type="number" id="calOriginY" min="0" value="0" style="width:90px">
+        <span class="hint">此面左上角在合併畫布的 px 位置；單面維持 0,0 即可（進階參考 CALIBRATION.md）</span>
+      </div>
+      <div class="row">
+        <label>畫布（自動計算）</label>
+        <b id="calCanvasSize">-</b>
+        <span class="hint">= 各面 origin + 格數 × 格尺寸的外框，儲存時由服務端計算</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2 · 踩角取值</legend>
+      <div id="calStepText">先按上方「開始校正」</div>
+      <div id="calRawBig"><span class="dimmed">（尚無 raw 訊號）</span></div>
+      <div class="row">
+        <button class="btn" id="btnCalCaptureTl">重踩左上角</button>
+        <button class="btn" id="btnCalCaptureBr">重踩右下角</button>
+        <button class="btn minor" id="btnCalUseNow">手動取用目前值</button>
+        <span class="hint">同值連續 ≥3 包會自動鎖定；訊號跳動時可手動取用</span>
+      </div>
+      <div class="row">
+        <label>左上角第一顆晶片</label><b id="calTlVal" class="calCornerVal">（未取）</b>
+        <label style="min-width:auto">右下角最後一顆晶片</label><b id="calBrVal" class="calCornerVal">（未取）</b>
+      </div>
+      <div class="row">
+        <label>計算結果</label><b id="calAxisResult">-</b>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnCalAddFace">加入此面</button>
+        <span id="calFaceMsg" class="hint"></span>
+      </div>
+      <div id="calFacesWrap" style="display:none">
+        <table class="locks" id="calFacesTable">
+          <thead><tr><th>面</th><th>格數</th><th>方向</th><th>origin</th><th>rawX</th><th>rawY</th><th>flip</th><th></th></tr></thead>
+          <tbody id="calFacesBody"></tbody>
+        </table>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3 · 預覽與儲存</legend>
+      <div class="hint">面預覽圖：已取的角落標記 ◤◢；兩角都取得後，再踩任何位置會把
+        raw 即時映射成綠點（近似預覽，方向/flip 立即可驗）。</div>
+      <div id="calPreviewWrap"><canvas id="calPreview"></canvas></div>
+      <div class="hint" style="margin:8px 0 4px">venue JSON 預覽（實際寫入由服務端產生）：</div>
+      <div id="calJsonPreview">（加入至少一面後顯示）</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnCalSave">儲存並套用（寫入 venue + config）</button>
+      </div>
+      <div id="calSaveResult"></div>
+    </fieldset>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -393,19 +530,23 @@ function showTab(name) {
   $("tab-settings").style.display = name === "settings" ? "block" : "none";
   $("tab-diag").style.display = name === "diag" ? "block" : "none";
   $("tab-term").style.display = name === "term" ? "flex" : "none";
+  $("tab-calib").style.display = name === "calib" ? "block" : "none";
   $("tabBtnMonitor").classList.toggle("active", name === "monitor");
   $("tabBtnSettings").classList.toggle("active", name === "settings");
   $("tabBtnDiag").classList.toggle("active", name === "diag");
   $("tabBtnTerm").classList.toggle("active", name === "term");
+  $("tabBtnCalib").classList.toggle("active", name === "calib");
   if (name === "monitor") resize();         // canvas 在 hidden 期間量不到尺寸，回來重算
   if (name === "settings") loadSettings();  // 進設定頁刷新目前生效值
   if (name === "diag") refreshHistory();    // 進診斷頁立即抓排行（之後每 5 秒）
   if (name === "term") enterTerminal();     // 終端：loopback 檢查 + 捲到底 + focus 輸入框
+  if (name === "calib") enterCalib();       // 校正：loopback 檢查 + 工作階段狀態刷新
 }
 $("tabBtnMonitor").onclick = () => showTab("monitor");
 $("tabBtnSettings").onclick = () => showTab("settings");
 $("tabBtnDiag").onclick = () => showTab("diag");
 $("tabBtnTerm").onclick = () => showTab("term");
+$("tabBtnCalib").onclick = () => showTab("calib");
 
 // ── WebSocket ───────────────────────────────────────────────────────────────
 function connect() {
@@ -454,6 +595,16 @@ function onMessage(msg) {
   // log 串流（僅 loopback client 會收到；終端 tab 顯示）
   if (msg.type === "log") {
     termAppendLog(msg);
+    return;
+  }
+
+  // 校正 raw 串流 + 工作階段狀態（僅 loopback client 會收到；校正 tab 用）
+  if (msg.type === "raw") {
+    calOnRaw(msg);
+    return;
+  }
+  if (msg.type === "calibration") {
+    calOnSession(msg.active);
     return;
   }
 
@@ -1030,6 +1181,418 @@ function enterTerminal() {
   $("termLog").style.display = local ? "block" : "none";
   $("termBar").style.display = local ? "flex" : "none";
   if (local) { termScrollBottom(); $("termInput").focus(); }
+}
+
+// ── 校正 tab：v8 校正精靈（新場域兩角校正；僅限本機）────────────────────────
+//
+// 流程：開始校正（POST /calibration/start，服務開 raw 檢視串流）→ 引導踩
+// 「左上角第一顆晶片」→ 同值連續 ≥3 包（raw 訊息的 n）自動鎖定（或手按取用）→
+// 踩「右下角最後一顆」→ 自動算 rawMin/Max + flip → 加入此面（多面逐面累積）→
+// 預覽 venue JSON + 面預覽圖 → POST /calibration/save（服務寫 venues/<名>.json +
+// config venueProfile）→ 提示重啟生效。
+const cal = {
+  active: false,        // 服務端校正工作階段
+  remain: 0,            // 工作階段剩餘秒數（5 秒輪詢校正）
+  capturing: null,      // null | "tl" | "br"：目前在等哪個角
+  ignoreCoord: null,    // 取完左上自動進右下時，忽略還踩著的左上座標（重送 n 已 ≥3）
+  lastRaw: null,        // 最近一包 raw {x,y,src,port,face,n}
+  tl: null, br: null,   // 已取角值 {x,y}
+  faces: [],            // 已加入的面（save 請求格式）
+  liveDots: [],         // 兩角取得後的即時映射點（驗證 flip/方向用）
+};
+
+const CAL_STABLE_N = 3;   // 與服務端 RawStreamGate.StableCount 一致
+
+function calCellSize(orientation) {
+  return orientation === "horizontal" ? { w: 16, h: 32 } : { w: 32, h: 16 };
+}
+
+/** 目前表單上的面（未必已加入）；欄位不完整回 null。 */
+function calCurrentFace() {
+  const cols = +$("calCols").value, rows = +$("calRows").value;
+  if (!Number.isInteger(cols) || cols < 1 || !Number.isInteger(rows) || rows < 1) return null;
+  return {
+    name: $("calFaceName").value.trim() || "Wall",
+    cols, rows,
+    orientation: $("calOrientation").value,
+    originX: Math.max(0, +$("calOriginX").value || 0),
+    originY: Math.max(0, +$("calOriginY").value || 0),
+  };
+}
+
+/** 單軸：兩角 raw → rawMin/Max + flip（與服務端 CalibrationMath.TryComputeAxis 同語意）。 */
+function calAxis(firstRaw, lastRaw) {
+  if (firstRaw === lastRaw) return null;
+  return { min: Math.min(firstRaw, lastRaw), max: Math.max(firstRaw, lastRaw), flip: firstRaw > lastRaw };
+}
+
+/** 面 → 含校正值的預覽物件（venue JSON 的 face 形狀）；兩角缺/同值回 null。 */
+function calFacePreview(f, tl, br) {
+  if (!tl || !br) return null;
+  const ax = calAxis(tl.x, br.x), ay = calAxis(tl.y, br.y);
+  if (!ax || !ay) return null;
+  return {
+    name: f.name, originX: f.originX, originY: f.originY,
+    orientation: f.orientation, colCount: f.cols, rowCount: f.rows,
+    rawMinX: ax.min, rawMaxX: ax.max, rawMinY: ay.min, rawMaxY: ay.max,
+    flipX: ax.flip, flipY: ay.flip,
+  };
+}
+
+/** 全部面（已加入 + 表單目前的）→ 畫布 bounding box（與服務端缺省演算法一致）。 */
+function calAllFaces() {
+  const all = cal.faces.map(f => calFacePreview(f, ptFromArr(f.topLeftRaw), ptFromArr(f.bottomRightRaw)))
+                       .filter(Boolean);
+  const cur = calCurrentFace();
+  if (cur) {
+    const p = calFacePreview(cur, cal.tl, cal.br);
+    all.push(p ?? { ...cur, colCount: cur.cols, rowCount: cur.rows, pending: true });
+  }
+  return all;
+}
+const ptFromArr = a => a ? { x: a[0], y: a[1] } : null;
+
+function calCanvasOf(faces) {
+  let w = 0, h = 0;
+  for (const f of faces) {
+    const c = calCellSize(f.orientation);
+    w = Math.max(w, f.originX + f.colCount * c.w);
+    h = Math.max(h, f.originY + f.rowCount * c.h);
+  }
+  return { w, h };
+}
+
+// ── 工作階段控制 ──
+async function calRefreshStatus() {
+  if (!uiIsLoopback()) return;
+  try {
+    const r = await fetchJson("/calibration/status");
+    if (r.ok && r.body) { cal.active = !!r.body.active; cal.remain = r.body.remainingSeconds || 0; }
+  } catch { /* 服務沒起來：badge 維持現狀 */ }
+  calRenderSession();
+}
+setInterval(() => { if ($("tab-calib").style.display !== "none") calRefreshStatus(); }, 5000);
+
+function calRenderSession() {
+  const b = $("calSessionBadge");
+  b.classList.toggle("on", cal.active);
+  b.textContent = cal.active ? `校正中（剩 ${Math.ceil(cal.remain / 60)} 分）` : "未開始";
+  if (!cal.active && cal.capturing) {
+    cal.capturing = null;
+    calRenderStep("工作階段已結束（逾時或手動停止）——重按「開始校正」繼續");
+  }
+}
+
+function calOnSession(active) {   // WS type:"calibration" push（start/stop/逾時）
+  cal.active = active;
+  if (!active) cal.remain = 0;
+  calRenderSession();
+}
+
+$("btnCalStart").onclick = async () => {
+  const r = await fetchJson("/calibration/start", { method: "POST" });
+  if (!r.ok || !r.body?.ok) { calRenderStep("開始失敗：" + (r.body?.message || `HTTP ${r.status}`)); return; }
+  cal.active = true;
+  cal.remain = r.body.timeoutSeconds || 900;
+  calRenderSession();
+  if (!state.ws) calRenderStep("⚠ 尚未連線 WS——先按上方「連線」才能收到 raw 訊號");
+  else if (!cal.tl) calStartCapture("tl");
+  else if (!cal.br) calStartCapture("br");
+  else calRenderStep("兩角已取得——可「加入此面」或重踩任一角");
+};
+
+$("btnCalStop").onclick = async () => {
+  await fetchJson("/calibration/stop", { method: "POST" });
+  cal.active = false; cal.capturing = null;
+  calRenderSession();
+  calRenderStep("已停止。要繼續校正重按「開始校正」");
+};
+
+// ── 踩角取值 ──
+function calStartCapture(which) {
+  cal.capturing = which;
+  // 從左上自動進右下時腳可能還踩著左上晶片（n 已 ≥3 持續重送）——忽略同座標
+  cal.ignoreCoord = which === "br" && cal.tl ? { ...cal.tl } : null;
+  calRenderStep(which === "tl"
+    ? `請踩此面【左上角】的第一顆晶片（面：${$("calFaceName").value.trim() || "Wall"}）——踩住不動`
+    : `請踩此面【右下角】的最後一顆晶片——踩住不動`);
+  calRenderCorners();
+}
+
+$("btnCalCaptureTl").onclick = () => { if (calEnsureActive()) calStartCapture("tl"); };
+$("btnCalCaptureBr").onclick = () => { if (calEnsureActive()) calStartCapture("br"); };
+
+function calEnsureActive() {
+  if (cal.active) return true;
+  calRenderStep("先按上方「開始校正」");
+  return false;
+}
+
+$("btnCalUseNow").onclick = () => {
+  if (!calEnsureActive()) return;
+  if (!cal.capturing) { calRenderStep("先按「重踩左上角」或「重踩右下角」選擇要取的角"); return; }
+  if (!cal.lastRaw) { calRenderStep("還沒收到任何 raw 訊號——確認模組在發訊、WS 已連線"); return; }
+  calLockIn(cal.lastRaw.x, cal.lastRaw.y);
+};
+
+function calOnRaw(msg) {
+  cal.lastRaw = msg;
+
+  // raw 大字（校正 tab 沒開也持續更新——切回來就是最新值）
+  const big = $("calRawBig");
+  const stable = msg.n >= CAL_STABLE_N;
+  big.classList.toggle("stable", stable);
+  big.innerHTML = "";
+  big.append(`(${msg.x}, ${msg.y})`);
+  const sub = document.createElement("span");
+  sub.className = "dimmed";
+  sub.textContent = `  n=${Math.min(msg.n, 99)}${stable ? " 穩定" : ` / ${CAL_STABLE_N}`}` +
+                    (msg.src ? `  來源 ${msg.src}:${msg.port}` : "");
+  big.appendChild(sub);
+
+  // 自動鎖定：同值連續 ≥3（忽略「上一角還踩著」的座標）
+  if (cal.capturing && stable &&
+      !(cal.ignoreCoord && msg.x === cal.ignoreCoord.x && msg.y === cal.ignoreCoord.y))
+    calLockIn(msg.x, msg.y);
+
+  // 兩角都取得後：即時把踩的點映射到面預覽圖（驗證 flip / 方向）
+  if (!cal.capturing && cal.tl && cal.br) {
+    cal.liveDots.push({ x: msg.x, y: msg.y, at: Date.now() });
+    if (cal.liveDots.length > 60) cal.liveDots.shift();
+    calDrawPreview();
+  }
+}
+
+function calLockIn(x, y) {
+  const which = cal.capturing;
+  cal[which] = { x, y };
+  cal.capturing = null;
+  cal.ignoreCoord = null;
+  cal.liveDots = [];
+  if (which === "tl" && !cal.br) {
+    calStartCapture("br");   // 自動進下一角（還踩著的左上座標會被忽略）
+  } else {
+    const cur = calCurrentFace();
+    const p = cur && calFacePreview(cur, cal.tl, cal.br);
+    calRenderStep(p
+      ? "兩角已取得 ✓ —— 確認計算結果後按「加入此面」（再踩任意點可在預覽圖驗證方向）"
+      : "兩角已取得，但兩角的 rawX 或 rawY 相同——請確認踩的是不同晶片，重踩其中一角");
+  }
+  calRenderCorners();
+}
+
+function calRenderStep(text) { $("calStepText").textContent = text; }
+
+function calRenderCorners() {
+  $("calTlVal").textContent = cal.tl ? `(${cal.tl.x}, ${cal.tl.y})` : "（未取）";
+  $("calBrVal").textContent = cal.br ? `(${cal.br.x}, ${cal.br.y})` : "（未取）";
+  let axisText = "-";
+  if (cal.tl && cal.br) {
+    const ax = calAxis(cal.tl.x, cal.br.x), ay = calAxis(cal.tl.y, cal.br.y);
+    axisText = !ax || !ay
+      ? "✗ 兩角 raw 相同，無法定義範圍"
+      : `rawX ${ax.min}~${ax.max}${ax.flip ? "（flipX）" : ""}、rawY ${ay.min}~${ay.max}${ay.flip ? "（flipY）" : ""}`;
+  }
+  $("calAxisResult").textContent = axisText;
+  calRenderAll();
+}
+
+// ── 面累積 ──
+$("btnCalAddFace").onclick = () => {
+  const msg = $("calFaceMsg");
+  const cur = calCurrentFace();
+  if (!cur) { msg.textContent = "✗ cols / rows 要填 1~1024 的整數"; return; }
+  if (!cal.tl || !cal.br) { msg.textContent = "✗ 先取得兩角 raw 值"; return; }
+  if (!calAxis(cal.tl.x, cal.br.x) || !calAxis(cal.tl.y, cal.br.y)) {
+    msg.textContent = "✗ 兩角 rawX / rawY 相同——重踩其中一角"; return;
+  }
+  cal.faces.push({
+    name: cur.name, cols: cur.cols, rows: cur.rows, orientation: cur.orientation,
+    originX: cur.originX, originY: cur.originY,
+    topLeftRaw: [cal.tl.x, cal.tl.y], bottomRightRaw: [cal.br.x, cal.br.y],
+  });
+  cal.tl = cal.br = null;
+  cal.liveDots = [];
+  msg.textContent = `✓ 已加入「${cur.name}」（共 ${cal.faces.length} 面）。多面場域：改面名/origin 後繼續踩下一面`;
+  calRenderStep("面已加入——單面場域直接到「3 · 預覽與儲存」；多面改面名與 origin 後重踩兩角");
+  calRenderCorners();
+};
+
+function calRenderFacesTable() {
+  $("calFacesWrap").style.display = cal.faces.length ? "block" : "none";
+  const tbody = $("calFacesBody");
+  tbody.innerHTML = "";
+  cal.faces.forEach((f, i) => {
+    const p = calFacePreview(f, ptFromArr(f.topLeftRaw), ptFromArr(f.bottomRightRaw));
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${i}: ${f.name}</td><td>${f.cols}×${f.rows}</td><td>${f.orientation}</td>` +
+      `<td>(${f.originX},${f.originY})</td>` +
+      `<td>${p.rawMinX}~${p.rawMaxX}</td><td>${p.rawMinY}~${p.rawMaxY}</td>` +
+      `<td>${p.flipX ? "X" : ""}${p.flipY ? "Y" : ""}${p.flipX || p.flipY ? "" : "-"}</td>`;
+    const td = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "btn minor";
+    btn.textContent = "移除";
+    btn.onclick = () => { cal.faces.splice(i, 1); calRenderAll(); };
+    td.appendChild(btn);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  });
+}
+
+// ── 預覽（畫布自動計算 + venue JSON + 面預覽圖）──
+function calRenderAll() {
+  const all = calAllFaces();
+  const canvas = calCanvasOf(all);
+  $("calCanvasSize").textContent = all.length ? `${canvas.w} × ${canvas.h} px` : "-";
+  calRenderFacesTable();
+  calRenderJson();
+  calDrawPreview();
+}
+
+function calRenderJson() {
+  const faces = cal.faces.map(f => calFacePreview(f, ptFromArr(f.topLeftRaw), ptFromArr(f.bottomRightRaw)));
+  if (cal.tl && cal.br) {   // 表單上取完兩角但還沒按「加入」的面也納入預覽
+    const cur = calCurrentFace();
+    const p = cur && calFacePreview(cur, cal.tl, cal.br);
+    if (p) faces.push(p);
+  }
+  if (!faces.length) { $("calJsonPreview").textContent = "（加入至少一面後顯示）"; return; }
+  $("calJsonPreview").textContent = JSON.stringify({
+    venue: $("calVenue").value.trim() || "（場域名稱）",
+    canvas: (({ w, h }) => ({ width: w, height: h }))(calCanvasOf(faces)),
+    faces,
+  }, null, 2);
+}
+
+const calCv = $("calPreview"), calCtx = calCv.getContext("2d");
+
+function calDrawPreview() {
+  const wrap = $("calPreviewWrap").getBoundingClientRect();
+  if (wrap.width === 0) return;   // tab 隱藏中
+  calCv.width = wrap.width * devicePixelRatio;
+  calCv.height = wrap.height * devicePixelRatio;
+  calCtx.clearRect(0, 0, calCv.width, calCv.height);
+
+  const all = calAllFaces();
+  const canvas = calCanvasOf(all);
+  if (!all.length || canvas.w === 0 || canvas.h === 0) {
+    calCtx.fillStyle = "#79808f";
+    calCtx.font = `${13 * devicePixelRatio}px monospace`;
+    calCtx.textAlign = "center";
+    calCtx.fillText("填好 cols × rows 後此處顯示面預覽", calCv.width / 2, calCv.height / 2);
+    return;
+  }
+
+  const pad = 18 * devicePixelRatio;
+  const s = Math.min((calCv.width - pad * 2) / canvas.w, (calCv.height - pad * 2) / canvas.h);
+  const ox = (calCv.width - canvas.w * s) / 2, oy = (calCv.height - canvas.h * s) / 2;
+  const X = x => ox + x * s, Y = y => oy + y * s;
+
+  calCtx.strokeStyle = "#3a4150";
+  calCtx.lineWidth = devicePixelRatio;
+  calCtx.strokeRect(X(0), Y(0), canvas.w * s, canvas.h * s);
+
+  calCtx.font = `${11 * devicePixelRatio}px monospace`;
+  calCtx.textAlign = "left";
+  all.forEach((f, i) => {
+    const c = calCellSize(f.orientation);
+    const w = f.colCount * c.w, h = f.rowCount * c.h;
+    const color = FACE_COLORS[i % FACE_COLORS.length];
+    calCtx.strokeStyle = color + (f.pending ? "55" : "88");
+    calCtx.fillStyle = color + "14";
+    calCtx.fillRect(X(f.originX), Y(f.originY), w * s, h * s);
+    calCtx.strokeRect(X(f.originX), Y(f.originY), w * s, h * s);
+    calCtx.fillStyle = color + "cc";
+    calCtx.fillText(`${f.name}（${f.colCount}×${f.rowCount}）${f.pending ? " 校正中" : ""}`,
+                    X(f.originX) + 4 * devicePixelRatio, Y(f.originY) + 13 * devicePixelRatio);
+  });
+
+  // 目前表單面：已取角落 ◤◢ 標在第一顆 / 最後一顆晶片中心
+  const cur = calCurrentFace();
+  if (cur) {
+    const c = calCellSize(cur.orientation);
+    const mark = (cellX, cellY, label, got) => {
+      const px = X(cur.originX + cellX * c.w + c.w / 2), py = Y(cur.originY + cellY * c.h + c.h / 2);
+      calCtx.fillStyle = got ? "#5dd97c" : "#79808f";
+      calCtx.beginPath();
+      calCtx.arc(px, py, 5 * devicePixelRatio, 0, Math.PI * 2);
+      calCtx.fill();
+      calCtx.font = `${11 * devicePixelRatio}px monospace`;
+      calCtx.fillText(label, px + 8 * devicePixelRatio, py + 4 * devicePixelRatio);
+    };
+    mark(0, 0, cal.tl ? "左上 ✓" : "左上", !!cal.tl);
+    mark(cur.cols - 1, cur.rows - 1, cal.br ? "右下 ✓" : "右下", !!cal.br);
+
+    // 即時映射點（兩角取得後）：raw → norm →（flip）→ 面內 px（近似預覽；
+    // 服務端正式映射含 (N-1)→N 拉伸 quirk，驗方向用這個就夠）
+    const p = calFacePreview(cur, cal.tl, cal.br);
+    if (p) {
+      const now = Date.now();
+      cal.liveDots = cal.liveDots.filter(d => now - d.at < 4000);
+      for (const d of cal.liveDots) {
+        let nx = (d.x - p.rawMinX) / (p.rawMaxX - p.rawMinX);
+        let ny = (d.y - p.rawMinY) / (p.rawMaxY - p.rawMinY);
+        if (nx < -0.05 || nx > 1.05 || ny < -0.05 || ny > 1.05) continue;   // 此面範圍外
+        if (p.flipX) nx = 1 - nx;
+        if (p.flipY) ny = 1 - ny;
+        const alpha = 1 - (now - d.at) / 4000;
+        calCtx.fillStyle = `rgba(93,217,124,${(0.25 + 0.75 * alpha).toFixed(2)})`;
+        calCtx.beginPath();
+        calCtx.arc(X(cur.originX + nx * cur.cols * c.w), Y(cur.originY + ny * cur.rows * c.h),
+                   4 * devicePixelRatio, 0, Math.PI * 2);
+        calCtx.fill();
+      }
+    }
+  }
+}
+
+// 表單欄位變動 → 重算畫布 / 預覽 / JSON
+for (const id of ["calVenue", "calFaceName", "calCols", "calRows", "calOrientation", "calOriginX", "calOriginY"])
+  $(id).addEventListener("input", calRenderAll);
+
+// ── 儲存 ──
+$("btnCalSave").onclick = async () => {
+  const out = $("calSaveResult");
+  const showSave = (ok, text) => { out.className = ok ? "ok" : "err"; out.textContent = text; };
+
+  // 體貼單面流程：兩角取了但忘了按「加入此面」→ 自動補加入
+  if (!cal.faces.length && cal.tl && cal.br) $("btnCalAddFace").onclick();
+  const venue = $("calVenue").value.trim();
+  if (!venue) { showSave(false, "✗ 場域名稱不可為空"); return; }
+  if (!cal.faces.length) { showSave(false, "✗ 至少要加入一面（先踩兩角取值）"); return; }
+
+  $("btnCalSave").disabled = true;
+  try {
+    const r = await fetchJson("/calibration/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venue, faces: cal.faces }),
+    });
+    showSave(!!r.body?.ok, (r.body?.ok ? "✓ " : "✗ ") + (r.body?.message || `HTTP ${r.status}`));
+    if (r.body?.ok) {
+      await fetchJson("/calibration/stop", { method: "POST" });   // 寫完收工作階段
+      cal.active = false; cal.capturing = null;
+      calRenderSession();
+      calRenderStep("已儲存——重啟服務（托盤右鍵「結束服務」後重開 TouchService.exe）載入新場域");
+    }
+  } catch (e) {
+    showSave(false, "✗ 送出失敗：" + e.message);
+  } finally {
+    $("btnCalSave").disabled = false;
+  }
+};
+
+/** 進校正 tab：非 loopback 開頁 → 整個精靈隱藏（raw 串流與寫檔本來就只開放本機）。 */
+function enterCalib() {
+  const local = uiIsLoopback();
+  $("calibDenied").style.display = local ? "none" : "block";
+  $("calibBody").style.display = local ? "block" : "none";
+  if (!local) return;
+  calRefreshStatus();
+  calRenderAll();
+  if (!state.ws) calRenderStep("⚠ 尚未連線 WS——先按上方「連線」（raw 訊號由 WS 推送）");
 }
 
 // ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──

@@ -14,9 +14,12 @@
    - 解掉滑鼠模式單游標限制；多人多牆同時操作；瀏覽器原生收 touchstart
    - 注意注入生命週期：stale contact 會被 Windows 自動 cancel，flush timer 固定頻率重注入
    - WallProjector 直接受益（多人同時觸控不同牆面的網頁）
-3. **校正精靈**（新場域複製的關鍵體驗）
-   - UI 引導現場人員依序踩指定角落 → 自動算 rawMin/Max → 寫 venue JSON
-   - 把校正從「工程師半天」變「現場人員十分鐘」；流程基礎見 CALIBRATION.md
+3. ~~**校正精靈**（新場域複製的關鍵體驗）~~ ✅ **v8 已完成（2026-06-12）**
+   - UI「校正」tab：raw 檢視串流（/calibration/start，僅 loopback）→ 引導踩兩角
+     （同值連續 ≥3 自動取值）→ 自動算 rawMin/Max + flip → 預覽 → 寫 venue JSON +
+     config（重啟生效）；多面逐面累積
+   - E2E 閉環（含 flip 案例）：CalibrationWizardE2ETests；流程文件 CALIBRATION.md
+     開頭 + DEPLOY.md「新場域開箱流程」
 
 ## 優先序中
 

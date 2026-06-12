@@ -54,8 +54,9 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
   ├─ UdpJsonPublisher（Output/UdpJsonPublisher.cs）→ config endpoints（預設 127.0.0.1:20110）
   ├─ WebSocketHub（Output/WebSocketHub.cs）→ ws://:20111/ + HTTP GET /venue + testpage
   │     └─ 同 port 本機管理 API（Api/ConfigApi.cs）：GET/POST /config、/monitors、
-  │        /history（疑似噪訊排行，唯讀不限 loopback）、/locks/*（lock/unlock/save）
-  │        ——寫入類僅 loopback；給內建設定/診斷頁用，不屬於對外協議
+  │        /history（疑似噪訊排行，唯讀不限 loopback）、/locks/*（lock/unlock/save）、
+  │        /calibration/*（start/stop/status/save，校正精靈）
+  │        ——寫入類與 /calibration/* 僅 loopback；給內建設定/診斷/校正頁用，不屬於對外協議
   └─ TuioPublisher（Output/TuioPublisher.cs）→ **未實作的插槽**（啟用會明確報錯）
 
 TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序列化）：
@@ -71,6 +72,19 @@ TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序�
   │    unlock/savelocks/probe/quit；quit 經 host.ShutdownRequested 優雅關閉）
   ├─ LogStreamer（Logging/LogStreamer.cs）— FileLogger.EntryWritten → ring 300 行
   │    + 背景執行緒推 {"type":"log",...} 給 **loopback WS client**（連上先補 backlog）
+  ├─ 校正精靈後端（Calibration/，v8）— 新場域兩角校正的三個元件：
+  │    ├─ CalibrationStreamer — 校正工作階段（POST /calibration/start 開、15 分鐘
+  │    │    逾時自動 stop）+ raw 檢視串流：active 期間 pipeline 對每個解析成功的
+  │    │    raw 點（路由成功與否都要）呼叫 OnRawPoint，推 {"type":"raw",x,y,src,
+  │    │    port,face,n} 給 **loopback WS client**。執行緒模型仿 LogStreamer
+  │    │    （熱路徑只 enqueue、背景執行緒推送）；非校正階段第一行 volatile 檢查
+  │    │    就返回（零成本）；來源 IP 字串只在校正中才解析（平時不配置）
+  │    ├─ RawStreamGate — 節流 + 穩定計數（純邏輯、時間注入）：per-source 同座標
+  │    │    連續計數 n（≥3 = 穩定，UI 自動取值依據）、同座標前 3 包照推之後壓
+  │    │    每秒 1 包心跳、全域 ~30 msg/s 上限
+  │    └─ CalibrationMath — 兩角 raw → rawMin/Max + flip（CALIBRATION.md 語意）
+  │         → VenueProfile 驗證/組裝/序列化（純函式）；save 流程在 host：寫
+  │         venues/<名>.json + JsonNode patch config venueProfile（重啟生效、不熱載）
   └─ ITrayHost（Tray/）— Windows 托盤常駐：WindowsTrayHost（P/Invoke Shell_NotifyIcon，
        獨立 STA thread + hidden window message loop；雙擊開 UI / 右鍵選單 / TaskbarCreated
        重掛）/ NullTrayHost（非 Windows、trayEnabled=false 全 no-op）。
@@ -120,7 +134,7 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（219 個，必須全綠才能交付）
+## 5. 測試結構（274 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -142,6 +156,10 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 | TrayHostTests | factory 決策（trayEnabled=false / 非 Windows → NullTrayHost）、NullTrayHost no-op、托盤訊息/選單 → 動作純對映（雙擊=開 UI、選單三指令）。Windows 實機行為屬現場驗證 |
 | TriggerHistoryTests | 觸發歷史聚合（down/up、30 分鐘 rolling 衰減、move 不換 cell）、孤立判定（同批/追溯撤銷/遠處不算）、自檢窗 suppressed gap 邏輯、評分（噪訊 ≥80 vs 正常遊玩 ≤40 對比）、記憶體有界（聚合不隨事件數成長）、pipeline 整合（窗內計入 / 鎖定後停止累積）。時間注入，無 sleep |
 | HistoryApiTests | GET /history 排序/欄位/top/locked 旗標、空歷史、POST /locks/lock 語意同 stdin lock + 非 loopback 403（/history 唯讀可看）、stdin `history` 排行格式與 top 筆數 |
+| RawStreamGateTests | 校正 raw 串流節流 + 穩定計數：同值連續 n 遞增前 3 包都推、第 4 包起去重壓心跳（每秒 1 包）、座標變化立即推 + 計數歸 1、全域 30 msg/s 上限 + 下一秒窗重新放行、多 source 獨立（別模組噪訊不打斷角落晶片連續計數）、Reset、工作階段 15 分鐘逾時自動 stop、重複 start 延長逾時（時間注入，無 sleep） |
+| CalibrationMathTests | 兩角 → 軸計算（正/反向/相同值拒收）、四種 flip 組合、golden 單面 vertical/horizontal venue JSON、場域名稱合法性（路徑字元/過長/中文合法）、cols/rows/origin/corner 範圍驗證、多錯誤一次全列、canvas 缺省 bounding box / 過小拒收 |
+| CalibrationApiTests | /calibration/* roundtrip（start/stop/status）、raw 串流 gating（未 start 不推、start 推 n 遞增、stop 後停）、raw 訊息 schema（x/y/src/face null|index/n）、raw 僅 loopback（LAN 訂閱端收不到）、save 寫檔 roundtrip（venue 可被 VenueProfile.Load 載入、flip 正確、config venueProfile patch + 其他欄位保留）、驗證錯誤 400 且不動檔案、非 loopback 全部 403 |
+| CalibrationWizardE2ETests | 精靈完整閉環（真 socket + SensorSimulator）：start → 踩左上取穩定值 → 踩右下 → save → **重啟服務載新 venue** → 再踩兩角+中央驗證 cell 映射；單面正向與雙反向（flipX+flipY）兩案例 |
 
 fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wireshark export，
 **所有 timeout/封包格式的爭論先重放它再說**。
@@ -201,7 +219,7 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
 ## 8. 接手修改 SOP
 
 1. 讀這份 + `PROTOCOL.md`，動協議欄位前先看 §3 的表
-2. 改 code → `dotnet test` 219 全綠（E2E timing 斷言 v7 起為 p95/max + warm-up，連跑穩定；若仍偶發 flake 重跑一次）
+2. 改 code → `dotnet test` 274 全綠（E2E timing 斷言 v7 起為 p95/max + warm-up，連跑穩定；若仍偶發 flake 重跑一次）
 3. 協議有變 → 同步改 `PROTOCOL.md` + `MIGRATION-ART-APP.md`，新增欄位 OK、
    改名/移除 = 升 v2
 4. 發布：見 §5 結尾的 publish 參數紅字

@@ -32,6 +32,28 @@ TouchService/
 > 注意：`config.json` 的相對路徑（venueProfile、log dir）以 **config.json 所在目錄**為基準，
 > 不是 exe 位置。`TouchService.exe --config D:\path\config.json` 可指定路徑。
 
+## 新場域開箱流程（v8 校正精靈——非工程師可完成）
+
+新場域（另一台電腦 + 不同牆面佈局）從零到可用，**不需要手算任何校正值**：
+
+1. **拷部署包**：上方最小部署包整包拷到新機（venues/ 裡的 704.json 留著沒關係，
+   等下精靈會寫新檔並把 config 指過去）
+2. **開防火牆**：UDP `listenPort`（預設 20001）inbound 允許 TouchService.exe
+   （見下方「防火牆 / 網路」；主機網卡須與感應模組同一 L2 網段）
+3. **啟動 `TouchService.exe`**：UI 自動開（沒開就托盤雙擊）。此時觸點還不會正確
+   ——場域 profile 還是舊的，正常
+4. **UI →「校正」tab**：照精靈引導走——填場域名/面格數 → 開始校正 →
+   踩面的「左上角第一顆晶片」與「右下角最後一顆晶片」（raw 值大字顯示、
+   同值連續 ≥3 包自動取值）→ 預覽確認 → 儲存。多面場域逐面累積
+   （origin 手填，進階見 `CALIBRATION.md`）
+5. **重啟服務**（托盤右鍵「結束服務」→ 重開 exe）：載入新場域 profile
+6. **驗證**：監控 tab 踩四角 + 走格（觸點位置正確、軌跡連續）；
+   `stats` 的 `unrouted` 不增加
+7. 視場地狀況跑噪訊晶片 SOP（下方三層工作流）、設定開機自啟
+
+> 沒有實機要先演練：`SensorSimulator.exe` 對 listenPort 發任意座標即可把
+> 精靈全流程走一遍（步驟見「離場驗證」）。
+
 ## config.json 全欄位
 
 ```json
@@ -171,6 +193,10 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 - **診斷**：疑似噪訊排行（每 5 秒刷新，每列「鎖定」按鈕一鍵鎖）+ 手動鎖定表單
   （face / col / row）。非本機開頁時鎖定按鈕鎖灰（僅限本機操作）。
   tab 切換不斷 WS 連線。
+- **校正**（v8 新增）：新場域校正精靈——開校正工作階段看 raw 訊號串流、
+  踩兩角自動算 rawMin/Max + flip、面預覽圖即時標點、一鍵寫 venue JSON +
+  config（重啟生效）。**僅限本機開頁**（非本機顯示「校正僅限本機」）。
+  完整流程見 `CALIBRATION.md` 與上方「新場域開箱流程」
 - **終端**（v6 新增）：黑視窗的完整替代——
   - **log 滾動視窗**：服務 log 即時串流（WS push，等寬字體、自動捲到底、可暫停捲動）；
     連上時先補發最近 300 行 ring buffer
@@ -192,6 +218,10 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 | `POST /locks/unlock` | 解鎖一格（語意同 stdin `unlock`） | **僅 loopback** |
 | `POST /locks/save` | 鎖定寫回 config（語意同 stdin `savelocks`） | **僅 loopback** |
 | `POST /command` | UI 終端指令（body `{"cmd":"history 20"}` → `{"output":"..."}`；與 stdin 共用處理器，輸出一致） | **僅 loopback** |
+| `POST /calibration/start` | 開校正工作階段：raw 檢視串流推給 loopback WS client（15 分鐘無 stop 自動結束；重打 = 延長；服務照常發布） | **僅 loopback** |
+| `POST /calibration/stop` | 結束校正工作階段 | **僅 loopback** |
+| `GET /calibration/status` | `{active, remainingSeconds}` | **僅 loopback** |
+| `POST /calibration/save` | 兩角校正 → 寫 `venues/<名>.json` + config `venueProfile`（驗證全過才動檔案；**重啟生效**） | **僅 loopback** |
 
 熱套用範圍：`touchMode`、`mouseMode.*`、`releaseTimeoutMs`、`matchRadiusPx`
 （下個 touch 生效）；`autoLock` 欄位只寫回 config、**下次啟動生效**（UI 有標註）。

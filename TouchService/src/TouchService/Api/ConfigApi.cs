@@ -18,9 +18,13 @@ namespace TouchService.Api;
 ///   POST /locks/save    鎖定寫回 config.json（語意同 stdin savelocks）
 ///   POST /command       UI 終端指令（body {"cmd":"history 20"} → {"output":"..."}；
 ///                       與 stdin 共用 CommandProcessor，輸出文字一致）
+///   POST /calibration/start   開始校正工作階段（raw 檢視串流 → loopback WS；15 分鐘自動 stop）
+///   POST /calibration/stop    結束校正工作階段
+///   GET  /calibration/status  {active, remainingSeconds}
+///   POST /calibration/save    兩角校正 → 寫 venues/&lt;名稱&gt;.json + config venueProfile（需重啟生效）
 ///
-/// 來源限制：**全部寫入類端點 + /monitors + /command 僅接受 loopback**，非 loopback 一律 403
-/// （服務在場館內網跑、WS port 對網段開放，但設定只准本機 UI 改）。
+/// 來源限制：**全部寫入類端點 + /monitors + /command + /calibration/* 僅接受 loopback**，
+/// 非 loopback 一律 403（服務在場館內網跑、WS port 對網段開放，但設定只准本機 UI 改）。
 /// </summary>
 public sealed class ConfigApi
 {
@@ -68,6 +72,24 @@ public sealed class ConfigApi
                 // UI 終端：與 stdin 同一個 CommandProcessor，輸出文字一致。僅 loopback。
                 if (!req.IsLoopback) return Forbidden();
                 return HandleCommand(req.Body);
+
+            // ── 校正精靈（全部僅 loopback：raw 訊號與場域寫檔只准本機 UI）─────
+            case ("POST", "/calibration/start"):
+                if (!req.IsLoopback) return Forbidden();
+                return WebSocketHub.ApiResponse.Json("200 OK", _host.CalibrationStart());
+
+            case ("POST", "/calibration/stop"):
+                if (!req.IsLoopback) return Forbidden();
+                return WebSocketHub.ApiResponse.Json("200 OK", _host.CalibrationStop());
+
+            case ("GET", "/calibration/status"):
+                if (!req.IsLoopback) return Forbidden();
+                return WebSocketHub.ApiResponse.Json("200 OK", _host.CalibrationStatusJson());
+
+            case ("POST", "/calibration/save"):
+                if (!req.IsLoopback) return Forbidden();
+                var (saveOk, saveMessage) = _host.SaveCalibration(req.Body);
+                return Result(saveOk ? "200 OK" : "400 Bad Request", saveOk, saveMessage);
 
             default:
                 return null;   // 不歸 API 管 → hub 回 404
@@ -129,7 +151,13 @@ public sealed class ConfigApi
     static WebSocketHub.ApiResponse Forbidden() =>
         Result("403 Forbidden", false, "此端點僅接受 loopback（127.0.0.1）來源");
 
+    /// <summary>回應 JSON 不轉義非 ASCII（訊息是給 UI 直接顯示的中文；純 application/json，無 HTML 嵌入疑慮）。</summary>
+    static readonly JsonSerializerOptions ResultJsonOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     static WebSocketHub.ApiResponse Result(string status, bool ok, string message) =>
         WebSocketHub.ApiResponse.Json(status,
-            JsonSerializer.Serialize(new { ok, message }));
+            JsonSerializer.Serialize(new { ok, message }, ResultJsonOptions));
 }

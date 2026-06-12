@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using TouchService.Api;
+using TouchService.Calibration;
 using TouchService.Config;
 using TouchService.Core;
 using TouchService.Diagnostics;
@@ -34,6 +35,7 @@ public sealed class TouchServiceHost : IDisposable
     Thread? _timerThread;
     MouseDriver? _mouseDriver;   // touchMode=mouse 時建立，建立後活到 host 結束（grid 時只卸觀察者）
     LogStreamer? _logStreamer;   // UI 終端 log 串流（ring 300 + loopback-only push）
+    CalibrationStreamer? _calibration;   // 校正工作階段 + raw 檢視串流（loopback-only push）
 
     public VenueProfile Venue { get; private set; } = null!;
     public TouchPipeline Pipeline { get; private set; } = null!;
@@ -78,6 +80,9 @@ public sealed class TouchServiceHost : IDisposable
         // 0. log 串流（UI 終端）：先掛——啟動期的 log 也進 ring，loopback client 連上補發
         _logStreamer = new LogStreamer();
         _log.EntryWritten += _logStreamer.OnLog;
+
+        // 校正工作階段（raw 檢視串流）：常駐建立、非 active 零成本（POST /calibration/start 啟用）
+        _calibration = new CalibrationStreamer(_log);
 
         // 1. 場域 profile
         var venuePath = Path.IsPathRooted(_config.VenueProfile)
@@ -146,6 +151,7 @@ public sealed class TouchServiceHost : IDisposable
             WsHub.Start();
             sinks.Add(WsHub);
             _logStreamer.Attach(WsHub);           // log push（僅 loopback client）
+            _calibration.Attach(WsHub);           // raw push（僅 loopback client；校正階段才有訊息）
         }
         if (_config.TuioOutput.Enabled)
         {
@@ -155,7 +161,7 @@ public sealed class TouchServiceHost : IDisposable
 
         Pipeline = new TouchPipeline(
             router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, Locks, autoLock,
-            History);
+            History, _calibration);
         Pipeline.AutoLockCompleted += _ => PushLocks();   // 自檢結束 → 通知所有 WS client 最新鎖定清單
 
         // 觸控模式（grid / mouse）：mouse 時掛 MouseDriver 為 typed 事件觀察者（額外 sink，發布照常）
@@ -188,10 +194,14 @@ public sealed class TouchServiceHost : IDisposable
         {
             int len;
             int srcPort = 0;
+            string? srcAddr = null;
             try
             {
                 len = _listenSocket!.ReceiveFrom(buf, ref remote);
                 srcPort = ((IPEndPoint)remote).Port;
+                // 來源 IP 字串只在校正 raw tap 進行中才解析（平時不為每個 datagram 配置字串）
+                if (Pipeline.CalibrationTapActive)
+                    srcAddr = ((IPEndPoint)remote).Address.ToString();
             }
             catch (SocketException se)
             {
@@ -206,7 +216,7 @@ public sealed class TouchServiceHost : IDisposable
 
             try
             {
-                Pipeline.OnDatagram(buf.AsSpan(0, len), _clock.ElapsedMilliseconds, srcPort);
+                Pipeline.OnDatagram(buf.AsSpan(0, len), _clock.ElapsedMilliseconds, srcPort, srcAddr);
             }
             catch (Exception ex)
             {
@@ -852,6 +862,132 @@ public sealed class TouchServiceHost : IDisposable
         return $"已寫回 {entries.Count} 顆鎖定到 {_configPath} 的 lockedCells（下次啟動以 config 來源載入）";
     }
 
+    // ── 校正精靈（/calibration/*，全部僅 loopback；見 docs/CALIBRATION.md）──────
+
+    static readonly JsonSerializerOptions CalibrationJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+    };
+
+    /// <summary>回應 JSON 不轉義非 ASCII（中文訊息給 UI 直接顯示；純 application/json，無 HTML 嵌入疑慮）。</summary>
+    static readonly JsonSerializerOptions CalibrationResponseOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>POST /calibration/start：開始（或延長）校正工作階段。raw 檢視串流啟動。</summary>
+    public string CalibrationStart()
+    {
+        int timeoutSeconds = _calibration!.Start(_clock.ElapsedMilliseconds);
+        return JsonSerializer.Serialize(new
+        {
+            ok = true,
+            message = $"校正工作階段開始：raw 檢視串流已啟動（{timeoutSeconds / 60} 分鐘無 stop 自動結束；服務照常發布）",
+            timeoutSeconds,
+        }, CalibrationResponseOptions);
+    }
+
+    /// <summary>POST /calibration/stop：結束校正工作階段。</summary>
+    public string CalibrationStop()
+    {
+        _calibration!.Stop("API stop");
+        return JsonSerializer.Serialize(
+            new { ok = true, message = "校正工作階段已結束（raw 檢視串流停止）" },
+            CalibrationResponseOptions);
+    }
+
+    /// <summary>GET /calibration/status：{active, remainingSeconds}。</summary>
+    public string CalibrationStatusJson()
+    {
+        var (active, remainingSeconds) = _calibration!.Status(_clock.ElapsedMilliseconds);
+        return JsonSerializer.Serialize(new { active, remainingSeconds });
+    }
+
+    /// <summary>
+    /// POST /calibration/save：兩角校正資料 → venue JSON 寫檔 + config.json 的
+    /// venueProfile 指過去。**不做熱載**——重啟語意最乾淨，回應明確提示需重啟。
+    /// 驗證全過才動檔案（名稱合法性 / cols/rows 範圍 / 兩角 raw 不可相同等，
+    /// 規則在 CalibrationMath.BuildVenue）。
+    /// </summary>
+    public (bool Ok, string Message) SaveCalibration(string json)
+    {
+        CalibrationSaveRequest req;
+        try
+        {
+            req = JsonSerializer.Deserialize<CalibrationSaveRequest>(json, CalibrationJsonOptions)
+                  ?? throw new JsonException("body 必須是 JSON object");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"JSON 解析失敗：{ex.Message}");
+        }
+
+        var (profile, errors) = CalibrationMath.BuildVenue(req);
+        if (profile == null)
+            return (false, string.Join("；", errors));
+
+        if (_configPath == null)
+            return (false, "此 host 啟動時未提供 config 路徑，無法套用校正");
+
+        var venuesDir = Path.Combine(BaseDir, "venues");
+        var fileName = profile.Venue + ".json";
+        var venuePath = Path.Combine(venuesDir, fileName);
+        bool overwrote = File.Exists(venuePath);
+        try
+        {
+            Directory.CreateDirectory(venuesDir);
+            File.WriteAllText(venuePath, CalibrationMath.SerializeVenueJson(profile));
+        }
+        catch (Exception ex)
+        {
+            return (false, $"venue 寫檔失敗：{ex.Message}");
+        }
+
+        // config.json 的 venueProfile 指到新檔（JsonNode 只動一個欄位，其他原樣保留）
+        string relPath = "venues/" + fileName;
+        string? patchError;
+        lock (_configGate) patchError = PatchConfigVenueProfile(relPath);
+        if (patchError != null)
+            return (false, $"venue 已寫入 {relPath}，但 config.json 更新失敗：{patchError}");
+
+        _log.Info($"[Calibration] 校正套用：寫入 {venuePath}（{profile.Faces.Count} 面、" +
+                  $"畫布 {profile.Canvas.Width}×{profile.Canvas.Height}）" +
+                  $"+ config venueProfile → {relPath}。重啟服務後生效。");
+
+        return (true, $"已寫入 {relPath}（{profile.Faces.Count} 面、畫布 " +
+                      $"{profile.Canvas.Width}×{profile.Canvas.Height}" +
+                      (overwrote ? "，覆寫既有檔" : "") +
+                      "）並更新 config.json 的 venueProfile——**重啟服務後生效**" +
+                      "（托盤右鍵「結束服務」後重新啟動 TouchService.exe）");
+    }
+
+    /// <summary>config.json 的 venueProfile 指到新 venue（持 _configGate 呼叫）。null = 成功。</summary>
+    string? PatchConfigVenueProfile(string relPath)
+    {
+        if (!File.Exists(_configPath)) return $"config 不存在：{_configPath}";
+        try
+        {
+            var root = JsonNode.Parse(
+                File.ReadAllText(_configPath!),
+                documentOptions: new JsonDocumentOptions
+                {
+                    CommentHandling = JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true,
+                })!.AsObject();
+            root["venueProfile"] = relPath;
+            File.WriteAllText(_configPath!,
+                root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
     /// <summary>stdin `touches` 指令：列出當下所有活躍 touch（現場找噪訊晶片座標用）。</summary>
     public string TouchesSnapshot()
     {
@@ -980,6 +1116,7 @@ public sealed class TouchServiceHost : IDisposable
         _timerThread?.Join(1000);
         Pipeline?.Dispose();      // 連帶 dispose 所有 sink（含 WsHub）
         _mouseDriver?.Dispose();  // owner 還按著會先 LEFTUP，不留卡死的按鍵
+        _calibration?.Dispose();
         if (_logStreamer != null)
         {
             _log.EntryWritten -= _logStreamer.OnLog;

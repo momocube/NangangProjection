@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using TouchService.Calibration;
 using TouchService.Core;
 using TouchService.Diagnostics;
 using TouchService.Logging;
@@ -31,6 +32,10 @@ public interface ITouchEventObserver
 ///
 /// 觸發歷史（history 非 null 時）：down/up 事件與自檢窗內被抑制的觸發都餵進
 /// TriggerHistory（per-cell 聚合 + 疑似噪訊評分；GET /history、stdin `history`）。
+///
+/// 校正 raw tap（calibration 非 null 且 Active 時）：每個解析成功的 raw 點
+/// （路由成功與否、鎖定與否都要）餵給 CalibrationStreamer 推 loopback WS——
+/// 校正精靈的 raw 檢視。非校正階段一個 volatile 檢查就返回，不影響熱路徑。
 /// </summary>
 public sealed class TouchPipeline : IDisposable
 {
@@ -45,6 +50,7 @@ public sealed class TouchPipeline : IDisposable
     readonly int _keepaliveIntervalMs;
     readonly AutoLockSelfCheck? _autoLock;
     readonly TriggerHistory? _history;
+    readonly CalibrationStreamer? _calibration;
     int _autoLockLastLoggedSec = int.MaxValue;
     ITouchEventObserver? _observer;   // 滑鼠模式 sink（null = grid，零開銷）；受 _gate 保護
 
@@ -67,7 +73,8 @@ public sealed class TouchPipeline : IDisposable
         int keepaliveIntervalMs,
         LockedCellFilter? lockedCells = null,
         AutoLockSelfCheck? autoLock = null,
-        TriggerHistory? history = null)
+        TriggerHistory? history = null,
+        CalibrationStreamer? calibration = null)
     {
         _router = router;
         _tracker = tracker;
@@ -79,7 +86,14 @@ public sealed class TouchPipeline : IDisposable
         _keepaliveIntervalMs = keepaliveIntervalMs;
         _autoLock = autoLock;
         _history = history;
+        _calibration = calibration;
     }
+
+    /// <summary>
+    /// 校正 raw tap 是否進行中（receive 執行緒據此決定要不要解析來源 IP 字串——
+    /// 非校正階段不為每個 datagram 配置字串）。
+    /// </summary>
+    public bool CalibrationTapActive => _calibration is { Active: true };
 
     /// <summary>自檢窗結束時觸發（參數 = 本次自動鎖定的格子，可為空）。host 用來推 WS locks 訊息。</summary>
     public event Action<IReadOnlyList<AutoLockSelfCheck.Result>>? AutoLockCompleted;
@@ -120,8 +134,12 @@ public sealed class TouchPipeline : IDisposable
         lock (_gate) _tracker.CollectAliveDetails(nowMs, touchesOut);
     }
 
-    /// <summary>receive 執行緒入口：一個 UDP datagram 全程處理。</summary>
-    public void OnDatagram(ReadOnlySpan<byte> data, long nowMs, int sourcePort = 0)
+    /// <summary>
+    /// receive 執行緒入口：一個 UDP datagram 全程處理。
+    /// sourceAddr：來源 IP 字串（校正 raw tap 顯示用；只在 CalibrationTapActive 時
+    /// 由 receive 執行緒解析傳入，平時為 null 不配置）。
+    /// </summary>
+    public void OnDatagram(ReadOnlySpan<byte> data, long nowMs, int sourcePort = 0, string? sourceAddr = null)
     {
         long t0 = Stopwatch.GetTimestamp();
         LatencyProbe.Mark(LatencyProbe.EventType.UdpRecv, sourcePort, data.Length);
@@ -148,7 +166,15 @@ public sealed class TouchPipeline : IDisposable
             int routed = 0;
             for (int i = 0; i < _rawPoints.Count; i++)
             {
-                if (_router.TryRoute(_rawPoints[i].X, _rawPoints[i].Y, out var p))
+                bool routedOk = _router.TryRoute(_rawPoints[i].X, _rawPoints[i].Y, out var p);
+
+                // 校正 raw tap：路由成功與否、鎖定與否都推（精靈要看的是原始訊號全貌）。
+                // 非校正階段 OnRawPoint 第一行 volatile 檢查就返回。
+                _calibration?.OnRawPoint(
+                    _rawPoints[i].X, _rawPoints[i].Y, sourceAddr, sourcePort,
+                    routedOk ? p.FaceIndex : null, nowMs);
+
+                if (routedOk)
                 {
                     // 鎖定晶片（噪訊）過濾：進 tracker 前丟棄（config lockedCells）
                     if (_lockedCells.IsLocked(p.FaceIndex, p.Col, p.Row))
@@ -205,6 +231,9 @@ public sealed class TouchPipeline : IDisposable
     /// <summary>timer 執行緒入口：release timeout 掃描 + keepalive snapshot + 自檢窗到期收斂。</summary>
     public void Tick(long nowMs)
     {
+        // 校正工作階段逾時（15 分鐘無 stop 自動結束）；非 active 零成本
+        _calibration?.CheckExpiry(nowMs);
+
         lock (_gate)
         {
             if (_autoLock is { Active: true })
