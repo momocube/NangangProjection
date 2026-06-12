@@ -94,7 +94,7 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 
 | 決策 | 值/做法 | 依據 | 改之前要知道 |
 |---|---|---|---|
-| release timeout | **170ms**（config 可調） | 2026-06-10 現場 Wireshark：按住期間重送 gap 主峰 80ms、長尾 120–160ms 共 53/506 筆 | 低於 140ms 會假離手（觸點閃爍）；это物理極限——硬體沒有離手訊號，只有重送停止 |
+| release timeout | **170ms**（config 可調） | 2026-06-10 現場 Wireshark：按住期間重送 gap 主峰 80ms、長尾 120–160ms 共 53/506 筆。**2026-06-12 per-chip 再分析**：長尾高度集中——健康晶片實壓 gap p50=81.3 / p99≈max≈103ms，長尾來自病態晶片（一顆 91% 長尾）與邊緣壓力情境（22% 長尾） | 這是物理極限——硬體沒有離手訊號，只有重送停止。健康訊號下 120ms 可行，但邊緣壓力（腳半踩）會假離手；**假離手的代價依模式不同**：採格=閃爍+ID 換新，滑鼠/多點=按住中斷（拖曳斷裂、誤雙擊）——滑鼠模式不建議低於 170。降延遲路線見 §6 |
 | down 即時發 | 首包零等待 | 延遲需求的核心；tap/press 語意判定刻意**不做**（Unity 版 touchEndTimeoutMs 等待就是 300ms 的元兇之一） | 不要把任何手勢判定加回服務端；那是訂閱端的事 |
 | alive 全清單 | 每 frame 都帶 | UDP 丟包時 up 事件可能遺失；TUIO 同款設計 | 拿掉它鬼點就回來了 |
 | touch ID 配對 | 全域最近 pair 貪婪（非 slot-major） | slot-major 在事件驅動下兩點交錯會 ID 互換（單元測試 TouchIdContinuityTests 釘死） | 改配對演算法必須過 ID 連續性測試 |
@@ -207,3 +207,22 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
 4. 發布：見 §5 結尾的 publish 參數紅字
 5. 交付前用 `tools/SensorSimulator` 跑 `scenarios/stress-60.json` 過一輪
 6. commit 風格：中文、`feat:/fix:/docs:/test:` 前綴，看 `git log` 仿照
+
+## 9. 2026-06-12 補充：離手延遲降低路線 + 現場驗收記錄
+
+### 離手延遲現況與可行路線
+體感離手延遲 = 最後一包到 timeout（90~170ms，平均 ~130ms）。capture per-chip 分析
+（/tmp 級分析，數據已入 §3 表）顯示健康晶片實壓重送極穩（80±3ms、max 103ms），長尾
+集中在病態晶片與邊緣壓力。降延遲三條路（由淺入深）：
+
+1. **場域調參（立即可試）**：`releaseTimeoutMs` 170→140 省 30ms、風險小；120 在
+   「踩好踩滿」場景 OK，踩邊緣會偶發假離手。滑鼠/多點模式維持 170（按住中斷代價高）。
+2. **自適應 timeout（軟體治本，v8 候選）**：per-touch 觀察 gap 穩定度——訊號穩的
+   touch 用 ~120ms、出現 jitter 的自動放寬到 170+。多數觸發省 ~50ms、邊緣情境不犧牲。
+   可考慮 per-mode 預設（grid 自適應、mouse 固定 170）。
+3. **硬體層（真正的底）**：重送週期 80→40ms（硬體做得到——多格同步本來就是 40ms）
+   → timeout 可壓到 ~90ms；或硬體加「離手封包」→ 趨近 0。跟硬體商談的事。
+
+### 現場驗收記錄
+- 2026-06-12 上午（Luke @ 704）：v6（托盤、滑鼠十字對位、7 面勾選、終端 tab）+
+  v7（episode 自動鎖）全項通過。投影工具（獨立 exe）設計定案見 ROADMAP-PROJECTION.md。
