@@ -30,8 +30,9 @@ public interface ITouchEventObserver
 /// 不進 tracker、不發事件（keepalive 照發）；窗結束時命中任一判準（packets ≥ minPackets
 /// OR episodes ≥ minEpisodes）的格子加入 _lockedCells（LockSource.Auto），之後行為完全恢復正常。
 ///
-/// 觸發歷史（history 非 null 時）：down/up 事件與自檢窗內被抑制的觸發都餵進
-/// TriggerHistory（per-cell 聚合 + 疑似噪訊評分；GET /history、stdin `history`）。
+/// 觸發歷史（history 非 null 時）：down/up 事件、自檢窗內被抑制的觸發、以及被
+/// LockedCellFilter 擋下的點（v9——鎖後活動證據）都餵進 TriggerHistory
+/// （per-cell 聚合 + 疑似噪訊評分；GET /history、stdin `history`）。
 ///
 /// 校正 raw tap（calibration 非 null 且 Active 時）：每個解析成功的 raw 點
 /// （路由成功與否、鎖定與否都要）餵給 CalibrationStreamer 推 loopback WS——
@@ -176,10 +177,14 @@ public sealed class TouchPipeline : IDisposable
 
                 if (routedOk)
                 {
-                    // 鎖定晶片（噪訊）過濾：進 tracker 前丟棄（config lockedCells）
-                    if (_lockedCells.IsLocked(p.FaceIndex, p.Col, p.Row))
+                    // 鎖定晶片（噪訊）過濾：進 tracker 前丟棄（config lockedCells）。
+                    // v9：記錄點在 filter「內」——CheckAndCount 累計該格鎖後活動
+                    // （鎖後仍持續發包 = 鐵證噪訊），同時餵 RecordSuppressed 讓觸發歷史
+                    // 持續累積（已鎖格不進排行，由 host 的 exclude 排除；解鎖重觀察無斷層）。
+                    if (_lockedCells.CheckAndCount(p.FaceIndex, p.Col, p.Row, nowMs))
                     {
                         _stats.OnDroppedByLock();
+                        _history?.RecordSuppressed(in p, nowMs);
                         continue;
                     }
                     _routedBuf[routed++] = p;
@@ -196,12 +201,12 @@ public sealed class TouchPipeline : IDisposable
                     {
                         _autoLock.Record(in _routedBuf[i], nowMs);
                         // 窗內被抑制的觸發也計入觸發歷史（最重要的噪訊證據；
-                        // 已被鎖定過濾掉的點到不了這裡——鎖定後歷史自然停止累積）
+                        // 已鎖定的點在上面 filter 分支就 RecordSuppressed 過了，不會到這）
                         _history?.RecordSuppressed(in _routedBuf[i], nowMs);
                     }
                     return;
                 }
-                FinishAutoLockLocked();
+                FinishAutoLockLocked(nowMs);
             }
 
             if (routed == 0) return;
@@ -238,7 +243,7 @@ public sealed class TouchPipeline : IDisposable
         {
             if (_autoLock is { Active: true })
             {
-                if (_autoLock.IsExpired(nowMs)) FinishAutoLockLocked();
+                if (_autoLock.IsExpired(nowMs)) FinishAutoLockLocked(nowMs);
                 else
                 {
                     // 倒數提示：每秒一行（5ms tick 下用秒數變化去抖，不洗版）
@@ -276,12 +281,12 @@ public sealed class TouchPipeline : IDisposable
     /// AutoLockCompleted 在鎖內觸發——與 PublishLocked 在鎖內做 sink IO 的既有模式一致，
     /// 且一個 process 生命週期只發生一次。
     /// </summary>
-    void FinishAutoLockLocked()
+    void FinishAutoLockLocked(long nowMs)
     {
         var (toLock, below) = _autoLock!.Finish();
 
         foreach (var r in toLock)
-            _lockedCells.TryAdd(r.Face, r.Col, r.Row, LockSource.Auto, r.Packets);
+            _lockedCells.TryAdd(r.Face, r.Col, r.Row, LockSource.Auto, r.Packets, nowMs);
 
         string thresholds = _autoLock.MinEpisodes > 0
             ? $"≥{_autoLock.MinPackets} 包 或 ≥{_autoLock.MinEpisodes} 段分離 episode"

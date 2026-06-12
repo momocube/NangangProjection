@@ -5,7 +5,7 @@ namespace TouchService.Api;
 /// <summary>
 /// 服務指令的單一處理入口：stdin 迴圈與 POST /command **走同一個**，輸出文字一致
 /// （UI 終端看到的跟黑視窗一字不差）。指令：stats / touches / history [n] / locks /
-/// lock / unlock / savelocks / probe / quit。
+/// lock / unlock / unlockall / savelocks / probe / quit。
 /// quit 透過 requestShutdown 回呼觸發優雅關閉（Program 的 quit event / 托盤「結束服務」同源）。
 /// </summary>
 public sealed class CommandProcessor
@@ -13,9 +13,10 @@ public sealed class CommandProcessor
     public const string HelpText =
         "指令：stats（統計）/ touches（活躍 touch）/ history [n]（疑似噪訊排行，預設 top 20）/ " +
         "locks（鎖定清單）/ lock|unlock <face> <col> <row>（手動鎖/解鎖）/ " +
+        "unlockall（解鎖全部，runtime；config 不動）/ " +
         "savelocks（鎖定寫回 config）/ probe（dump latency CSV）/ quit（離開）";
 
-    const string UnknownText = "未知指令。可用：stats / touches / history [n] / locks / lock / unlock / savelocks / probe / quit";
+    const string UnknownText = "未知指令。可用：stats / touches / history [n] / locks / lock / unlock / unlockall / savelocks / probe / quit";
 
     readonly TouchServiceHost _host;
     readonly string _logDir;
@@ -64,6 +65,9 @@ public sealed class CommandProcessor
                 return parts[0].ToLowerInvariant() == "lock"
                     ? _host.LockCell(face, col, row)
                     : _host.UnlockCell(face, col, row);
+
+            case "unlockall":
+                return _host.UnlockAllCells();
 
             case "savelocks":
                 return _host.SaveLocks();

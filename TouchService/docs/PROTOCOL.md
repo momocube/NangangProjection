@@ -159,14 +159,16 @@ hello 的鎖定相關欄位（v1 相容性新增，2026-06）：
 
 ### locks 推播（鎖定變動通知）
 
-鎖定清單變動時（啟動自檢窗結束、stdin `lock` / `unlock` 指令），服務對**所有**
-WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
+鎖定清單變動時（啟動自檢窗結束、stdin `lock` / `unlock` 指令、v9 的
+unlockall / promote / savelocks），服務對**所有** WS client 廣播一包 locks 訊息
+（識別：`"type":"locks"`）：
 
 ```json
 {
   "type": "locks",
   "lockedCells": [
-    { "face": 2, "cell": [7, 13], "source": "auto", "packets": 125 }
+    { "face": 2, "cell": [7, 13], "source": "auto", "saved": false, "packets": 125,
+      "lockedAgoMs": 184000, "droppedSinceLock": 2300, "lastDropAgoMs": 80 }
   ],
   "autoLockActive": false,
   "autoLockRemainingSeconds": 0
@@ -174,6 +176,10 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
 ```
 
 - `lockedCells` 為**全量清單**（不是 delta），欄位同 hello——收到直接整包替換即可
+- v9 新欄位（UI 臨時鎖區用）：`saved` = 已寫進 config.json（config 來源；false =
+  臨時鎖，重啟即消失）；`lockedAgoMs` / `droppedSinceLock` / `lastDropAgoMs` =
+  鎖定多久了、鎖定後又被過濾掉幾包、最後一包多久前（`null` = 鎖後沒再發）——
+  鎖後仍發包 = 鐵證噪訊、鎖後安靜 = 可能誤鎖。即時值另有 `GET /locks` 可輪詢
 - 一般訂閱端（遊戲 / 美術程式）**可以無視**這個訊息：鎖定格本來就不會有事件。
   它存在的目的是讓監控頁（testpage）即時顯示鎖定狀態
 - 訂閱端 parser 規則：**帶 `type` 欄位的訊息都不是觸控 frame**（目前有 hello / locks /
@@ -232,15 +238,22 @@ WS client 廣播一包 locks 訊息（識別：`"type":"locks"`）：
   本機額外掛一個 OS 游標 sink，WS / raw UDP 的全量發布、schema、時序完全照常——
   訂閱端不需要也無法感知目前模式。
 - **config API 是本機管理介面、不屬於對外協議**：與 WS 同 port 另有
-  `GET /config`、`POST /config`、`GET /monitors`、`GET /history`、
-  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/save`、`POST /command`、
+  `GET /config`、`POST /config`、`GET /monitors`、`GET /history`、`GET /locks`、
+  `POST /locks/lock`、`POST /locks/unlock`、`POST /locks/unlockall`、
+  `POST /locks/promote`、`POST /locks/save`、`POST /command`、
   `POST /calibration/start`、`POST /calibration/stop`、`GET /calibration/status`、
   `POST /calibration/save` 等 HTTP 端點（給內建設定/診斷/終端/校正頁用）。
   **寫入類端點、/monitors、/command 與 /calibration/\* 僅接受 loopback 來源**
-  （非 loopback 一律 403）；`GET /history`（疑似噪訊排行，`?top=N` 預設 50）
+  （非 loopback 一律 403）；`GET /history`（疑似噪訊排行，`?top=N` 預設 50；
+  v9 起**已鎖格不列入排行**）、`GET /locks`（鎖定清單含鎖後活動，欄位同 locks 推播）
   與 `GET /config` 為唯讀、不限 loopback——場館內網監看 OK。
   皆不在 v1 承諾範圍內、欄位可能隨版本調整，訂閱端不要依賴。
   端點細節見 `DEPLOY.md`「啟動 UI」。
+- **`/locks/unlockall`、`/locks/promote`（v9）**：「捕捉噪訊 → 臨時鎖 → 轉正式」
+  工作流的後端——unlockall 清空全部 runtime 鎖定（config.json 不動、重啟回到
+  config 清單）；promote（body 同 lock）把單格 append 進 config `lockedCells`
+  並把 runtime 來源改標 config（= 已保存）。`POST /locks/save`（savelocks）寫回
+  後也會把全部來源改標 config。流程見 `DEPLOY.md`「噪訊晶片處理 SOP」。
 - **`/calibration/*`（v8）**：校正精靈的工作階段控制與兩角校正寫檔——
   start/stop 開關 raw 推播（見上方 raw 推播段；15 分鐘無 stop 自動結束）、
   save 寫 `venues/<名>.json` + 更新 config `venueProfile`（**重啟生效**，

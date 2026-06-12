@@ -5,7 +5,11 @@ namespace TouchService.Core;
 /// <summary>鎖定來源：config = config.json lockedCells、auto = 啟動自檢窗、manual = stdin lock 指令。</summary>
 public enum LockSource { Config, Auto, Manual }
 
-/// <summary>一筆 runtime 鎖定（含來源標記；auto 來源帶自檢窗內的封包數）。</summary>
+/// <summary>
+/// 一筆 runtime 鎖定（含來源標記；auto 來源帶自檢窗內的封包數）。
+/// v9 起帶「鎖後活動」統計：鎖定那一刻之後該格又發了幾包、最後一包何時——
+/// 鎖後仍持續發包 = 鐵證噪訊；鎖後安靜 = 可能誤鎖（UI 臨時鎖區據此判讀）。
+/// </summary>
 public sealed class LockedCellEntry
 {
     public required int Face { get; init; }
@@ -14,6 +18,12 @@ public sealed class LockedCellEntry
     public required LockSource Source { get; init; }
     /// <summary>auto 鎖定時自檢窗內收到的封包數（config / manual 為 0）。</summary>
     public int Packets { get; init; }
+    /// <summary>鎖定時刻（pipeline 單調時鐘 ms；config 來源 = 啟動時 ≈ 0）。</summary>
+    public long LockedAtMs { get; init; }
+    /// <summary>鎖定後被過濾丟棄的封包點數（鎖後活動）。寫入受 _mutGate 保護。</summary>
+    public long DroppedSinceLock { get; internal set; }
+    /// <summary>最後一次被丟棄的時刻（-1 = 鎖定後沒再發過）。寫入受 _mutGate 保護。</summary>
+    public long LastDropMs { get; internal set; } = -1;
 }
 
 /// <summary>
@@ -23,9 +33,10 @@ public sealed class LockedCellEntry
 /// 現場有晶片故障持續發訊號（同一格反覆 down/up、touch 換 ID 重生）時，
 /// 把該格填進 config、等啟動自檢自動鎖、或下 stdin `lock` 指令，皆在進 touch tracker 前丟棄。
 ///
-/// 執行緒模型：IsLocked 為熱路徑（receive 執行緒），讀 volatile snapshot HashSet，
-/// O(1)、零配置、無鎖。變更（TryAdd / TryRemove）為冷路徑（stdin / 自檢結束），
-/// 在 _mutGate 下重建 HashSet 後整顆換掉（copy-on-write）。
+/// 執行緒模型：IsLocked / CheckAndCount 為熱路徑（receive 執行緒），讀 volatile snapshot
+/// HashSet，O(1)、零配置、無鎖（CheckAndCount 僅在「命中鎖定」時才取 _mutGate 記鎖後活動
+/// ——只發生在被鎖噪訊晶片的封包上，冷量）。變更（TryAdd / TryRemove / Clear / Reclassify）
+/// 為冷路徑（stdin / API / 自檢結束），在 _mutGate 下重建 HashSet 後整顆換掉（copy-on-write）。
 /// key packing：(face &lt;&lt; 20) | (col &lt;&lt; 10) | row——face ≤ 2047、col/row ≤ 1023，
 /// 遠大於 704 場域上限（7 面、col ≤ 44、row ≤ 128）。
 /// </summary>
@@ -68,10 +79,32 @@ public sealed class LockedCellFilter
     }
 
     /// <summary>
-    /// 新增鎖定。回傳 false = 該格已鎖定（任何來源）或座標超出 packing 範圍。
-    /// 冷路徑（自檢結束 / stdin lock）。
+    /// 鎖定檢查 + 鎖後活動入帳（pipeline 過濾點用）：未鎖定 = 與 IsLocked 同成本
+    /// （O(1) 無鎖）直接回 false；鎖定 = 在 _mutGate 下累計 DroppedSinceLock / LastDropMs
+    /// 後回 true。取鎖只發生在「被鎖噪訊晶片的封包」上（每顆 ~12.5 pkt/s 冷量），
+    /// 正常觸發熱路徑零影響。
     /// </summary>
-    public bool TryAdd(int face, int col, int row, LockSource source, int packets = 0)
+    public bool CheckAndCount(int face, int col, int row, long nowMs)
+    {
+        var keys = _keys;
+        int key = Pack(face, col, row);
+        if (keys.Count == 0 || !keys.Contains(key)) return false;
+
+        lock (_mutGate)
+        {
+            // 檢查與取鎖之間被 unlock 的窄窗：entry 已不在就當沒鎖（本包放行下一包重判）
+            if (!_entries.TryGetValue(key, out var e)) return false;
+            e.DroppedSinceLock++;
+            e.LastDropMs = nowMs;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 新增鎖定。回傳 false = 該格已鎖定（任何來源）或座標超出 packing 範圍。
+    /// 冷路徑（自檢結束 / stdin lock）。nowMs = 鎖定時刻（鎖後活動的基準點）。
+    /// </summary>
+    public bool TryAdd(int face, int col, int row, LockSource source, int packets = 0, long nowMs = 0)
     {
         if (face is < 0 or > 2047 || col is < 0 or > 1023 || row is < 0 or > 1023) return false;
         lock (_mutGate)
@@ -81,6 +114,7 @@ public sealed class LockedCellFilter
             _entries[key] = new LockedCellEntry
             {
                 Face = face, Col = col, Row = row, Source = source, Packets = packets,
+                LockedAtMs = nowMs,
             };
             RebuildKeysLocked();
             return true;
@@ -99,6 +133,60 @@ public sealed class LockedCellFilter
         }
     }
 
+    /// <summary>
+    /// 全部解除（v9「解鎖全部」：含 config 來源）。只動 runtime——config.json 不變、
+    /// 重啟會回到 config 的鎖定清單；要永久生效再走 savelocks。回傳解除的格數。
+    /// </summary>
+    public int Clear()
+    {
+        lock (_mutGate)
+        {
+            int n = _entries.Count;
+            if (n == 0) return 0;
+            _entries.Clear();
+            RebuildKeysLocked();
+            return n;
+        }
+    }
+
+    /// <summary>
+    /// 單格來源重分類（v9「轉正式」：寫進 config 後 runtime 來源改標 config，
+    /// UI 的「已保存 / 未保存」分類才會跟上）。鎖定時刻與鎖後活動統計保留不重置。
+    /// 回傳 false = 該格沒鎖。
+    /// </summary>
+    public bool Reclassify(int face, int col, int row, LockSource source)
+    {
+        lock (_mutGate)
+        {
+            int key = Pack(face, col, row);
+            if (!_entries.TryGetValue(key, out var e)) return false;
+            if (e.Source != source) _entries[key] = CopyWithSource(e, source);
+            return true;
+        }
+    }
+
+    /// <summary>全部來源重分類（savelocks 寫回 config 後全部改標 config）。回傳改動的格數。</summary>
+    public int ReclassifyAll(LockSource source)
+    {
+        lock (_mutGate)
+        {
+            int changed = 0;
+            foreach (var (key, e) in _entries.ToList())
+            {
+                if (e.Source == source) continue;
+                _entries[key] = CopyWithSource(e, source);
+                changed++;
+            }
+            return changed;
+        }
+    }
+
+    static LockedCellEntry CopyWithSource(LockedCellEntry e, LockSource source) => new()
+    {
+        Face = e.Face, Col = e.Col, Row = e.Row, Source = source, Packets = e.Packets,
+        LockedAtMs = e.LockedAtMs, DroppedSinceLock = e.DroppedSinceLock, LastDropMs = e.LastDropMs,
+    };
+
     /// <summary>查詢單格鎖定資訊（locks / lock 指令用）。</summary>
     public LockedCellEntry? Find(int face, int col, int row)
     {
@@ -107,7 +195,8 @@ public sealed class LockedCellFilter
 
     /// <summary>
     /// 當下所有鎖定的穩定排序快照（face → col → row），
-    /// 供 locks 指令、hello / locks push、savelocks 使用。
+    /// 供 locks 指令、hello / locks push、GET /locks、savelocks 使用。
+    /// 回傳副本——鎖後活動統計欄位讀到的是一致時點的值，不會跟熱路徑寫入互踩。
     /// </summary>
     public IReadOnlyList<LockedCellEntry> Snapshot()
     {
@@ -115,6 +204,7 @@ public sealed class LockedCellFilter
         {
             return _entries.Values
                 .OrderBy(e => e.Face).ThenBy(e => e.Col).ThenBy(e => e.Row)
+                .Select(e => CopyWithSource(e, e.Source))
                 .ToList();
         }
     }

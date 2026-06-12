@@ -128,6 +128,20 @@ public sealed class AutoLockConfig
 }
 
 /// <summary>
+/// 監控頁「捕捉噪訊」一鍵流程的時間窗（v9）：按下後回頭 lookbackSeconds 內觸發過的格子
+/// 先入清單，再前向觀察 captureSeconds 累積新觸發。UI 從 GET /config 讀值——
+/// 改 config.json 後重啟生效（服務本身不用這兩個值，純 UI 參數）。
+/// </summary>
+public sealed class NoiseCaptureConfig
+{
+    /// <summary>回頭窗（秒）：按下當下，最後觸發在此秒數內的格子直接入捕捉清單。</summary>
+    public int LookbackSeconds { get; set; } = 5;
+
+    /// <summary>前向窗（秒）：按下後持續觀察、累積觸發的時長（UI 倒數）。</summary>
+    public int CaptureSeconds { get; set; } = 10;
+}
+
+/// <summary>
 /// 鎖定晶片格（噪訊晶片過濾）：face = 面 index、cell = [col, row]（晶片格座標）。
 /// 對應 Unity 專案 SensorTestManager 的 locked[]，config 化版本。
 /// </summary>
@@ -185,6 +199,9 @@ public sealed class ServiceConfig
     /// <summary>啟動自檢窗（自動鎖噪訊晶片）。缺欄位 / null = 預設啟用（10s、≥10 包）。</summary>
     public AutoLockConfig AutoLock { get; set; } = new();
 
+    /// <summary>監控頁「捕捉噪訊」時間窗（UI 參數）。缺欄位 / null = 預設（回頭 5s、前向 10s）。</summary>
+    public NoiseCaptureConfig NoiseCapture { get; set; } = new();
+
     /// <summary>觸控模式："grid"（預設，純發布）/ "mouse"（額外掛 OS 滑鼠 sink，發布照常）。</summary>
     public string TouchMode { get; set; } = "grid";
 
@@ -230,6 +247,10 @@ public sealed class ServiceConfig
         var cfg = JsonSerializer.Deserialize<ServiceConfig>(json, JsonOptions) ?? new ServiceConfig();
         cfg.LockedCells ??= new List<LockedCellConfig>();   // "lockedCells": null 容錯
         cfg.AutoLock ??= new AutoLockConfig();              // "autoLock": null 容錯
+        cfg.NoiseCapture ??= new NoiseCaptureConfig();      // "noiseCapture": null 容錯
+        // 超出合理範圍視為填錯，回預設（UI 倒數參數，填壞不該壞 UI）
+        if (cfg.NoiseCapture.LookbackSeconds is < 0 or > 300) cfg.NoiseCapture.LookbackSeconds = 5;
+        if (cfg.NoiseCapture.CaptureSeconds is < 1 or > 300) cfg.NoiseCapture.CaptureSeconds = 10;
         cfg.TouchMode = string.IsNullOrWhiteSpace(cfg.TouchMode) ? "grid" : cfg.TouchMode.Trim().ToLowerInvariant();
         cfg.MouseMode ??= new MouseModeConfig();            // "mouseMode": null 容錯
         cfg.MouseMode.Screen ??= new ScreenRectConfig();

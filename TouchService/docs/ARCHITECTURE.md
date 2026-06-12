@@ -34,7 +34,9 @@ SensorFaceRouter（Core/SensorFaceRouter.cs）— raw 座標 → 7 面線性分�
 SensorFaceConfig（Core/SensorFaceConfig.cs）— raw → canvas px / cell（校正數學，逐 bit 對等 Unity）
   ▼
 LockedCellFilter（Core/LockedCellFilter.cs）— 噪訊晶片黑名單（config lockedCells + runtime
-  │   auto/manual 鎖定共用，來源以 LockSource 區分；熱路徑 O(1) volatile snapshot HashSet）
+  │   auto/manual 鎖定共用，來源以 LockSource 區分；熱路徑 O(1) volatile snapshot HashSet。
+  │   v9：per-entry 鎖後活動統計（droppedSinceLock / lastDropMs，命中時才取鎖——冷量）、
+  │   Clear（解鎖全部）、Reclassify（轉正式後標 config = 已保存））
   ▼
 AutoLockSelfCheck（Core/AutoLockSelfCheck.cs）— 啟動自檢窗（預設 10s）：窗內的點只做
   │   per-cell 計數 + episode 切分（間隔 > releaseTimeout = 新段）、不進 tracker、不發布
@@ -45,8 +47,10 @@ TouchTracker（Tracking/TouchTracker.cs）— 最近鄰貪婪配對 → touch ID
   │   └─ TriggerHistory（Diagnostics/TriggerHistory.cs）— 觸發歷史 + 疑似噪訊評分：
   │      down/up 事件與自檢窗內被抑制的觸發都餵進 per-cell 聚合（固定大小、30 分鐘
   │      rolling 用分鐘桶環形陣列、runtime-only 重啟歸零）。出口：GET /history、
-  │      stdin `history`、UI 診斷 tab。被鎖定 cell 的觸發在 filter 就被擋掉——
-  │      鎖定後歷史自然停止累積（鎖定前的保留顯示）
+  │      stdin `history`、UI 診斷 tab、監控 tab「捕捉噪訊」輪詢。被鎖定 cell 的觸發
+  │      （v9 起）也以 RecordSuppressed 餵入——鎖定後歷史**繼續累積**（鎖後仍發包 =
+  │      鐵證噪訊、解鎖重觀察無斷層），但已鎖格不進排行（Snapshot exclude 參數）；
+  │      鎖後活動的即時判讀走 LockedCellFilter 的 per-entry 統計（GET /locks）
   ▼
 TouchPipeline（TouchPipeline.cs）— 串起以上全部；flush timer（5ms）驅動 release timeout
   ▼
@@ -54,7 +58,8 @@ FrameSerializer（Output/FrameSerializer.cs）— 統一 JSON frame（events + a
   ├─ UdpJsonPublisher（Output/UdpJsonPublisher.cs）→ config endpoints（預設 127.0.0.1:20110）
   ├─ WebSocketHub（Output/WebSocketHub.cs）→ ws://:20111/ + HTTP GET /venue + testpage
   │     └─ 同 port 本機管理 API（Api/ConfigApi.cs）：GET/POST /config、/monitors、
-  │        /history（疑似噪訊排行，唯讀不限 loopback）、/locks/*（lock/unlock/save）、
+  │        /history（疑似噪訊排行，唯讀不限 loopback；v9 起已鎖格不列入）、
+  │        /locks（v9 唯讀清單含鎖後活動）、/locks/*（lock/unlock/unlockall/promote/save）、
   │        /calibration/*（start/stop/status/save，校正精靈）
   │        ——寫入類與 /calibration/* 僅 loopback；給內建設定/診斷/校正頁用，不屬於對外協議
   └─ TuioPublisher（Output/TuioPublisher.cs）→ **未實作的插槽**（啟用會明確報錯）
@@ -69,7 +74,7 @@ TouchPipeline 另一條支線（touchMode=mouse 時；typed 事件、不經序�
 旁路元件（v6）：
   ├─ CommandProcessor（Api/CommandProcessor.cs）— 指令單一入口：stdin 迴圈與
   │    POST /command 走同一個，輸出文字一致（stats/touches/history/locks/lock/
-  │    unlock/savelocks/probe/quit；quit 經 host.ShutdownRequested 優雅關閉）
+  │    unlock/unlockall/savelocks/probe/quit；quit 經 host.ShutdownRequested 優雅關閉）
   ├─ LogStreamer（Logging/LogStreamer.cs）— FileLogger.EntryWritten → ring 300 行
   │    + 背景執行緒推 {"type":"log",...} 給 **loopback WS client**（連上先補 backlog）
   ├─ 校正精靈後端（Calibration/，v8）— 新場域兩角校正的三個元件：
@@ -124,7 +129,7 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 | 托盤 P/Invoke 不用 WinForms | Shell_NotifyIcon 手寫 P/Invoke（Tray/WindowsTrayHost.cs，~300 行），不是 net8.0-windows + WinForms NotifyIcon | WinForms 多目標要 `EnableWindowsTargeting=true` 才能在 Linux build、TFM 分岔（net8.0 + net8.0-windows）、publish 變胖 ~15MB+；P/Invoke 保持單一 TFM net8.0 / console OutputType / exe ~35MB 不變 | 托盤行為（圖示、雙擊、選單）Linux 測不到——純對映層有單元測試（TrayMenu），實機行為屬現場驗證。若未來要氣球通知 / 動態圖示再評估 WinForms 路線 |
 | log push 僅 loopback | type:"log" 訊息只送 loopback WS client（per-client IsLoopback 旗標）；ring buffer 300 行連線即補發 | LAN 訂閱端本來就忽略帶 type 的訊息（協議規則），但 log **內容**不該外流內網（路徑、鎖定座標、內部狀態）；與寫入類 API 的 loopback 限制同一條安全線 | LogStreamer 是 enqueue + 背景推送執行緒——log 熱路徑零阻塞、推送產生的 log 不遞迴。改 ring 上限同步改 `LogStreamer.Capacity` 與測試 |
 | 滑鼠平滑迴圈 | 8ms timer 指數逼近（factor=mouseMode.smoothing），單步 < moveMinPx 不注入；down 第一下例外：直接跳到位**再** LEFTDOWN | 80ms 封包間隔直接設游標會肉眼跳格；位移門檻防 125Hz 微步轟炸；先到位再按下否則 click 落在舊位置 | 平滑只存在滑鼠 sink——發布座標仍是原始值（服務端不平滑、保真實，§6-4 同一原則）；收斂到位的最後一步豁免 moveMinPx（保證精確到點） |
-| 疑似噪訊評分 | 三因子加權（0~100）：**頻率 40**（30 分鐘觸發次數 / 30 飽和）＋**孤立 35**（down 當下 tracker 內無鄰近活躍 touch 的比率）＋**佔用 25**（總活躍時長占運行時間） | 為什麼這三個因子：間歇噪訊 = 同格反覆觸發（正常遊玩單格不會幾十上百次）、無鄰近連動（真人腳掌/移動幾乎總是多格連動——另一腳、上一步觸點還活著）、常駐叫（佔用比真人高一個量級）。三者皆可解釋、可單獨驗證。鄰近半徑 = 2×matchRadiusPx（≈192px）：matchRadius 內的點必被合併進同一 touch，更小的半徑（如 ±2 格）不可能有「另一個」活躍 touch | **分數只是排序用，不自動鎖——營運中有真人在踩，誤鎖比漏鎖傷**（鎖定一律人工確認：UI 診斷 tab 按鈕 / stdin lock）。改權重同步改 `TriggerHistory.cs` 常數與本表；歷史 runtime-only 重啟歸零（見 §6-8） |
+| 疑似噪訊評分 | 三因子加權（0~100）：**頻率 40**（30 分鐘觸發次數 / 30 飽和）＋**孤立 35**（down 當下 tracker 內無鄰近活躍 touch 的比率）＋**佔用 25**（總活躍時長占運行時間） | 為什麼這三個因子：間歇噪訊 = 同格反覆觸發（正常遊玩單格不會幾十上百次）、無鄰近連動（真人腳掌/移動幾乎總是多格連動——另一腳、上一步觸點還活著）、常駐叫（佔用比真人高一個量級）。三者皆可解釋、可單獨驗證。鄰近半徑 = 2×matchRadiusPx（≈192px）：matchRadius 內的點必被合併進同一 touch，更小的半徑（如 ±2 格）不可能有「另一個」活躍 touch | **分數只是排序用，不自動鎖——營運中有真人在踩，誤鎖比漏鎖傷**（鎖定一律人工確認：UI 監控 tab 捕捉噪訊 / 診斷 tab 按鈕 / stdin lock；v9 的捕捉→臨時鎖→轉正式同樣全程人觸發）。v9 起已鎖格不進排行（鎖後活動看 GET /locks）。改權重同步改 `TriggerHistory.cs` 常數與本表；歷史 runtime-only 重啟歸零（見 §6-8） |
 
 ## 4. 場域可攜性（venue profile）
 
@@ -134,7 +139,7 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 - 立體場域（地板+牆）展開成 2D 平面的思路：每面是畫布上的一塊矩形，face config 負責
   raw→面內→畫布的轉換。訂閱端拿到的 px/norm 都是畫布座標。
 
-## 5. 測試結構（274 個，必須全綠才能交付）
+## 5. 測試結構（283 個，必須全綠才能交付）
 
 | 測試檔 | 守什麼 |
 |---|---|
@@ -143,6 +148,8 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 | TouchTrackerTests | 80ms 重送不假離手、160ms gap@170 不假離手、>170 up、丟包注入 |
 | TouchIdContinuityTests | 移動不換 ID、兩點交錯/交叉不互換 |
 | LockedCellsTests | 鎖定格不產生事件、相鄰格不受影響、config 容錯 |
+| LockStagingTests | v9 臨時鎖機制：鎖後活動統計（CheckAndCount / 快照副本）、Clear 全解鎖（含 config 來源、冪等）、Reclassify 轉正式（統計保留）、unlockall API+stdin（config.json 不動）、promote 單格落盤、savelocks 後全標已保存、noiseCapture config 容錯 |
+| NoiseCaptureE2ETests | v9 捕捉流程 API 閉環（真實 socket + 模擬器）：/config 窗參數 → /history baseline/delta → 臨時鎖退出排行 → /locks 鎖後活動累計 → promote 落盤 → 重啟以 config 載入 → unlockall 不動 config |
 | AutoLockTests | 自檢窗：達門檻鎖/未達不鎖、窗內零發布、keepalive 照發、停用=現狀、**episode 判準**（慢速頻閃 3 段×1 包鎖 / 長串 1 段走 packets 不退化 / 真人連續 1 段不鎖 / 2 段不鎖 + gap==timeout 算同段 / minEpisodes=0 停用 / 鎖定 log 命中原因三態）、minEpisodes config 容錯、lock/unlock/locks/savelocks 指令、savelocks roundtrip、WS hello lockedCells + locks push（時間注入，無 sleep） |
 | FrameSerializerTests | schema 欄位、alive、seq |
 | WebSocketHubTests | RFC6455 對打（.NET ClientWebSocket）、三種 frame 長度編碼 |
@@ -154,8 +161,8 @@ host.Commands.Execute；console 不可用（隱藏後重導 / service 模式）�
 | CommandProcessorTests | stdin 與 POST /command 同指令同輸出、用法錯誤/未知指令訊息、quit 觸發 ShutdownRequested、/command 非 loopback 403、壞 body 400 |
 | LogStreamTests | ring buffer 上限 300、log 訊息 schema、loopback 連上 hello→backlog→即時推、**非 loopback client 不收 log type**（frame 照常收；既有 WS harness 從 LAN IP 連入驗證） |
 | TrayHostTests | factory 決策（trayEnabled=false / 非 Windows → NullTrayHost）、NullTrayHost no-op、托盤訊息/選單 → 動作純對映（雙擊=開 UI、選單三指令）。Windows 實機行為屬現場驗證 |
-| TriggerHistoryTests | 觸發歷史聚合（down/up、30 分鐘 rolling 衰減、move 不換 cell）、孤立判定（同批/追溯撤銷/遠處不算）、自檢窗 suppressed gap 邏輯、評分（噪訊 ≥80 vs 正常遊玩 ≤40 對比）、記憶體有界（聚合不隨事件數成長）、pipeline 整合（窗內計入 / 鎖定後停止累積）。時間注入，無 sleep |
-| HistoryApiTests | GET /history 排序/欄位/top/locked 旗標、空歷史、POST /locks/lock 語意同 stdin lock + 非 loopback 403（/history 唯讀可看）、stdin `history` 排行格式與 top 筆數 |
+| TriggerHistoryTests | 觸發歷史聚合（down/up、30 分鐘 rolling 衰減、move 不換 cell）、孤立判定（同批/追溯撤銷/遠處不算）、自檢窗 suppressed gap 邏輯、評分（噪訊 ≥80 vs 正常遊玩 ≤40 對比）、記憶體有界（聚合不隨事件數成長）、pipeline 整合（窗內計入 / v9 鎖定後仍累積且退出排行 + filter 統計）。時間注入，無 sleep |
+| HistoryApiTests | GET /history 排序/欄位/top、v9 鎖定後退出排行 + GET /locks 鎖後活動欄位、空歷史、POST /locks/lock 語意同 stdin lock + 非 loopback 403（/history 唯讀可看）、stdin `history` 排行格式與 top 筆數 |
 | RawStreamGateTests | 校正 raw 串流節流 + 穩定計數：同值連續 n 遞增前 3 包都推、第 4 包起去重壓心跳（每秒 1 包）、座標變化立即推 + 計數歸 1、全域 30 msg/s 上限 + 下一秒窗重新放行、多 source 獨立（別模組噪訊不打斷角落晶片連續計數）、Reset、工作階段 15 分鐘逾時自動 stop、重複 start 延長逾時（時間注入，無 sleep） |
 | CalibrationMathTests | 兩角 → 軸計算（正/反向/相同值拒收）、四種 flip 組合、golden 單面 vertical/horizontal venue JSON、場域名稱合法性（路徑字元/過長/中文合法）、cols/rows/origin/corner 範圍驗證、多錯誤一次全列、canvas 缺省 bounding box / 過小拒收 |
 | CalibrationApiTests | /calibration/* roundtrip（start/stop/status）、raw 串流 gating（未 start 不推、start 推 n 遞增、stop 後停）、raw 訊息 schema（x/y/src/face null|index/n）、raw 僅 loopback（LAN 訂閱端收不到）、save 寫檔 roundtrip（venue 可被 VenueProfile.Load 載入、flip 正確、config venueProfile patch + 其他欄位保留）、驗證錯誤 400 且不動檔案、非 loopback 全部 403 |
@@ -178,14 +185,16 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
    → 240ms）。現場改閥值設定後要重驗 releaseTimeoutMs。
 4. 踩兩磚之間時 px 在磚界抖動是物理現象（兩晶片輪流回報）——服務端不平滑（保真實），
    視覺端用黏滯判定處理（見 `testpage/colorpad.html` 的 HYST 實作）。
-5. 噪訊晶片三層工作流（完整 SOP 見 DEPLOY.md）：**開機自檢自動鎖（autoLock）→
-   營運中看診斷排行一鍵鎖（UI 診斷 tab / GET /history）→ savelocks 持久化**；
-   console 指令（touches/history/lock）為備援。自檢兩判準（OR）：包數抓快速重送型、
-   分離 episode 數抓慢速頻閃型（v7 起，見 §3 表）。剩餘盲點：間歇性發作的晶片若窗內
-   剛好沒發訊（或發訊 <3 段）就抓不到——觸發歷史 + 評分就是為此而生
-   （窗內被抑制的觸發也計入歷史）。
-   反向風險：重啟時有人站場上會被誤鎖（`unlock` 救）。`stats` 的 dropped by lock /
-   auto-locked cells 可驗證過濾生效。
+5. 噪訊晶片工作流（完整 SOP 見 DEPLOY.md）：**現場首選 = 監控 tab「捕捉噪訊」
+   （v9：清場 → 回頭 5s + 前向 10s 時間窗捕捉 → 臨時鎖 → 鎖後活動判讀 → 轉正式；
+   純前端輪詢 GET /history 實作，無後端 session）**；底層三層 = 開機自檢自動鎖
+   （autoLock）→ 營運中看診斷排行一鍵鎖（UI 診斷 tab / GET /history）→
+   savelocks 持久化；console 指令（touches/history/lock/unlockall）為備援。
+   自檢兩判準（OR）：包數抓快速重送型、分離 episode 數抓慢速頻閃型（v7 起，見 §3 表）。
+   剩餘盲點：間歇性發作的晶片若窗內剛好沒發訊（或發訊 <3 段）就抓不到——
+   觸發歷史 + 評分就是為此而生（窗內被抑制的觸發也計入歷史）。
+   反向風險：重啟時有人站場上會被誤鎖（`unlock` 救；v9 起臨時鎖區「鎖後安靜」
+   就是誤鎖訊號）。`stats` 的 dropped by lock / auto-locked cells 可驗證過濾生效。
 6. **滑鼠模式是單點**（OS 游標只有一顆，結構限制不是 bug）——v6 起所有權跨所有
    啟用面（任一啟用面第一個 down 持有游標）；觸控板手勢 / 多點要走訂閱端。
    滑鼠模式下摸牆會搶機器的真實游標——維運先切回 grid（設定頁熱切，
@@ -219,7 +228,7 @@ fixtures：`tests/fixtures/capture-*.txt` = 2026-06-10 南港現場真實 Wiresh
 ## 8. 接手修改 SOP
 
 1. 讀這份 + `PROTOCOL.md`，動協議欄位前先看 §3 的表
-2. 改 code → `dotnet test` 274 全綠（E2E timing 斷言 v7 起為 p95/max + warm-up，連跑穩定；若仍偶發 flake 重跑一次）
+2. 改 code → `dotnet test` 283 全綠（E2E timing 斷言 v7 起為 p95/max + warm-up，連跑穩定；若仍偶發 flake 重跑一次）
 3. 協議有變 → 同步改 `PROTOCOL.md` + `MIGRATION-ART-APP.md`，新增欄位 OK、
    改名/移除 = 升 v2
 4. 發布：見 §5 結尾的 publish 參數紅字

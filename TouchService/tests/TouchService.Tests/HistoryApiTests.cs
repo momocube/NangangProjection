@@ -12,7 +12,8 @@ using Xunit;
 namespace TouchService.Tests;
 
 /// <summary>
-/// 觸發歷史對外介面：GET /history（排序 / top / 欄位 / locked 旗標、唯讀不限 loopback）、
+/// 觸發歷史對外介面：GET /history（排序 / top / 欄位、唯讀不限 loopback；
+/// v9 起已鎖格退出排行）、GET /locks（鎖定清單含鎖後活動）、
 /// POST /locks/lock（語意同 stdin lock、loopback only）、stdin `history` 的排行格式。
 /// </summary>
 public class HistoryApiTests
@@ -74,7 +75,7 @@ public class HistoryApiTests
     // ── GET /history ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetHistory_score降冪_欄位齊全_locked旗標即時()
+    public async Task GetHistory_score降冪_欄位齊全_鎖定後退出排行()
     {
         var (host, _, log) = NewHost("""{ "autoLock": { "enabled": false } }""");
         using (host)
@@ -111,14 +112,29 @@ public class HistoryApiTests
                 Assert.False(first.GetProperty("locked").GetBoolean());
             }
 
-            // 鎖定後 locked 旗標即時反映（鎖定不清歷史——鎖定前的歷史保留顯示）
+            // v9：鎖定後該格退出排行（歷史照常累積；鎖後活動判讀走 GET /locks）
             host.LockCell(2, 7, 13);
             var (_, body2) = await Get(host, "/history");
             using (var doc = JsonDocument.Parse(body2))
             {
-                var first = doc.RootElement.GetProperty("cells")[0];
-                Assert.Equal(7, first.GetProperty("cell")[0].GetInt32());
-                Assert.True(first.GetProperty("locked").GetBoolean());
+                var cells = doc.RootElement.GetProperty("cells");
+                Assert.Equal(1, cells.GetArrayLength());
+                Assert.Equal(20, cells[0].GetProperty("cell")[0].GetInt32());   // 只剩 calm cell
+            }
+
+            // GET /locks：鎖定格帶保存狀態 + 鎖後活動（剛鎖、還沒再發 → 0 / null）
+            var (locksStatus, locksBody) = await Get(host, "/locks");
+            Assert.Equal(HttpStatusCode.OK, locksStatus);
+            using (var doc = JsonDocument.Parse(locksBody))
+            {
+                var cell = Assert.Single(doc.RootElement.GetProperty("cells").EnumerateArray());
+                Assert.Equal(2, cell.GetProperty("face").GetInt32());
+                Assert.Equal(7, cell.GetProperty("cell")[0].GetInt32());
+                Assert.Equal("manual", cell.GetProperty("source").GetString());
+                Assert.False(cell.GetProperty("saved").GetBoolean());           // manual = 臨時（未保存）
+                Assert.Equal(0, cell.GetProperty("droppedSinceLock").GetInt64());
+                Assert.Equal(JsonValueKind.Null, cell.GetProperty("lastDropAgoMs").ValueKind);
+                Assert.True(cell.GetProperty("lockedAgoMs").GetInt64() >= 0);
             }
         }
     }
@@ -247,14 +263,12 @@ public class HistoryApiTests
             Assert.Contains("尚無觸發歷史", host.HistorySnapshot());
 
             Seed(host);
-            host.LockCell(2, 7, 13);
 
             var text = host.HistorySnapshot();   // 預設 top 20
             Assert.Contains("疑似噪訊排行 top 20", text);
             Assert.Contains("(7,13)", text);
             Assert.Contains("(20,40)", text);
             Assert.Contains("2 Floor", text);    // face 名稱
-            Assert.Contains("已鎖", text);        // 鎖定標記
             Assert.Contains("score", text);
             Assert.Contains("頻率(40) + 孤立比率(35) + 活躍時長佔比(25)", text);
 
@@ -262,6 +276,17 @@ public class HistoryApiTests
             var top1 = host.HistorySnapshot(1);
             Assert.Contains("(7,13)", top1);
             Assert.DoesNotContain("(20,40)", top1);
+
+            // v9：鎖定後該格退出排行（鎖後活動改看 locks 的「鎖後封包」欄）
+            host.LockCell(2, 7, 13);
+            var locked = host.HistorySnapshot();
+            Assert.DoesNotContain("(7,13)", locked);
+            Assert.Contains("(20,40)", locked);
+            Assert.Contains("不列入排行", locked);
+            var locksText = host.LocksSnapshot();
+            Assert.Contains("(7,13)", locksText);
+            Assert.Contains("鎖後封包", locksText);
+            Assert.Contains("鎖後安靜", locksText);   // 剛鎖、還沒再發
         }
     }
 }

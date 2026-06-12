@@ -278,15 +278,32 @@ public sealed class TouchServiceHost : IDisposable
         return JsonSerializer.SerializeToUtf8Bytes(hello);
     }
 
-    /// <summary>鎖定清單的對外 payload（hello 與 locks push 共用格式）。</summary>
-    object LockedCellsPayload() =>
-        Locks.Snapshot().Select(e => new
+    /// <summary>
+    /// 鎖定清單的對外 payload（hello / locks push / GET /locks 共用格式）。
+    /// v9 起帶保存狀態與鎖後活動：saved = config 來源（已寫進 config.json）、
+    /// 其餘（auto / manual）= 臨時鎖（重啟即消失）；droppedSinceLock / lastDropAgoMs =
+    /// 鎖定那一刻之後該格又發了幾包、最後一包多久前（null = 鎖後沒再發過）——
+    /// 鎖後仍發包 = 鐵證噪訊、鎖後安靜 = 可能誤鎖。
+    /// </summary>
+    object LockedCellsPayload()
+    {
+        long nowMs = _clock.ElapsedMilliseconds;
+        return Locks.Snapshot().Select(e => new
         {
             face = e.Face,
             cell = new[] { e.Col, e.Row },
             source = LockedCellFilter.SourceName(e.Source),
+            saved = e.Source == LockSource.Config,
             packets = e.Packets,
+            lockedAgoMs = Math.Max(0, nowMs - e.LockedAtMs),
+            droppedSinceLock = e.DroppedSinceLock,
+            lastDropAgoMs = e.LastDropMs >= 0 ? (long?)Math.Max(0, nowMs - e.LastDropMs) : null,
         }).ToArray();
+    }
+
+    /// <summary>GET /locks：即時鎖定清單 JSON（UI 臨時鎖區輪詢鎖後活動用）。</summary>
+    public string LocksJson() =>
+        JsonSerializer.Serialize(new { cells = LockedCellsPayload() });
 
     (bool Active, int RemainingSeconds) AutoLockStatus() =>
         Pipeline?.GetAutoLockStatus(_clock.ElapsedMilliseconds) ?? (false, 0);
@@ -454,6 +471,11 @@ public sealed class TouchServiceHost : IDisposable
                     windowSeconds = _config.AutoLock.WindowSeconds,
                     minPackets = _config.AutoLock.MinPackets,
                     minEpisodes = _config.AutoLock.MinEpisodes,
+                },
+                noiseCapture = new
+                {
+                    lookbackSeconds = _config.NoiseCapture.LookbackSeconds,
+                    captureSeconds = _config.NoiseCapture.CaptureSeconds,
                 },
                 ui = new { autoLaunch = _config.Ui.AutoLaunch, trayEnabled = _config.Ui.TrayEnabled },
                 venue = Venue.Venue,
@@ -767,17 +789,23 @@ public sealed class TouchServiceHost : IDisposable
         }
         else
         {
-            sb.AppendLine($"{"face",-22}{"cell",-11}{"來源",-8}封包數(auto)");
+            long nowMs = _clock.ElapsedMilliseconds;
+            sb.AppendLine($"{"face",-22}{"cell",-11}{"來源",-8}{"封包(auto)",-12}{"鎖後封包",-10}最後活動");
             foreach (var e in entries)
             {
                 string face = e.Face >= 0 && e.Face < Venue.Faces.Count
                     ? $"{e.Face} {Venue.Faces[e.Face].Name}"
                     : e.Face.ToString();
+                string lastDrop = e.LastDropMs >= 0
+                    ? $"{(nowMs - e.LastDropMs) / 1000.0:F1}s 前"
+                    : "鎖後安靜";
                 sb.AppendLine(
                     $"{face,-22}{$"({e.Col},{e.Row})",-11}{LockedCellFilter.SourceName(e.Source),-8}" +
-                    (e.Source == LockSource.Auto ? e.Packets.ToString() : "-"));
+                    $"{(e.Source == LockSource.Auto ? e.Packets.ToString() : "-"),-12}" +
+                    $"{e.DroppedSinceLock,-10}{lastDrop}");
             }
-            sb.AppendLine("解鎖：unlock <face> <col> <row>；寫回 config：savelocks（auto+manual+config 合併）。");
+            sb.AppendLine("鎖後封包 = 鎖定那一刻之後該格又發的包數（仍在發 = 鐵證噪訊；鎖後安靜 = 可能誤鎖）。");
+            sb.AppendLine("解鎖：unlock <face> <col> <row>（全部：unlockall）；寫回 config：savelocks（auto+manual+config 合併）。");
         }
         sb.Append("───────────────────────────────────────────────");
         return sb.ToString();
@@ -792,7 +820,7 @@ public sealed class TouchServiceHost : IDisposable
         if (col < 0 || col >= f.ColCount || row < 0 || row >= f.RowCount)
             return $"cell=({col},{row}) 超出 face {face}（{f.Name}）格數 {f.ColCount}×{f.RowCount}，未加鎖";
 
-        if (!Locks.TryAdd(face, col, row, LockSource.Manual))
+        if (!Locks.TryAdd(face, col, row, LockSource.Manual, nowMs: _clock.ElapsedMilliseconds))
         {
             var existed = Locks.Find(face, col, row);
             return $"face={face} cell=({col},{row}) 已鎖定（來源 {LockedCellFilter.SourceName(existed!.Source)}），未重複加鎖";
@@ -817,9 +845,85 @@ public sealed class TouchServiceHost : IDisposable
     }
 
     /// <summary>
+    /// stdin `unlockall` / POST /locks/unlockall（v9）：清空當前**全部**鎖定（config+auto+manual）。
+    /// 只動 runtime——config.json 不寫、重啟會回到 config 的鎖定清單；要永久生效再 savelocks。
+    /// 破壞性操作的確認步驟在 UI（兩段式按鈕），後端冪等執行。
+    /// </summary>
+    public string UnlockAllCells()
+    {
+        int n = Locks.Clear();
+        if (n == 0) return "目前沒有任何鎖定，無可解除";
+
+        _log.Warn($"[Host] 解鎖全部：解除 {n} 格鎖定（runtime；config.json 未修改——重啟會回到 config 的鎖定清單，要永久生效請 savelocks）");
+        PushLocks();
+        return $"已解除全部 {n} 格鎖定（runtime 即時生效）。config.json 未修改——重啟會回到 config 的鎖定清單；要讓「目前狀態」永久生效請再按保存（savelocks）。";
+    }
+
+    /// <summary>
+    /// POST /locks/promote（v9「轉正式並保存」單格版）：把一格臨時鎖寫進 config.json 的
+    /// lockedCells（只 append 這一格、其他欄位原樣保留）+ runtime 來源改標 config。
+    /// 與 savelocks 的差異：savelocks 寫回**全部**鎖定，promote 只轉這一格——
+    /// 臨時鎖區逐格確認時用。
+    /// </summary>
+    public (bool Ok, string Message) PromoteLock(int face, int col, int row)
+    {
+        var entry = Locks.Find(face, col, row);
+        if (entry == null)
+            return (false, $"face={face} cell=({col},{row}) 沒有鎖定，無法轉正式");
+        if (entry.Source == LockSource.Config)
+            return (true, $"face={face} cell=({col},{row}) 已是保存狀態（config 來源），不需重複轉正式");
+
+        if (_configPath == null) return (false, "此 host 啟動時未提供 config 路徑，無法寫回");
+        if (!File.Exists(_configPath)) return (false, $"config 不存在：{_configPath}，未寫回");
+
+        lock (_configGate)
+        {
+            try
+            {
+                var root = JsonNode.Parse(
+                    File.ReadAllText(_configPath),
+                    documentOptions: new JsonDocumentOptions
+                    {
+                        CommentHandling = JsonCommentHandling.Skip,
+                        AllowTrailingCommas = true,
+                    })!.AsObject();
+
+                if (root["lockedCells"] is not JsonArray arr)
+                    root["lockedCells"] = arr = new JsonArray();
+
+                bool exists = arr.OfType<JsonObject>().Any(o =>
+                    (int?)o["face"] == face &&
+                    o["cell"] is JsonArray c && c.Count == 2 &&
+                    (int?)c[0] == col && (int?)c[1] == row);
+                if (!exists)
+                {
+                    arr.Add(new JsonObject
+                    {
+                        ["face"] = face,
+                        ["cell"] = new JsonArray(col, row),
+                    });
+                    File.WriteAllText(_configPath,
+                        root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                }
+            }
+            catch (Exception ex)
+            {
+                return (false, $"寫回失敗：{ex.Message}");
+            }
+        }
+
+        Locks.Reclassify(face, col, row, LockSource.Config);   // 已落盤 → 標成已保存
+        _log.Info($"[Host] 轉正式：face={face} cell=({col},{row}) 寫進 config lockedCells（下次啟動以 config 來源載入）");
+        PushLocks();
+        return (true, $"face={face} cell=({col},{row}) 已轉正式並寫進 config.json（重啟後仍鎖定）");
+    }
+
+    /// <summary>
     /// stdin `savelocks` 指令：把目前 runtime 全部鎖定（config+auto+manual 合併去重）
     /// 寫回 config.json 的 lockedCells。用 JsonNode 只換 lockedCells 一個欄位，
     /// 其他欄位（含未知欄位）原樣保留，縮排維持 2 空格。
+    /// v9：寫回成功後 runtime 來源全部改標 config——已落盤的鎖就是「已保存」，
+    /// UI 臨時鎖區自然清空（= 全部轉正式）。
     /// </summary>
     public string SaveLocks()
     {
@@ -829,35 +933,39 @@ public sealed class TouchServiceHost : IDisposable
             return $"config 不存在：{_configPath}，未寫回";
 
         var entries = Locks.Snapshot();
-        try
+        lock (_configGate)
         {
-            var root = System.Text.Json.Nodes.JsonNode.Parse(
-                File.ReadAllText(_configPath),
-                documentOptions: new JsonDocumentOptions
-                {
-                    CommentHandling = JsonCommentHandling.Skip,
-                    AllowTrailingCommas = true,
-                })!.AsObject();
-
-            var arr = new System.Text.Json.Nodes.JsonArray();
-            foreach (var e in entries)
+            try
             {
-                arr.Add(new System.Text.Json.Nodes.JsonObject
+                var root = System.Text.Json.Nodes.JsonNode.Parse(
+                    File.ReadAllText(_configPath),
+                    documentOptions: new JsonDocumentOptions
+                    {
+                        CommentHandling = JsonCommentHandling.Skip,
+                        AllowTrailingCommas = true,
+                    })!.AsObject();
+
+                var arr = new System.Text.Json.Nodes.JsonArray();
+                foreach (var e in entries)
                 {
-                    ["face"] = e.Face,
-                    ["cell"] = new System.Text.Json.Nodes.JsonArray(e.Col, e.Row),
-                });
+                    arr.Add(new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["face"] = e.Face,
+                        ["cell"] = new System.Text.Json.Nodes.JsonArray(e.Col, e.Row),
+                    });
+                }
+                root["lockedCells"] = arr;
+
+                File.WriteAllText(_configPath,
+                    root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             }
-            root["lockedCells"] = arr;
-
-            File.WriteAllText(_configPath,
-                root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch (Exception ex)
-        {
-            return $"寫回失敗：{ex.Message}";
+            catch (Exception ex)
+            {
+                return $"寫回失敗：{ex.Message}";
+            }
         }
 
+        if (Locks.ReclassifyAll(LockSource.Config) > 0) PushLocks();   // 已落盤 → 全部標成已保存
         _log.Info($"[Host] savelocks：寫回 {entries.Count} 顆鎖定到 {_configPath}");
         return $"已寫回 {entries.Count} 顆鎖定到 {_configPath} 的 lockedCells（下次啟動以 config 來源載入）";
     }
@@ -998,11 +1106,16 @@ public sealed class TouchServiceHost : IDisposable
 
     // ── 觸發歷史 / 疑似噪訊排行（stdin `history` + GET /history）─────────────
 
-    /// <summary>GET /history 的 JSON（依 score 降冪 top 筆；locked 旗標即時取自過濾器）。</summary>
+    /// <summary>
+    /// GET /history 的 JSON（依 score 降冪 top 筆）。
+    /// v9：已鎖格不列入排行（歷史照常累積；鎖後活動判讀走 GET /locks 的
+    /// droppedSinceLock / lastDropAgoMs）。locked 欄位保留給訂閱端相容（恆 false，
+    /// 僅查詢與鎖定操作併發的窄窗可能短暫為 true）。
+    /// </summary>
     public string HistoryJson(int top)
     {
         long nowMs = _clock.ElapsedMilliseconds;
-        var entries = History.Snapshot(nowMs, top);
+        var entries = History.Snapshot(nowMs, top, Locks.IsLocked);
         return JsonSerializer.Serialize(new
         {
             uptimeMs = Math.Max(0, nowMs - History.StartMs),
@@ -1024,11 +1137,11 @@ public sealed class TouchServiceHost : IDisposable
         });
     }
 
-    /// <summary>stdin `history [n]` 指令：console 版疑似噪訊排行（預設 top 20）。</summary>
+    /// <summary>stdin `history [n]` 指令：console 版疑似噪訊排行（預設 top 20；已鎖格不列入，看 locks）。</summary>
     public string HistorySnapshot(int top = 20)
     {
         long nowMs = _clock.ElapsedMilliseconds;
-        var entries = History.Snapshot(nowMs, top);
+        var entries = History.Snapshot(nowMs, top, Locks.IsLocked);
         var rows = entries.Select(e => (e, Locks.IsLocked(e.Face, e.Col, e.Row))).ToList();
         return FormatHistory(rows, Venue.Faces, top);
     }
@@ -1066,6 +1179,7 @@ public sealed class TouchServiceHost : IDisposable
                     (locked ? "已鎖" : "-"));
             }
             sb.AppendLine("score = 30 分鐘頻率(40) + 孤立比率(35) + 活躍時長佔比(25)；歷史 runtime-only，重啟歸零。");
+            sb.AppendLine("已鎖定的格子不列入排行（鎖後活動看 locks 的「鎖後封包」欄）。");
             sb.AppendLine("鎖定：lock <face> <col> <row>；確認後 savelocks 寫回 config 持久化。");
         }
         sb.Append("───────────────────────────────────────────────");

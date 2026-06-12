@@ -15,8 +15,10 @@ namespace TouchService.Diagnostics;
 /// 自檢窗內被抑制的觸發不進 tracker、沒有生命週期——在同一攔截點以 RecordSuppressed
 /// 餵入，用 releaseTimeout 同款 gap 邏輯重建 per-cell 偽生命週期（單位因此與正常路徑一致：
 /// 持續叫 10 秒 = 1 次觸發 + 10 秒活躍時長，而不是 125 個封包）。
-/// 被鎖定的 cell 的觸發在 LockedCellFilter 就被擋掉、不會進到這裡——鎖定後歷史自然停止
-/// 累積（鎖定前的歷史保留顯示），這是刻意行為。
+/// 被鎖定的 cell（v9 起）：LockedCellFilter 擋下的點也以 RecordSuppressed 餵入——
+/// 鎖定後歷史**繼續累積**（鎖後仍持續發包 = 鐵證噪訊；解鎖重新觀察時歷史無斷層）。
+/// 已鎖格不進排行（Snapshot 的 exclude 參數，由 host 傳 Locks.IsLocked）——
+/// 鎖後活動的即時判讀走 LockedCellFilter 的 per-entry 統計（GET /locks）。
 ///
 /// 評分（0~100 整數，三個可解釋因子加權，權重見常數；設計依據見 docs/ARCHITECTURE.md §3）：
 ///   頻率 40：最近 30 分鐘觸發次數 / 30 飽和——正常遊玩單格不會被反覆觸發太多次，
@@ -236,8 +238,10 @@ public sealed class TriggerHistory
     /// <summary>
     /// 排行快照：依 score 降冪（同分依 30 分鐘次數、face/col/row 穩定排序）取前 top 筆。
     /// 進行中的 touch / 偽 touch 即時計入佔用時長、最後觸發顯示為「現在」。
+    /// exclude（v9）：回傳 true 的 cell 不列入（host 傳已鎖判定——已鎖格歷史持續累積
+    /// 但不佔排行；predicate 必須無鎖且不回呼本類，呼叫端傳 LockedCellFilter.IsLocked 安全）。
     /// </summary>
-    public IReadOnlyList<CellEntry> Snapshot(long nowMs, int top)
+    public IReadOnlyList<CellEntry> Snapshot(long nowMs, int top, Func<int, int, int, bool>? exclude = null)
     {
         lock (_gate)
         {
@@ -254,6 +258,7 @@ public sealed class TriggerHistory
             var list = new List<CellEntry>(_cells.Count);
             foreach (var c in _cells.Values)
             {
+                if (exclude != null && exclude(c.Face, c.Col, c.Row)) continue;
                 long extraMs = running?.GetValueOrDefault(c.Key) ?? 0;
                 bool active = extraMs > 0 ||
                               (c.SuppressedOpen && nowMs - c.SuppressedLastMs <= _releaseTimeoutMs);

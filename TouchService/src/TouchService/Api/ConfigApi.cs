@@ -12,10 +12,15 @@ namespace TouchService.Api;
 ///   GET  /config        目前生效設定（去敏感：不含 log / 檔案路徑）
 ///   POST /config        套用設定 patch（驗證全過才套用；熱套用 + 寫回 config.json）
 ///   GET  /monitors      螢幕清單（Windows EnumDisplayMonitors；非 Windows 空陣列）
-///   GET  /history       疑似噪訊排行（?top=50，預設 50；唯讀、不限 loopback——場館內網監看 OK）
+///   GET  /history       疑似噪訊排行（?top=50，預設 50；唯讀、不限 loopback——場館內網監看 OK；
+///                       v9 起已鎖格不列入排行）
+///   GET  /locks         即時鎖定清單（含保存狀態 saved 與鎖後活動 droppedSinceLock /
+///                       lastDropAgoMs；唯讀、不限 loopback——與 hello lockedCells 同格式）
 ///   POST /locks/lock    手動鎖定一格（body {"face":2,"col":7,"row":13}；語意同 stdin lock，來源 manual）
 ///   POST /locks/unlock  解鎖一格（body {"face":2,"col":7,"row":13}；語意同 stdin unlock）
-///   POST /locks/save    鎖定寫回 config.json（語意同 stdin savelocks）
+///   POST /locks/unlockall 解鎖全部（v9；runtime 即時生效、config.json 不動——語意同 stdin unlockall）
+///   POST /locks/promote 單格轉正式（v9；body 同 lock——該格 append 進 config lockedCells + 來源改標 config）
+///   POST /locks/save    鎖定寫回 config.json（語意同 stdin savelocks；v9 起寫回後來源全部改標 config）
 ///   POST /command       UI 終端指令（body {"cmd":"history 20"} → {"output":"..."}；
 ///                       與 stdin 共用 CommandProcessor，輸出文字一致）
 ///   POST /calibration/start   開始校正工作階段（raw 檢視串流 → loopback WS；15 分鐘自動 stop）
@@ -55,13 +60,26 @@ public sealed class ConfigApi
                 return WebSocketHub.ApiResponse.Json("200 OK",
                     _host.HistoryJson(ParseTop(req.Query, defaultTop: 50)));
 
+            case ("GET", "/locks"):
+                // 唯讀鎖定清單（含鎖後活動），不限 loopback（與 GET /history 同：內網監看 OK）
+                return WebSocketHub.ApiResponse.Json("200 OK", _host.LocksJson());
+
             case ("POST", "/locks/lock"):
                 if (!req.IsLoopback) return Forbidden();
-                return HandleLockOp(req.Body, unlock: false);
+                return HandleLockOp(req.Body, LockOp.Lock);
 
             case ("POST", "/locks/unlock"):
                 if (!req.IsLoopback) return Forbidden();
-                return HandleLockOp(req.Body, unlock: true);
+                return HandleLockOp(req.Body, LockOp.Unlock);
+
+            case ("POST", "/locks/unlockall"):
+                if (!req.IsLoopback) return Forbidden();
+                var unlockAllMsg = _host.UnlockAllCells();
+                return Result("200 OK", true, unlockAllMsg);
+
+            case ("POST", "/locks/promote"):
+                if (!req.IsLoopback) return Forbidden();
+                return HandleLockOp(req.Body, LockOp.Promote);
 
             case ("POST", "/locks/save"):
                 if (!req.IsLoopback) return Forbidden();
@@ -96,8 +114,10 @@ public sealed class ConfigApi
         }
     }
 
-    /// <summary>POST /locks/lock 與 /locks/unlock 共用（body 同格式；語意同 stdin lock / unlock）。</summary>
-    WebSocketHub.ApiResponse HandleLockOp(string body, bool unlock)
+    enum LockOp { Lock, Unlock, Promote }
+
+    /// <summary>POST /locks/lock、/locks/unlock、/locks/promote 共用（body 同格式 {face,col,row}）。</summary>
+    WebSocketHub.ApiResponse HandleLockOp(string body, LockOp op)
     {
         int face, col, row;
         try
@@ -113,8 +133,18 @@ public sealed class ConfigApi
             return Result("400 Bad Request", false, $"body 需為 {{\"face\":N,\"col\":N,\"row\":N}}：{ex.Message}");
         }
 
-        var msg = unlock ? _host.UnlockCell(face, col, row) : _host.LockCell(face, col, row);
-        return Result("200 OK", msg.StartsWith(unlock ? "已解鎖" : "已鎖定"), msg);
+        switch (op)
+        {
+            case LockOp.Promote:
+                var (ok, message) = _host.PromoteLock(face, col, row);
+                return Result("200 OK", ok, message);
+            case LockOp.Unlock:
+                var unlockMsg = _host.UnlockCell(face, col, row);
+                return Result("200 OK", unlockMsg.StartsWith("已解鎖"), unlockMsg);
+            default:
+                var lockMsg = _host.LockCell(face, col, row);
+                return Result("200 OK", lockMsg.StartsWith("已鎖定"), lockMsg);
+        }
     }
 
     /// <summary>POST /command：body {"cmd":"..."} → {"output":"..."}（CommandProcessor 與 stdin 共用）。</summary>

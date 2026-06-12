@@ -100,6 +100,19 @@
   #aliveList div { white-space: nowrap; }
   #aliveList .age { color: var(--move); }
 
+  /* ── 監控 tab：捕捉噪訊 + 臨時鎖（v9）──────────────────────────────────── */
+  #ncWrap { max-height: 200px; overflow-y: auto; margin-top: 6px; }
+  #ncWrap table.locks td, #ncWrap table.locks th { padding: 2px 6px; font-size: 12px; }
+  #ncStatus.counting { color: var(--move); }
+  #ncStatus.done { color: var(--ok); }
+  #stagedList { max-height: 220px; overflow-y: auto; font-size: 12px; }
+  .stagedItem { border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .stagedItem .ops { margin-top: 2px; display: flex; gap: 6px; }
+  .actHot { color: var(--down); font-weight: 600; }
+  .actQuiet { color: var(--ok); }
+  .btn.danger { background: #8b2020; }
+  .btn.danger.confirm { background: var(--down); color: #fff; font-weight: 700; }
+
   /* ── 診斷 tab ───────────────────────────────────────────────────────────── */
   #tab-diag { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
   .score-hi  { color: var(--down); font-weight: 700; }
@@ -193,6 +206,7 @@
         <span><i class="dot" style="background:var(--move)"></i>move</span>
         <span><i class="dot" style="background:var(--up)"></i>up（淡出）</span>
         <span><i class="dot" style="background:#8b2020;border-radius:2px"></i>鎖定晶片</span>
+        <span><i class="dot" style="background:#ffa626;border-radius:2px"></i>捕捉到的格</span>
       </div>
     </section>
     <section>
@@ -208,6 +222,40 @@
     <section>
       <h2>活躍觸點（id / face / cell / px / 存活）</h2>
       <div id="aliveList"><span class="hint">（無）</span></div>
+    </section>
+    <section>
+      <h2>捕捉噪訊（清場後按一下）</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="btnNoiseCap">捕捉噪訊</button>
+        <span id="ncStatus" class="hint"></span>
+      </div>
+      <div class="hint" style="margin-top:2px">
+        把「剛剛在觸發的格子」（回頭窗）＋接下來觸發的格子（前向倒數）全列出來——
+        確認清單後一鍵臨時鎖定，再觀察下方「鎖後活動」決定要不要轉正式。
+      </div>
+      <div id="ncWrap" style="display:none">
+        <table class="locks" id="ncTable">
+          <thead><tr>
+            <th><input type="checkbox" id="ncAll" checked title="全選 / 全不選"></th>
+            <th>face</th><th>cell</th><th>窗內次數</th><th>score</th>
+          </tr></thead>
+          <tbody id="ncBody"></tbody>
+        </table>
+        <div style="display:flex;gap:6px;margin:4px 0">
+          <button class="btn" id="btnNcLock">臨時鎖定勾選格</button>
+          <button class="btn minor" id="btnNcClear">清除</button>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h2>臨時鎖（未保存——重啟即消失）</h2>
+      <div id="stagedList"><span class="hint">（無臨時鎖）</span></div>
+      <div id="stagedOps" style="display:none;gap:6px;margin-top:4px">
+        <button class="btn minor" id="btnStagedSaveAll">全部轉正式並保存</button>
+        <button class="btn minor" id="btnStagedUnlockAll">全部解除</button>
+      </div>
+      <div id="stagedMsg" class="hint"></div>
+      <div id="savedSummary" class="hint"></div>
     </section>
     <h2 style="padding:10px 14px 0">事件流</h2>
     <ul id="eventLog"></ul>
@@ -293,12 +341,19 @@
       <legend>鎖定晶片</legend>
       <div id="locksEmpty" class="hint">（無鎖定。鎖定清單由 WS 即時推送——尚未連線時請先按上方「連線」）</div>
       <table class="locks" id="locksTable" style="display:none">
-        <thead><tr><th>face</th><th>cell</th><th>來源</th><th>封包數</th><th></th></tr></thead>
+        <thead><tr><th>face</th><th>cell</th><th>來源</th><th>封包數</th><th>狀態</th><th>鎖後活動</th><th></th></tr></thead>
         <tbody id="locksBody"></tbody>
       </table>
       <div class="row">
         <button class="btn minor" id="btnSaveLocks">鎖定寫回 config（savelocks）</button>
+        <button class="btn minor danger" id="btnUnlockAll">解鎖全部</button>
         <span id="locksResult" class="hint"></span>
+      </div>
+      <div class="hint">
+        「狀態」：<b>已保存</b> = 在 config.json 裡（重啟仍鎖定）；<b>未保存</b> = 臨時鎖（runtime，重啟即消失）。
+        「鎖後活動」：鎖定那一刻之後該格又發了幾包——仍在發 = 噪訊鐵證、安靜 = 可能誤鎖。<br>
+        「解鎖全部」清空當前全部鎖定（含 config 來的與臨時的），<b>不會自動寫入 config</b>——
+        要永久生效請再按「鎖定寫回 config」；重啟會回到 config 的鎖定清單。
       </div>
     </fieldset>
 
@@ -328,6 +383,8 @@
         （同格反覆觸發、無鄰近連動、長時間常駐叫——間歇型噪訊晶片的典型樣貌）。
         分數只用來排序，<b>不會自動鎖</b>：營運中有真人在踩，誤鎖比漏鎖傷，鎖定請人工確認後按「鎖定」。
         歷史為運行期統計、重啟歸零（刻意設計——可疑晶片會很快重新冒上排行）。
+        <b>已鎖定的格子不列入排行</b>——鎖後活動（鎖了之後還在不在發包）看監控 tab 的
+        臨時鎖區或設定 tab 的鎖定清單。
       </div>
       <div id="histStatus" class="hint">（尚未載入）</div>
       <table class="locks" id="histTable" style="display:none">
@@ -500,6 +557,7 @@ const state = {
   config: null,           // GET /config 的目前生效值
   faces: null,            // /venue 或 hello 的 faces（設定頁下拉用）
   monitors: [],           // GET /monitors
+  captureCells: [],       // 捕捉噪訊：窗內觸發過的格（venue map 橘色高亮）
 };
 const FADE_MS = 600;
 
@@ -727,6 +785,19 @@ function draw() {
     ctx.stroke();
   }
 
+  // 捕捉噪訊：窗內觸發過的格（橘色高亮——捕捉中即時累積、結果清單清除前持續顯示）
+  for (const c of state.captureCells) {
+    const f = v.faces[c.face];
+    if (!f) continue;
+    const x = X(f.originX + c.col * f.cellW);
+    const y = Y(f.originY + c.row * f.cellH);
+    ctx.fillStyle = "rgba(255,166,38,0.45)";
+    ctx.fillRect(x, y, f.cellW * s, f.cellH * s);
+    ctx.strokeStyle = "rgba(255,166,38,0.95)";
+    ctx.lineWidth = Math.max(devicePixelRatio, 1.5 * s);
+    ctx.strokeRect(x, y, f.cellW * s, f.cellH * s);
+  }
+
   // 觸點：down 紅 / move 黃 / up 淡出
   const r = Math.max(5 * devicePixelRatio, 24 * s);
   ctx.textAlign = "center";
@@ -792,6 +863,240 @@ setInterval(() => {
     $("stAutoLock").style.color = "";
   }
 }, 250);
+
+// ── 捕捉噪訊（v9）：清場後一鍵把「剛剛在觸發 + 接下來觸發」的格子收進清單 ────
+//
+// 純前端輪詢既有 GET /history（無後端 session）：
+//   按下 → GET /config 取窗參數（noiseCapture，config 可調）→ baseline /history
+//   → 回頭窗：lastTriggerAgoMs ≤ lookback 或 active 的格直接入清單（窗內次數從 1 起算）
+//   → 前向窗：每秒輪詢 /history，total 對 baseline 的差 = 窗內新觸發次數
+//   → 倒數結束列清單（預設全勾）→「臨時鎖定」批次 POST /locks/lock（manual 來源）
+// 已鎖格不會出現（/history 排行已排除）。捕捉只讀 API，誰都能跑；鎖定僅限本機。
+const nc = {
+  running: false,
+  baseline: new Map(),   // key → 捕捉起點的 total（delta 基準）
+  items: new Map(),      // key → {face,col,row,base,count,score,checked}
+  endAt: 0,
+  timer: null,
+  look: 5, cap: 10,      // GET /config noiseCapture（fallback 預設）
+};
+const ncKey = (f, c, r) => `${f}:${c}:${r}`;
+
+async function ncFetchCells() {
+  const r = await fetchJson("/history?top=500");
+  if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+  return r.body.cells || [];
+}
+
+function ncSetStatus(text, cls) {
+  const el = $("ncStatus");
+  el.textContent = text;
+  el.className = cls || "hint";
+}
+
+$("btnNoiseCap").onclick = async () => {
+  if (nc.running) return;
+  nc.running = true;
+  $("btnNoiseCap").disabled = true;
+  nc.items.clear();
+  nc.baseline.clear();
+  ncSetStatus("讀取基準…", "hint");
+  try {
+    const cfg = await fetchJson("/config");   // 窗參數 config 可調（noiseCapture）
+    nc.look = cfg.body?.noiseCapture?.lookbackSeconds ?? 5;
+    nc.cap = cfg.body?.noiseCapture?.captureSeconds ?? 10;
+
+    for (const c of await ncFetchCells()) {
+      if (c.locked) continue;   // 已鎖格不重複捕捉（排行已排除，防衛性再濾一次）
+      const k = ncKey(c.face, c.cell[0], c.cell[1]);
+      nc.baseline.set(k, c.total);
+      // 回頭窗：剛剛在觸發（或此刻還在叫）的格子直接入清單
+      if (c.active || c.lastTriggerAgoMs <= nc.look * 1000)
+        nc.items.set(k, { face: c.face, col: c.cell[0], row: c.cell[1],
+                          base: 1, count: 1, score: c.score, checked: true });
+    }
+  } catch (e) {
+    ncSetStatus("讀取失敗：" + e.message + "（服務沒起來？）", "hint");
+    nc.running = false;
+    $("btnNoiseCap").disabled = false;
+    return;
+  }
+  nc.endAt = Date.now() + nc.cap * 1000;
+  ncRender(false);
+  nc.timer = setInterval(ncPoll, 1000);
+};
+
+async function ncPoll() {
+  try {
+    for (const c of await ncFetchCells()) {
+      if (c.locked) continue;
+      const k = ncKey(c.face, c.cell[0], c.cell[1]);
+      const delta = c.total - (nc.baseline.get(k) ?? 0);
+      const ex = nc.items.get(k);
+      if (ex) {
+        ex.count = ex.base + Math.max(0, delta);
+        ex.score = c.score;
+      } else if (delta > 0) {
+        nc.items.set(k, { face: c.face, col: c.cell[0], row: c.cell[1],
+                          base: 0, count: delta, score: c.score, checked: true });
+      }
+    }
+  } catch { /* 單次輪詢失敗：下一秒再試 */ }
+
+  if (Date.now() >= nc.endAt) {
+    clearInterval(nc.timer);
+    nc.timer = null;
+    nc.running = false;
+    $("btnNoiseCap").disabled = false;
+    ncRender(true);
+  } else {
+    ncRender(false);
+  }
+}
+
+function ncRender(finished) {
+  state.captureCells = [...nc.items.values()];   // venue map 橘色高亮
+
+  if (!finished) {
+    const remain = Math.max(0, Math.ceil((nc.endAt - Date.now()) / 1000));
+    ncSetStatus(`捕捉中… 剩 ${remain} 秒（已捕捉 ${nc.items.size} 格）`, "counting");
+  } else if (nc.items.size === 0) {
+    ncSetStatus(`窗內無觸發（回頭 ${nc.look}s + 前向 ${nc.cap}s）——此刻沒有正在發作的噪訊`, "hint");
+    $("ncWrap").style.display = "none";
+    return;
+  } else {
+    ncSetStatus(`捕捉完成：${nc.items.size} 格。確認清單（可取消勾選）後按「臨時鎖定」`, "done");
+  }
+
+  $("ncWrap").style.display = nc.items.size ? "block" : "none";
+  const tbody = $("ncBody");
+  tbody.innerHTML = "";
+  for (const [k, it] of nc.items) {
+    const faceName = state.faces?.find(f => f.index === it.face)?.name ?? "";
+    const tr = document.createElement("tr");
+    const tdCb = document.createElement("td");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = it.checked;
+    cb.onchange = () => { it.checked = cb.checked; };
+    tdCb.appendChild(cb);
+    tr.appendChild(tdCb);
+    tr.insertAdjacentHTML("beforeend",
+      `<td>${it.face} ${faceName}</td><td>(${it.col},${it.row})</td>` +
+      `<td>${it.count}</td><td>${it.score ?? "-"}</td>`);
+    tbody.appendChild(tr);
+  }
+}
+
+$("ncAll").onchange = () => {
+  for (const it of nc.items.values()) it.checked = $("ncAll").checked;
+  ncRender(!nc.running);
+};
+
+$("btnNcClear").onclick = () => {
+  if (nc.timer) { clearInterval(nc.timer); nc.timer = null; }
+  nc.running = false;
+  $("btnNoiseCap").disabled = false;
+  nc.items.clear();
+  state.captureCells = [];
+  $("ncWrap").style.display = "none";
+  ncSetStatus("", "hint");
+};
+
+$("btnNcLock").onclick = async () => {
+  const picked = [...nc.items.entries()].filter(([, it]) => it.checked);
+  if (!picked.length) { ncSetStatus("沒有勾選任何格", "hint"); return; }
+  $("btnNcLock").disabled = true;
+  let ok = 0, fail = 0;
+  for (const [k, it] of picked) {
+    const r = await postLockOp("/locks/lock", { face: it.face, cell: [it.col, it.row] });
+    if (r.ok && r.body?.ok) { ok++; nc.items.delete(k); }
+    else fail++;
+  }
+  $("btnNcLock").disabled = false;
+  state.captureCells = [...nc.items.values()];
+  ncRender(true);
+  ncSetStatus(`已臨時鎖定 ${ok} 格${fail ? `（${fail} 格失敗）` : ""}——在下方「臨時鎖」區觀察鎖後活動`, "done");
+  refreshLocksDetail();   // 立即刷新臨時鎖區（WS push 也會到，雙保險）
+};
+gateLockButton($("btnNcLock"));
+
+// ── 臨時鎖區（v9）：未保存鎖 + 鎖後活動指標；轉正式 / 解除 ──────────────────
+function renderStaged() {
+  const staged = state.locks.filter(l => !l.saved);
+  const saved = state.locks.filter(l => l.saved);
+  $("savedSummary").textContent =
+    saved.length ? `另有已保存（config）${saved.length} 格——完整清單在「設定」tab` : "";
+  $("stagedOps").style.display = staged.length ? "flex" : "none";
+
+  const box = $("stagedList");
+  if (!staged.length) {
+    box.innerHTML = '<span class="hint">（無臨時鎖——「捕捉噪訊」或診斷 tab 鎖定的格子會先進這裡觀察）</span>';
+    return;
+  }
+  box.innerHTML = "";
+  for (const l of staged) {
+    const div = document.createElement("div");
+    div.className = "stagedItem";
+    const act = l.droppedSinceLock > 0
+      ? `<span class="actHot">鎖後 ${l.droppedSinceLock} 包 / 最後 ${fmtAgo(l.lastDropAgoMs ?? 0)}（仍在發＝噪訊鐵證）</span>`
+      : `<span class="actQuiet">鎖後安靜（可能誤鎖——考慮解除）</span>`;
+    div.innerHTML =
+      `<div>f${l.face} (${l.cell[0]},${l.cell[1]}) ` +
+      `<span class="hint">${l.source} · 鎖於 ${fmtAgo(l.lockedAgoMs ?? 0)}</span></div>` +
+      `<div>${act}</div>`;
+    const ops = document.createElement("div");
+    ops.className = "ops";
+    const mk = (text, fn) => {
+      const b = document.createElement("button");
+      b.className = "btn minor";
+      b.textContent = text;
+      gateLockButton(b);
+      b.onclick = fn;
+      ops.appendChild(b);
+    };
+    mk("轉正式並保存", async () => {
+      const r = await postLockOp("/locks/promote", l);
+      $("stagedMsg").textContent = r.body?.message || `HTTP ${r.status}`;
+    });
+    mk("解除", async () => {
+      const r = await postLockOp("/locks/unlock", l);
+      $("stagedMsg").textContent = r.body?.message || `HTTP ${r.status}`;
+    });
+    div.appendChild(ops);
+    box.appendChild(div);
+  }
+}
+
+$("btnStagedSaveAll").onclick = async () => {
+  const r = await fetchJson("/locks/save", { method: "POST" });
+  $("stagedMsg").textContent = r.body?.message || `HTTP ${r.status}`;
+};
+$("btnStagedUnlockAll").onclick = async () => {
+  const staged = state.locks.filter(l => !l.saved);
+  let ok = 0;
+  for (const l of staged) {
+    const r = await postLockOp("/locks/unlock", l);
+    if (r.ok && r.body?.ok) ok++;
+  }
+  $("stagedMsg").textContent = `已解除 ${ok} 格臨時鎖（config 來源的鎖不動）`;
+};
+gateLockButton($("btnStagedSaveAll"));
+gateLockButton($("btnStagedUnlockAll"));
+
+// 鎖後活動是即時數據：locks push 只在變動時來——監控 tab 可見且有臨時鎖
+// （或捕捉中）時每 2 秒輪詢 GET /locks 刷新
+async function refreshLocksDetail() {
+  const r = await fetchJson("/locks");
+  if (r.ok && r.body?.cells) {
+    state.locks = r.body.cells;
+    renderLocksTable();   // 內含 renderStaged()
+  }
+}
+setInterval(() => {
+  if ($("tab-monitor").style.display === "none") return;
+  if (nc.running || state.locks.some(l => l.saved === false)) refreshLocksDetail();
+}, 2000);
 
 // ── 設定 tab ─────────────────────────────────────────────────────────────────
 
@@ -955,11 +1260,21 @@ $("btnApply").onclick = async () => {
   }
 };
 
-// ── 鎖定清單（吃既有 locks push；每列 unlock + savelocks）────────────────────
+// ── 鎖定清單（吃既有 locks push + GET /locks 輪詢；每列 unlock + savelocks）──
+// v9：payload 多了 saved（已保存 = config 來源）與鎖後活動（droppedSinceLock /
+// lastDropAgoMs）——設定 tab 表格顯示全部、監控 tab 臨時鎖區只列未保存的。
+function fmtLockActivity(l) {
+  if (l.droppedSinceLock == null) return "-";   // 舊 payload 相容
+  return l.droppedSinceLock > 0
+    ? `${l.droppedSinceLock} 包 / ${fmtAgo(l.lastDropAgoMs ?? 0)}`
+    : "鎖後安靜";
+}
+
 function renderLocksTable() {
   const has = state.locks.length > 0;
   $("locksEmpty").style.display = has ? "none" : "block";
   $("locksTable").style.display = has ? "table" : "none";
+  renderStaged();   // 監控 tab 臨時鎖區與設定 tab 表格同源
   if (!has) return;
 
   const tbody = $("locksBody");
@@ -969,17 +1284,15 @@ function renderLocksTable() {
     const tr = document.createElement("tr");
     tr.innerHTML =
       `<td>${l.face} ${faceName}</td><td>(${l.cell[0]},${l.cell[1]})</td>` +
-      `<td>${l.source}</td><td>${l.source === "auto" ? l.packets : "-"}</td>`;
+      `<td>${l.source}</td><td>${l.source === "auto" ? l.packets : "-"}</td>` +
+      `<td>${l.saved ? "已保存" : "<b>未保存</b>"}</td>` +
+      `<td>${fmtLockActivity(l)}</td>`;
     const td = document.createElement("td");
     const btn = document.createElement("button");
     btn.className = "btn minor";
     btn.textContent = "解鎖";
     btn.onclick = async () => {
-      const r = await fetchJson("/locks/unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ face: l.face, col: l.cell[0], row: l.cell[1] }),
-      });
+      const r = await postLockOp("/locks/unlock", l);
       $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
       // 清單更新走 WS locks push；沒連 WS 時手動補抓不到——提示連線
       if (!state.ws) $("locksResult").textContent += "（未連 WS，清單不會即時更新）";
@@ -990,10 +1303,43 @@ function renderLocksTable() {
   }
 }
 
+function postLockOp(path, l) {
+  return fetchJson(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ face: l.face, col: l.cell[0], row: l.cell[1] }),
+  });
+}
+
 $("btnSaveLocks").onclick = async () => {
   const r = await fetchJson("/locks/save", { method: "POST" });
   $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
 };
+
+// 解鎖全部：破壞性操作 → 兩段式按鈕（第一下變紅要求確認、5 秒沒按第二下自動還原）
+let unlockAllArmed = null;
+$("btnUnlockAll").onclick = async () => {
+  const btn = $("btnUnlockAll");
+  if (unlockAllArmed === null) {
+    unlockAllArmed = setTimeout(() => {
+      unlockAllArmed = null;
+      btn.classList.remove("confirm");
+      btn.textContent = "解鎖全部";
+    }, 5000);
+    btn.classList.add("confirm");
+    btn.textContent = `確定解鎖全部 ${state.locks.length} 格？（再按一次）`;
+    $("locksResult").textContent = "不會自動寫入 config——重啟會回到 config 的鎖定清單；要永久生效解鎖後再按「鎖定寫回 config」。";
+    return;
+  }
+  clearTimeout(unlockAllArmed);
+  unlockAllArmed = null;
+  btn.classList.remove("confirm");
+  btn.textContent = "解鎖全部";
+  const r = await fetchJson("/locks/unlockall", { method: "POST" });
+  $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
+  if (!state.ws) $("locksResult").textContent += "（未連 WS，清單不會即時更新）";
+};
+gateLockButton($("btnUnlockAll"));
 
 // ── 診斷 tab：疑似噪訊排行 + 手動鎖定 ───────────────────────────────────────
 

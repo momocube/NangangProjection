@@ -370,7 +370,7 @@ public class TriggerHistoryTests
     }
 
     [Fact]
-    public void pipeline_自檢窗內被抑制的觸發計入歷史_鎖定後停止累積但保留()
+    public void pipeline_自檢窗內被抑制的觸發計入歷史_鎖定後仍累積且退出排行()
     {
         using var h = new Harness(new AutoLockSelfCheck(0, 10, 10, minEpisodes: 3, releaseTimeoutMs: 170));
         var noisy = h.RouteOf(NoisyRaw);
@@ -391,12 +391,26 @@ public class TriggerHistoryTests
         h.Pipeline.Tick(10_001);
         Assert.True(h.Locks.IsLocked(noisy.Face, noisy.Col, noisy.Row));
 
-        // 鎖定後：觸發被 filter 擋掉、歷史不再累積（鎖定前的歷史保留）
+        // 鎖定後（v9）：觸發被 filter 擋掉不發布，但歷史**繼續累積**——
+        // 鎖後仍持續發包 = 鐵證噪訊；解鎖重新觀察時無斷層
         var before = Find(h.History, 11_000, noisy.Face, noisy.Col, noisy.Row);
         for (int i = 0; i < 5; i++) h.Send(NoisyRaw, 11_000 + i * 80);
         var after = Find(h.History, 12_000, noisy.Face, noisy.Col, noisy.Row);
-        Assert.Equal(before.TotalTouches, after.TotalTouches);
-        Assert.Equal(before.TotalActiveMs, after.TotalActiveMs);
+        Assert.Equal(before.TotalTouches + 1, after.TotalTouches);          // 連續 5 包 = 1 次偽觸發
+        Assert.Equal(before.TotalActiveMs + 4 * 80, after.TotalActiveMs);   // 活躍時長累進
+
+        // 鎖後活動同時記在 LockedCellFilter（GET /locks 的 droppedSinceLock / lastDropAgoMs 來源）
+        var lockEntry = h.Locks.Find(noisy.Face, noisy.Col, noisy.Row)!;
+        Assert.Equal(5, lockEntry.DroppedSinceLock);
+        Assert.Equal(11_000 + 4 * 80, lockEntry.LastDropMs);
+
+        // 排行（exclude = IsLocked）：已鎖格不列入（歷史本體仍在，鎖後活動判讀走 locks）
+        Assert.DoesNotContain(
+            h.History.Snapshot(12_000, 0, h.Locks.IsLocked),
+            e => e.Face == noisy.Face && e.Col == noisy.Col && e.Row == noisy.Row);
+        Assert.Contains(
+            h.History.Snapshot(12_000, 0),   // 不帶 exclude：歷史本體查得到
+            e => e.Face == noisy.Face && e.Col == noisy.Col && e.Row == noisy.Row);
 
         // 合法 cell 窗後照常累積（down 由 tracker 走正常生命週期）
         h.Send(LegitRaw, 12_000);
