@@ -1,0 +1,15 @@
+{
+  "venue": "stage",
+  "canvas": { "width": 2048, "height": 768 },
+  "faces": [
+    {
+      "name": "Stage",
+      "originX": 0, "originY": 0,
+      "orientation": "horizontal",
+      "colCount": 128, "rowCount": 24,
+      "rawMinX": 1928, "rawMaxX": 3960,
+      "rawMinY": 16,   "rawMaxY": 752,
+      "flipX": false, "flipY": false
+    }
+  ]
+}

@@ -128,6 +128,27 @@ rawMaxY = originY + (rowCount-1)×cellH + halfCellH
 
 > 7 面共 14,272 顆晶片（20×128 + 44×40 + 44×128 + 44×40 + 20×80 + 20×32 + 20×16）。
 
+## 舞台 2048×768 單面對照（2026-04-08 已校正、與 venues/stage.json 一致）
+
+| face idx | name | origin | 格數 | rawMinX | rawMaxX | rawMinY | rawMaxY |
+|---|---|---|---|---|---|---|---|
+| 0 | Stage | 0,0 | 128×24 | 1928 | 3960 | 16 | 752 |
+
+> 單面共 3,072 顆晶片（128×24）；**orientation = horizontal**（每格 16×32 px），跟 704 全 vertical 不同。
+> 校正值直接從 Unity `Assets/_Script/Core/Setting/2048x768/Face_ALL.asset` 對應過來（rawMin/Max 全部符合 +1920 offset 公式）。
+
+## 切換場域（兩場域共用同個 TouchService）
+
+兩個場域共用同個 binary，差別只在 `config.json` 的 `venueProfile` 指哪一個 venue 檔：
+
+| 場地 | 設定 |
+|---|---|
+| 光域 704 | `"venueProfile": "venues/704.json"` |
+| 舞台 2048×768 | `"venueProfile": "venues/stage.json"` |
+
+改 config.json 後**重啟 TouchService 生效**（venue profile 在啟動時讀一次、不熱重載）。
+托盤右鍵「結束服務」→ 重開 `TouchService.exe`。
+
 ## flip 設定原則
 
 - flip 描述感應器物理方向是否與畫布方向相反
