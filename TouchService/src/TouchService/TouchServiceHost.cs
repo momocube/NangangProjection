@@ -50,6 +50,21 @@ public sealed class TouchServiceHost : IDisposable
 
     public void RequestShutdown() => ShutdownRequested?.Invoke();
 
+    /// <summary>
+    /// UI 送出的切換 venue 請求(POST /venue/switch)。參數是 relative path 例如 "venues/stage.json"。
+    /// Program 掛此 event 執行重啟流程。
+    /// </summary>
+    public event Action<string>? VenueSwitchRequested;
+
+    public void RequestVenueSwitch(string relPath) => VenueSwitchRequested?.Invoke(relPath);
+
+    /// <summary>掃 baseDir/venues 得所有可用 venue。testpage 下拉選單 / API GET /venues 用。</summary>
+    public IReadOnlyList<VenueEntry> ListAvailableVenues()
+        => VenueProfile.DiscoverAll(Path.Combine(BaseDir, "venues"));
+
+    /// <summary>當前 config.venueProfile(相對路徑)。方便 UI 標示「目前生效」。</summary>
+    public string CurrentVenueRelPath => _config.VenueProfile;
+
     /// <summary>runtime 鎖定黑名單（config + auto + manual 共用同一個過濾器）。</summary>
     public LockedCellFilter Locks { get; private set; } = LockedCellFilter.Empty;
 

@@ -9,6 +9,9 @@ public sealed class CanvasSize
     public int Height { get; set; }
 }
 
+/// <summary>掃 venues/ 資料夾時,每個可用 profile 的輕量描述:相對路徑 + 顯示名稱。</summary>
+public sealed record VenueEntry(string RelativePath, string VenueName);
+
 /// <summary>
 /// 場域 profile：畫布尺寸 + 感應面清單。
 /// 對應 Unity 的 VenuePresetConfig + DisplayCanvasConfig + SensorFaceConfig[] 三個 ScriptableObject，
@@ -42,5 +45,32 @@ public sealed class VenueProfile
             throw new InvalidDataException($"venue profile 沒有任何感應面：{path}");
 
         return profile;
+    }
+
+    /// <summary>
+    /// 掃 venuesDir 內所有 *.json,回傳可用 venue 清單。壞檔靜默跳過(不擋整體)。
+    /// RelativePath 統一用 "venues/&lt;name&gt;.json" 格式(跟 ServiceConfig 預設值一致)。
+    /// venuesDir 不存在或空時回空清單。
+    /// </summary>
+    public static IReadOnlyList<VenueEntry> DiscoverAll(string venuesDir)
+    {
+        if (!Directory.Exists(venuesDir)) return Array.Empty<VenueEntry>();
+
+        var list = new List<VenueEntry>();
+        foreach (var file in Directory.EnumerateFiles(venuesDir, "*.json").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var p = Load(file);
+                var name = string.IsNullOrWhiteSpace(p.Venue) ? Path.GetFileNameWithoutExtension(file) : p.Venue;
+                var rel = "venues/" + Path.GetFileName(file);
+                list.Add(new VenueEntry(rel, name));
+            }
+            catch
+            {
+                // 壞 JSON / 缺欄位:跳過該檔,不擋其他項目
+            }
+        }
+        return list;
     }
 }

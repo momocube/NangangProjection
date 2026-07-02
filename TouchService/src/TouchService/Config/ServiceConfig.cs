@@ -265,4 +265,10 @@ public sealed class ServiceConfig
         cfg.Ui ??= new UiConfig();                          // "ui": null 容錯
         return cfg;
     }
+
+    /// <summary>整份 config 序列化寫回。用於托盤切 venue 後持久化。</summary>
+    public static void Save(string path, ServiceConfig config)
+    {
+        File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
+    }
 }

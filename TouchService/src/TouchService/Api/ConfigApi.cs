@@ -109,9 +109,58 @@ public sealed class ConfigApi
                 var (saveOk, saveMessage) = _host.SaveCalibration(req.Body);
                 return Result(saveOk ? "200 OK" : "400 Bad Request", saveOk, saveMessage);
 
+            // ── Venue 切換(UI 網頁下拉+按鈕觸發;僅 loopback)──────────────
+            case ("GET", "/venues"):
+                return WebSocketHub.ApiResponse.Json("200 OK", BuildVenuesJson());
+
+            case ("POST", "/venue/switch"):
+                if (!req.IsLoopback) return Forbidden();
+                return HandleVenueSwitch(req.Body);
+
             default:
                 return null;   // 不歸 API 管 → hub 回 404
         }
+    }
+
+    string BuildVenuesJson()
+    {
+        var venues = _host.ListAvailableVenues();
+        var current = _host.CurrentVenueRelPath;
+        var items = venues.Select(v => new
+        {
+            path = v.RelativePath,
+            name = v.VenueName,
+            current = string.Equals(v.RelativePath, current, StringComparison.OrdinalIgnoreCase),
+        }).ToArray();
+        return JsonSerializer.Serialize(new { currentPath = current, venues = items }, ResultJsonOptions);
+    }
+
+    WebSocketHub.ApiResponse HandleVenueSwitch(string body)
+    {
+        string? path;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            path = doc.RootElement.GetProperty("path").GetString();
+        }
+        catch (Exception ex)
+        {
+            return Result("400 Bad Request", false, $"body 需為 {{\"path\":\"venues/xxx.json\"}}:{ex.Message}");
+        }
+        if (string.IsNullOrWhiteSpace(path))
+            return Result("400 Bad Request", false, "path 不可為空");
+
+        // 只接受掃到的清單裡的 relative path,擋 path traversal
+        var venues = _host.ListAvailableVenues();
+        var match = venues.FirstOrDefault(v => string.Equals(v.RelativePath, path, StringComparison.OrdinalIgnoreCase));
+        if (match == null)
+            return Result("400 Bad Request", false, $"venue 不存在或不合法:{path}");
+
+        if (string.Equals(match.RelativePath, _host.CurrentVenueRelPath, StringComparison.OrdinalIgnoreCase))
+            return Result("200 OK", true, $"venue 已經是 {match.VenueName},不需切換");
+
+        _host.RequestVenueSwitch(match.RelativePath);
+        return Result("200 OK", true, $"已請求切換到 {match.VenueName}({match.RelativePath}),服務即將重啟…");
     }
 
     enum LockOp { Lock, Unlock, Promote }

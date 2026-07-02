@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using TouchService.Config;
+using TouchService.Core;
 using TouchService.Logging;
 using TouchService.Tray;
 using TouchService.Ui;
@@ -22,16 +24,21 @@ public static class Program
     {
         // config 路徑：--config <path> 或第一個位置參數；預設執行目錄下 config.json
         // --console：托盤化下保留 console 視窗（除錯用）
+        // --restart-delay-ms <n>:啟動前等 n ms(切 venue 重啟時舊 process 釋放 port 用)
         string configPath = "config.json";
         bool keepConsole = false;
+        int restartDelayMs = 0;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--config" && i + 1 < args.Length) configPath = args[i + 1];
             else if (args[i] == "--console") keepConsole = true;
+            else if (args[i] == "--restart-delay-ms" && i + 1 < args.Length && int.TryParse(args[i + 1], out var d)) restartDelayMs = d;
             else if (!args[i].StartsWith("--") && configPath == "config.json") configPath = args[i];
         }
         configPath = Path.GetFullPath(configPath);
         var baseDir = Path.GetDirectoryName(configPath)!;
+
+        if (restartDelayMs > 0) Thread.Sleep(restartDelayMs);
 
         bool created = !File.Exists(configPath);
         var config = ServiceConfig.LoadOrCreate(configPath);
@@ -63,6 +70,9 @@ public static class Program
         bool trayMode = OperatingSystem.IsWindows() && config.Ui.TrayEnabled;
         if (trayMode && !keepConsole)
             ConsoleWindowManager.Hide(log);
+        // UI 網頁「Venue 切換」按鈕 → POST /venue/switch → host raise VenueSwitchRequested
+        host.VenueSwitchRequested += relPath => DoSwitchVenue(relPath, config, configPath, log, host);
+
         using var tray = TrayHostFactory.Create(config, log,
             openUi: () => UiLauncher.Open(config, log),
             toggleConsole: () => ConsoleWindowManager.Toggle(log),
@@ -72,7 +82,9 @@ public static class Program
 
         // 啟動完成 → 自動開 UI（Windows + ui.autoLaunch；Edge app → Chrome app → 預設瀏覽器。
         // 失敗只 log 不擋服務；放在 Main 而非 host.Start 內——測試大量啟動 host，不該彈視窗）
-        UiLauncher.TryLaunch(config, log);
+        // Venue 切換重啟(restartDelayMs > 0)不再開新視窗:舊視窗還開著,WS 會自動重連套用新 venue
+        if (restartDelayMs <= 0) UiLauncher.TryLaunch(config, log);
+        else log.Info("[TouchService] venue 切換重啟,跳過自動開 UI(舊視窗會自動重連)");
 
         Console.WriteLine(Api.CommandProcessor.HelpText);
 
@@ -100,5 +112,48 @@ public static class Program
         quit.Wait();
         log.Info("[TouchService] 收到結束指令，關閉中…");
         return 0;
+    }
+
+    /// <summary>
+    /// UI 網頁按下「切換 venue」按鈕觸發(POST /venue/switch → host.VenueSwitchRequested):
+    /// 更新 config.venueProfile、寫回檔案、spawn 新 process(帶 --restart-delay-ms 500
+    /// 讓舊 process 完全釋放 port),然後 RequestShutdown 結束當前 process。
+    /// path 已由 ConfigApi 檢核在掃到的清單裡(擋 path traversal)。
+    /// </summary>
+    static void DoSwitchVenue(string relPath, ServiceConfig config, string configPath,
+                              FileLogger log, TouchServiceHost host)
+    {
+        log.Info($"[TouchService] 切換 venue → {relPath},重啟中…");
+        config.VenueProfile = relPath;
+        try
+        {
+            ServiceConfig.Save(configPath, config);
+        }
+        catch (Exception ex)
+        {
+            log.Error($"[TouchService] 寫回 config 失敗:{ex.Message}");
+            return;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = Environment.ProcessPath ?? throw new InvalidOperationException("Environment.ProcessPath 為 null"),
+                UseShellExecute = false,
+            };
+            psi.ArgumentList.Add("--config");
+            psi.ArgumentList.Add(configPath);
+            psi.ArgumentList.Add("--restart-delay-ms");
+            psi.ArgumentList.Add("500");
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            log.Error($"[TouchService] spawn 新 process 失敗:{ex.Message}");
+            return;
+        }
+
+        host.RequestShutdown();
     }
 }

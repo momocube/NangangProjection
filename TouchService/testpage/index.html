@@ -187,6 +187,9 @@
     <button id="tabBtnTerm">終端</button>
     <button id="tabBtnCalib">校正</button>
   </nav>
+  <label>場域 <select id="venueSel" title="切換 venue(切換會重啟服務)"><option>載入中…</option></select></label>
+  <button id="btnSwitchVenue" class="conn" style="background:#c47c2b" title="套用選擇的 venue 並重啟服務">切換</button>
+  <span id="venueSwitchState" style="color:var(--dim);min-width:0"></span>
   <label>WS 位址 <input id="wsUrl" value=""></label>
   <button id="btnConn" class="conn">連線</button>
   <span id="connState">未連線</span>
@@ -1941,8 +1944,69 @@ function enterCalib() {
   if (!state.ws) calRenderStep("⚠ 尚未連線 WS——先按上方「連線」（raw 訊號由 WS 推送）");
 }
 
+// ── Venue 切換(header 下拉+按鈕):GET /venues 填 select、POST /venue/switch 觸發重啟 ──
+async function refreshVenues() {
+  try {
+    const r = await fetchJson("/venues");
+    if (!r.ok || !r.body) { setVenueSwitchState("讀 venue 清單失敗", "err"); return; }
+    const sel = $("venueSel");
+    sel.innerHTML = "";
+    const venues = r.body.venues || [];
+    if (venues.length === 0) {
+      const o = document.createElement("option");
+      o.textContent = "(無 venue)"; o.disabled = true; sel.appendChild(o);
+      return;
+    }
+    for (const v of venues) {
+      const o = document.createElement("option");
+      o.value = v.path;
+      o.textContent = v.current ? `${v.name}  ✓ (當前)` : v.name;
+      if (v.current) o.selected = true;
+      sel.appendChild(o);
+    }
+  } catch (e) {
+    setVenueSwitchState("讀 venue 清單失敗: " + e.message, "err");
+  }
+}
+function setVenueSwitchState(text, cls) {
+  const el = $("venueSwitchState");
+  el.textContent = text;
+  el.style.color = cls === "err" ? "var(--down)"
+                 : cls === "ok"  ? "var(--ok)"
+                 : "var(--dim)";
+}
+$("btnSwitchVenue").onclick = async () => {
+  const path = $("venueSel").value;
+  if (!path) return;
+  if (!confirm(`切換 venue 到 ${path}?\n\n服務會重啟(~1 秒),WS 會斷線後自動重連。`)) return;
+  setVenueSwitchState("切換中…", "");
+  try {
+    const r = await fetchJson("/venue/switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    if (r.ok && r.body?.ok) {
+      setVenueSwitchState(r.body.message || "已請求切換,重啟中…", "ok");
+      // 服務 ~500ms 內重啟。先主動斷線(免得 onerror 閃紅),1.5s 後重連讀新 hello
+      if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
+      setConn("重啟中…", "");
+      setTimeout(() => {
+        connect();
+        refreshVenues();
+        setVenueSwitchState("已切換,連線中…", "ok");
+      }, 1500);
+    } else {
+      setVenueSwitchState((r.body?.message) || `切換失敗 ${r.status}`, "err");
+    }
+  } catch (e) {
+    setVenueSwitchState("切換失敗: " + e.message, "err");
+  }
+};
+
 // ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──
 if (location.protocol.startsWith("http")) connect();
+refreshVenues();
 </script>
 </body>
 </html>
