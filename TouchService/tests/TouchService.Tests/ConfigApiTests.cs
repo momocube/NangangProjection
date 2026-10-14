@@ -78,6 +78,7 @@ public class ConfigApiTests
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
             Assert.Equal("grid", root.GetProperty("touchMode").GetString());
+            Assert.True(root.GetProperty("interactionEnabled").GetBoolean());  // 舊 config 缺欄位時預設啟用
             Assert.Equal(190, root.GetProperty("releaseTimeoutMs").GetInt32());
             Assert.Equal(96, root.GetProperty("matchRadiusPx").GetSingle());
             Assert.False(root.GetProperty("autoLock").GetProperty("enabled").GetBoolean());
@@ -115,6 +116,7 @@ public class ConfigApiTests
             var (status, body) = await Post(host, "/config", """
                 {
                   "touchMode": "mouse",
+                  "interactionEnabled": false,
                   "releaseTimeoutMs": 220,
                   "matchRadiusPx": 120,
                   "mouseMode": {
@@ -136,6 +138,7 @@ public class ConfigApiTests
             {
                 var root = doc.RootElement;
                 Assert.Equal("mouse", root.GetProperty("touchMode").GetString());
+                Assert.False(root.GetProperty("interactionEnabled").GetBoolean());
                 Assert.Equal(220, root.GetProperty("releaseTimeoutMs").GetInt32());
                 Assert.Equal(120, root.GetProperty("matchRadiusPx").GetSingle());
                 var mm = root.GetProperty("mouseMode");
@@ -150,6 +153,7 @@ public class ConfigApiTests
             // 寫回 config.json：可 roundtrip、其他欄位（含未知欄位）原樣保留
             var reloaded = ServiceConfig.LoadOrCreate(configPath);
             Assert.Equal("mouse", reloaded.TouchMode);
+            Assert.False(reloaded.InteractionEnabled);
             Assert.Equal(220, reloaded.ReleaseTimeoutMs);
             Assert.Equal(new List<int> { 0, 4 }, reloaded.MouseMode.Faces);
             Assert.Equal(-1920, reloaded.MouseMode.Screen.X);
@@ -210,6 +214,7 @@ public class ConfigApiTests
 
     [Theory]
     [InlineData("""{ "touchMode": "banana" }""")]
+    [InlineData("""{ "interactionEnabled": "false" }""")]
     [InlineData("""{ "releaseTimeoutMs": 0 }""")]
     [InlineData("""{ "releaseTimeoutMs": "fast" }""")]
     [InlineData("""{ "matchRadiusPx": -5 }""")]
@@ -355,6 +360,61 @@ public class ConfigApiTests
 
     // Wall Left（face 0）raw 範圍內的點
     static readonly RawPoint WallRaw = new(2200, 1600);
+
+    [Fact]
+    public async Task 手動停用觸摸互動_放開現有滑鼠並保留鎖格過濾_重新啟用只接新訊號()
+    {
+        var (host, configPath, log, injector) = NewHost("""
+            {
+              "autoLock": { "enabled": false },
+              "touchMode": "mouse",
+              "releaseTimeoutMs": 60000,
+              "mouseMode": { "faces": [0] }
+            }
+            """);
+        using (host)
+        using (log)
+        {
+            var router = new TouchService.Core.SensorFaceRouter(host.Venue);
+            Assert.True(router.TryRoute(WallRaw.X, WallRaw.Y, out var first));
+            var otherWallRaw = new RawPoint(2400, 2200);
+            Assert.True(router.TryRoute(otherWallRaw.X, otherWallRaw.Y, out var other));
+            Assert.Equal(first.FaceIndex, other.FaceIndex);
+            Assert.NotEqual((first.Col, first.Row), (other.Col, other.Row));
+
+            host.Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { WallRaw }), 0);
+            Assert.Equal(1, host.Pipeline.ActiveTouches);
+            Assert.Equal("down", injector.Calls[^1]);
+
+            var (status, body) = await Post(host, "/config", """{ "interactionEnabled": false }""");
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.Contains("\"ok\":true", body);
+            Assert.Equal(0, host.Pipeline.ActiveTouches);
+            Assert.Equal("up", injector.Calls[^1]);  // 先清掉既有按住狀態
+            Assert.False(ServiceConfig.LoadOrCreate(configPath).InteractionEnabled);
+
+            // 停用期間仍可新增/累計鎖格；被鎖格不建立觸點，也不模擬滑鼠。
+            Assert.True(host.Locks.TryAdd(first.FaceIndex, first.Col, first.Row,
+                LockSource.Manual, nowMs: 100));
+            int callsAfterRelease = injector.Calls.Count;
+            host.Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { WallRaw }), 200);
+            Assert.Equal(callsAfterRelease, injector.Calls.Count);
+            var locked = Assert.Single(host.Locks.Snapshot());
+            Assert.Equal(1, locked.DroppedSinceLock);
+            Assert.Equal(0, host.Pipeline.ActiveTouches);
+
+            // 未鎖格在停用期間不會輸出；重新開啟後，只從新收到的封包建立互動。
+            host.Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { otherWallRaw }), 300);
+            Assert.Equal(callsAfterRelease, injector.Calls.Count);
+            Assert.True(host.History.TrackedCellCount >= 2); // 停用輸出時仍累積觸發歷史
+            (status, _) = await Post(host, "/config", """{ "interactionEnabled": true }""");
+            Assert.Equal(HttpStatusCode.OK, status);
+            host.Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { otherWallRaw }), 400);
+            Assert.Equal(1, host.Pipeline.ActiveTouches);
+            Assert.Equal("down", injector.Calls[^1]);
+            Assert.True(ServiceConfig.LoadOrCreate(configPath).InteractionEnabled);
+        }
+    }
 
     [Fact]
     public async Task touchMode熱切_按住中mouse轉grid_自動LeftUp()

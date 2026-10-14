@@ -192,7 +192,7 @@ public sealed class TouchServiceHost : IDisposable
 
         Pipeline = new TouchPipeline(
             router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, Locks, autoLock,
-            History, _calibration, NoiseCapture);
+            History, _calibration, NoiseCapture, _config.InteractionEnabled);
         Pipeline.AutoLockCompleted += _ => PushLocks();   // 自檢結束 → 通知所有 WS client 最新鎖定清單
 
         // 觸控模式（grid / mouse）：mouse 時掛 MouseDriver 為 typed 事件觀察者（額外 sink，發布照常）
@@ -474,6 +474,7 @@ public sealed class TouchServiceHost : IDisposable
             return JsonSerializer.Serialize(new
             {
                 touchMode = _config.TouchMode,
+                interactionEnabled = _config.InteractionEnabled,
                 mouseMode = new
                 {
                     faces = ResolveMouseFaces(),   // 已解析的啟用面（缺欄位時為預設：排除 Floor）
@@ -523,7 +524,7 @@ public sealed class TouchServiceHost : IDisposable
     /// <summary>
     /// POST /config：套用設定 patch（只動 body 有給的欄位）。
     /// 流程：解析 + **全部驗證通過才套用**（不留半套狀態）→ 熱套用 runtime
-    /// （touchMode / mouseMode.* / releaseTimeoutMs / matchRadiusPx 下個 touch 生效；
+    /// （interactionEnabled / touchMode / mouseMode.* / releaseTimeoutMs / matchRadiusPx 即時生效；
     /// autoLock 只寫回 config、下次啟動生效）→ 寫回 config.json（JsonNode 保留其他欄位）。
     /// </summary>
     public (bool Ok, string Message) ApplyConfigPatch(string json)
@@ -541,10 +542,13 @@ public sealed class TouchServiceHost : IDisposable
 
         lock (_configGate)
         {
-            if (NoiseCapture.IsRunning)
-                return (false, "清場掃描期間不能修改服務設定");
+            if (NoiseCapture.IsRunning &&
+                (patch.Count != 1 || !patch.ContainsKey("interactionEnabled")))
+                return (false, "清場掃描期間只能切換觸摸互動開關，不能修改其他服務設定");
             // ── 1. 以目前生效值為基底，套上 patch 的欄位（先全部驗證，全過才套用）──
             var errors = new List<string>();
+
+            bool interactionEnabled = ReadBool(patch, "interactionEnabled", _config.InteractionEnabled, errors);
 
             string touchMode = _config.TouchMode;
             if (TryReadString(patch, "touchMode", errors, out var tm))
@@ -648,6 +652,14 @@ public sealed class TouchServiceHost : IDisposable
                 return (false, string.Join("；", errors));
 
             // ── 2. 熱套用 runtime ────────────────────────────────────────────
+            bool wasInteractionEnabled = _config.InteractionEnabled;
+            if (wasInteractionEnabled && !interactionEnabled)
+            {
+                // 先關 pipeline 輸出，縮到最短感應執行緒仍可能送出觸摸事件的時間窗。
+                Pipeline.SetInteractionEnabled(false, _clock.ElapsedMilliseconds);
+                _mouseDriver?.ForceRelease();
+            }
+            _config.InteractionEnabled = interactionEnabled;
             _config.TouchMode = touchMode;
             _config.ReleaseTimeoutMs = releaseTimeout;
             _config.MatchRadiusPx = (float)matchRadius;
@@ -666,10 +678,12 @@ public sealed class TouchServiceHost : IDisposable
 
             Pipeline.UpdateTuning(_config.MatchRadiusPx, _config.ReleaseTimeoutMs);   // 下個 touch / flush 生效
             ApplyTouchModeLocked();   // mouse↔grid 熱切（grid 化時 owner 還按著會先 LEFTUP）
+            if (!wasInteractionEnabled && interactionEnabled)
+                Pipeline.SetInteractionEnabled(true, _clock.ElapsedMilliseconds);
 
             // ── 3. 寫回 config.json（保留其他欄位）──────────────────────────
             var persistError = PersistManagedFields();
-            _log.Info($"[Config] POST /config 已套用：touchMode={touchMode} " +
+            _log.Info($"[Config] POST /config 已套用：touchMode={touchMode} interactionEnabled={interactionEnabled} " +
                       $"releaseTimeout={releaseTimeout}ms matchRadius={matchRadius}px" +
                       (persistError == null ? "（已寫回 config.json）" : $"（寫回失敗：{persistError}）"));
 
@@ -680,7 +694,7 @@ public sealed class TouchServiceHost : IDisposable
     }
 
     /// <summary>
-    /// 把 API 管的欄位（touchMode / mouseMode / releaseTimeoutMs / matchRadiusPx / autoLock）
+    /// 把 API 管的欄位（interactionEnabled / touchMode / mouseMode / releaseTimeoutMs / matchRadiusPx / autoLock）
     /// 寫回 config.json——與 SaveLocks 同一套 JsonNode 機制：只換目標欄位，其他欄位
     /// （含未知欄位）原樣保留。回傳 null = 成功，否則錯誤訊息。持 _configGate 呼叫。
     /// </summary>
@@ -700,6 +714,7 @@ public sealed class TouchServiceHost : IDisposable
                 })!.AsObject();
 
             root["touchMode"] = _config.TouchMode;
+            root["interactionEnabled"] = _config.InteractionEnabled;
             root["releaseTimeoutMs"] = _config.ReleaseTimeoutMs;
             root["matchRadiusPx"] = _config.MatchRadiusPx;
             // faces 寫回解析後的清單（v6 schema；舊欄位 face 整個 mouseMode 物件替換時自然消失）。

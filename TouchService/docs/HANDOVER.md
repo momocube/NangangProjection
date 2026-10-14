@@ -5,8 +5,10 @@
 - 704 專案針對「場上無人仍會自行觸發的敏感格子」新增**手動開始／停止的清場掃描**：開始後逐格收集感應訊號、立即對首次出現的新格建立臨時鎖，並暫停遊戲／滑鼠互動輸出；停止後立即恢復互動、保留臨時鎖。
 - 收集點位於感應面路由成功、TouchTracker 合併之前，以 `(face, col, row)` 累積，故鄰近格輪流發訊不會 merge 漏抓。
 - 草稿沿用 `Diagnostics/NoiseCaptureJournal`，儲存於 config 旁的 state 目錄；服務重開後不自動恢復掃描、不自動套用臨時鎖，可在網頁查看並手動重新套用；正式保存（`save`）會寫回 config lockedCells，重啟後持續生效。
-- API：`GET /noise-capture`、`POST /noise-capture/start|stop|apply|undo|save|clear`（僅 loopback）；掃描中會擋下場域切換、config 修改與手動鎖定操作。
-- 尚未實機（704 現場）驗證；離場已通過建置與既有測試（283 項）。
+- API：`GET /noise-capture`、`POST /noise-capture/start|stop|apply|undo|save|clear`（僅 loopback）；掃描中會擋下場域切換、一般 config 修改與手動鎖定操作，但允許單獨切換互動開關。
+- **觸摸互動總開關**：管理頁頂端可即時停用/恢復所有下游觸摸事件（UDP JSON、WebSocket 觸摸 frame、滑鼠注入）；停用時仍收感應資料、統計鎖後活動、過濾已鎖格，未鎖格仍進觸發歷史排行，也可執行清場掃描。切換時送一次空 alive/離開事件，避免訂閱端殘點；重開服務沿用 config 中的 `interactionEnabled`（舊 config 缺欄位預設 true）。掃描中 `/config` 只允許單獨切此開關。
+- **間歇格鎖定判定**：清場掃描中第一次收到有效映射格即臨時鎖，不要求重複次數；只在無人空場掃描時使用。一般營運期間的排行分數不自動鎖；開機 autoLock 仍依 `minPackets` / `minEpisodes` 門檻。
+- 尚未實機（704 現場）驗證；2026-10-14 離場自動測試共 287 項通過。
 
 
 > 給接手同仁：這支服務把 CyberCube 光域場域的觸控訊號從 Unity 專案獨立出來，

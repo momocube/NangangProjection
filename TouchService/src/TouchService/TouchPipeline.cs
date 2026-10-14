@@ -55,6 +55,7 @@ public sealed class TouchPipeline : IDisposable
     readonly NoiseCaptureJournal? _noiseCapture;
     int _autoLockLastLoggedSec = int.MaxValue;
     ITouchEventObserver? _observer;   // 滑鼠模式 sink（null = grid，零開銷）；受 _gate 保護
+    bool _interactionEnabled = true;  // 受 _gate 保護；停用只閘住觸摸輸出，不停感應/鎖格處理
 
     // 熱路徑預分配 buffer（receive 執行緒 + timer 執行緒共用，受 _gate 保護）
     readonly List<RawPoint> _rawPoints = new(16);
@@ -79,7 +80,8 @@ public sealed class TouchPipeline : IDisposable
         AutoLockSelfCheck? autoLock = null,
         TriggerHistory? history = null,
         CalibrationStreamer? calibration = null,
-        NoiseCaptureJournal? noiseCapture = null)
+        NoiseCaptureJournal? noiseCapture = null,
+        bool interactionEnabled = true)
     {
         _router = router;
         _tracker = tracker;
@@ -93,6 +95,7 @@ public sealed class TouchPipeline : IDisposable
         _history = history;
         _calibration = calibration;
         _noiseCapture = noiseCapture;
+        _interactionEnabled = interactionEnabled;
     }
 
     /// <summary>
@@ -123,7 +126,33 @@ public sealed class TouchPipeline : IDisposable
 
     public int ActiveTouches { get { lock (_gate) return _tracker.ActiveCount; } }
 
+    public bool InteractionEnabled { get { lock (_gate) return _interactionEnabled; } }
+
     public bool NoiseCaptureActive => _noiseCapture?.IsRunning == true;
+
+    /// <summary>
+    /// 手動開關下游觸摸互動。關閉時先發布一次離開/空 alive 清除訂閱端殘留觸點，
+    /// 後續仍解析、映射、統計、執行鎖格與清場掃描，但不建立新的遊戲觸點。
+    /// </summary>
+    public void SetInteractionEnabled(bool enabled, long nowMs)
+    {
+        lock (_gate)
+        {
+            if (_interactionEnabled == enabled) return;
+
+            if (!enabled)
+            {
+                _events.Clear();
+                _tracker.ReleaseAll(_events);
+                for (int i = 0; i < _events.Count; i++) _stats.OnUp();
+                if (_events.Count > 0) _history?.OnEvents(_events, nowMs);
+                // 即使當下沒有追蹤觸點，也推一次空 alive，讓訂閱端清除任何失聯殘點。
+                PublishLocked(nowMs);
+            }
+
+            _interactionEnabled = enabled;
+        }
+    }
 
     /// <summary>進入清場模式：原子地結束作用中觸點、發布空 alive，再開始逐格捕捉。</summary>
     public (bool Ok, string Message, bool AlreadyRunning) StartNoiseCapture(string mode, long nowMs)
@@ -144,8 +173,8 @@ public sealed class TouchPipeline : IDisposable
                 for (int i = 0; i < _events.Count; i++) _stats.OnUp();
                 _history?.OnEvents(_events, nowMs);
             }
-            // 讓所有訂閱者立即收到空 alive；MouseDriver 同步處理 Up。
-            PublishLocked(nowMs);
+            // 開啟互動時清除所有訂閱端殘點；全域互動已停用時不再送觸摸 frame。
+            if (_interactionEnabled) PublishLocked(nowMs);
 
             var started = _noiseCapture.Start(mode);
             return (started.Ok, started.Message, started.AlreadyRunning);
@@ -282,6 +311,16 @@ public sealed class TouchPipeline : IDisposable
 
             if (routed == 0) return;
 
+            // 全域互動停用時仍把未鎖格記入診斷排行，便於觀察偶發訊號；
+            // 不建立 touch ID、不發布事件，避免重新開啟時補播停用期間的觸點。
+            if (!_interactionEnabled)
+            {
+                for (int i = 0; i < routed; i++)
+                    _history?.RecordSuppressed(in _routedBuf[i], nowMs);
+                _stats.OnProcessed((Stopwatch.GetTimestamp() - t0) * 1_000_000 / Stopwatch.Frequency);
+                return;
+            }
+
             // touch ID 追蹤（down / move）
             _events.Clear();
             _tracker.ProcessBatch(_routedBuf.AsSpan(0, routed), nowMs, _events);
@@ -327,20 +366,23 @@ public sealed class TouchPipeline : IDisposable
                 }
             }
 
-            _events.Clear();
-            _tracker.Flush(nowMs, _events);
+            if (_interactionEnabled)
+            {
+                _events.Clear();
+                _tracker.Flush(nowMs, _events);
 
-            if (_events.Count > 0)
-            {
-                for (int i = 0; i < _events.Count; i++) _stats.OnUp();
-                _history?.OnEvents(_events, nowMs);   // up：收斂存活時長進觸發歷史
-                LatencyProbe.Mark(LatencyProbe.EventType.FlushTick, _events.Count);
-                PublishLocked(nowMs);
-            }
-            else if (nowMs - _lastPublishMs >= _keepaliveIntervalMs)
-            {
-                // 每 1s 發全狀態 snapshot keepalive（events 空、alive 全清單）
-                PublishLocked(nowMs);
+                if (_events.Count > 0)
+                {
+                    for (int i = 0; i < _events.Count; i++) _stats.OnUp();
+                    _history?.OnEvents(_events, nowMs);   // up：收斂存活時長進觸發歷史
+                    LatencyProbe.Mark(LatencyProbe.EventType.FlushTick, _events.Count);
+                    PublishLocked(nowMs);
+                }
+                else if (nowMs - _lastPublishMs >= _keepaliveIntervalMs)
+                {
+                    // 每 1s 發全狀態 snapshot keepalive（events 空、alive 全清單）
+                    PublishLocked(nowMs);
+                }
             }
         }
 
@@ -380,7 +422,9 @@ public sealed class TouchPipeline : IDisposable
             var list = string.Join("、", below.Select(r => $"face={r.Face} cell=({r.Col},{r.Row}) {r.Packets} 包 / {r.Episodes} 段"));
             _log.Info($"[AutoLock] 另觀察到 {below.Count} 格未達門檻、不鎖：{list}");
         }
-        _log.Info("[AutoLock] 自檢窗結束，觸控事件發布恢復正常。");
+        _log.Info(_interactionEnabled
+            ? "[AutoLock] 自檢窗結束，觸控事件發布恢復正常。"
+            : "[AutoLock] 自檢窗結束；觸摸互動仍由手動開關停用。");
 
         AutoLockCompleted?.Invoke(toLock);
     }

@@ -35,6 +35,9 @@
     background: var(--accent); border: 0; color: #fff; border-radius: 4px;
     padding: 5px 14px; cursor: pointer; font: inherit;
   }
+  header button.interaction.on { background: #287342; }
+  header button.interaction.off { background: #8b2020; }
+  #interactionToggleStatus { color: var(--dim); max-width: 260px; }
   #connState { color: var(--dim); }
   #connState.ok { color: var(--ok); }
   #connState.err { color: var(--down); }
@@ -100,7 +103,7 @@
   #aliveList div { white-space: nowrap; }
   #aliveList .age { color: var(--move); }
 
-  /* ── 監控 tab：捕捉噪訊 + 臨時鎖（v9）──────────────────────────────────── */
+  /* ── 監控 tab：清場掃描 + 臨時鎖 ──────────────────────────────────────── */
   #ncWrap { max-height: 200px; overflow-y: auto; margin-top: 6px; }
   #ncWrap table.locks td, #ncWrap table.locks th { padding: 2px 6px; font-size: 12px; }
   #ncStatus.counting { color: var(--move); }
@@ -187,6 +190,8 @@
     <button id="tabBtnTerm">終端</button>
     <button id="tabBtnCalib">校正</button>
   </nav>
+  <button id="btnInteractionToggle" class="conn interaction" disabled title="停用時仍會接收感應並執行既有鎖格過濾">觸摸互動：讀取中</button>
+  <span id="interactionToggleStatus"></span>
   <label>場域 <select id="venueSel" title="切換 venue(切換會重啟服務)"><option>載入中…</option></select></label>
   <button id="btnSwitchVenue" class="conn" style="background:#c47c2b" title="套用選擇的 venue 並重啟服務">切換</button>
   <span id="venueSwitchState" style="color:var(--dim);min-width:0"></span>
@@ -229,7 +234,8 @@
     <section>
       <h2>清場掃描</h2>
       <div class="hint" style="margin:4px 0">
-        請先確認場上無人。掃描不限時；每個新格子第一次發訊就會立即臨時鎖定並暫停互動輸出。
+        請先確認場上無人。掃描不限時；每個收到的有效格子第一次發訊就會立即臨時鎖定並暫停互動輸出，包含偶爾才跳出的格子。
+        單純關閉觸摸互動不會自動新增鎖；不在清場掃描時，只有開機自檢達門檻才會自動鎖，診斷排行分數只排序、不會自動鎖。
         停止後立即恢復互動。已正式保存的鎖定仍會在重啟後生效。
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -570,6 +576,8 @@ const state = {
   latencyMs: null,
   lastSeq: null,
   config: null,           // GET /config 的目前生效值
+  interactionStateFresh: false,
+  interactionBusy: false,
   faces: null,            // /venue 或 hello 的 faces（設定頁下拉用）
   monitors: [],           // GET /monitors
   captureCells: [],       // 清場掃描草稿格（尚未鎖定的格子在 venue map 橘色高亮）
@@ -596,6 +604,65 @@ function setConn(text, cls) {
   el.textContent = text;
   el.className = cls || "";
 }
+
+function renderInteractionToggle() {
+  const btn = $("btnInteractionToggle");
+  if (!btn) return;
+  const known = state.config != null && state.interactionStateFresh;
+  const enabled = state.config?.interactionEnabled !== false;
+  const local = uiIsLoopback();
+  btn.disabled = !known || state.interactionBusy || !local;
+  btn.classList.toggle("on", known && enabled);
+  btn.classList.toggle("off", known && !enabled);
+  btn.textContent = !known ? "觸摸互動：狀態未知"
+    : enabled ? "觸摸互動：開啟" : "觸摸互動：已停用";
+  btn.title = !local
+    ? "此控制僅允許在服務所在電腦操作"
+    : enabled
+      ? "按下可停用送往遊戲的觸摸事件與滑鼠操作；感應收包、鎖格和噪訊排行仍運作"
+      : "按下可恢復觸摸事件與滑鼠操作；只處理之後收到的訊號";
+}
+
+async function refreshInteractionState() {
+  if (state.interactionBusy) return;
+  try {
+    const r = await fetchJson("/config");
+    if (!r.ok || !r.body) throw new Error(`GET /config ${r.status}`);
+    state.config = r.body;
+    state.interactionStateFresh = true;
+    renderInteractionToggle();
+  } catch (e) {
+    state.interactionStateFresh = false;
+    renderInteractionToggle();
+    $("interactionToggleStatus").textContent = "開關狀態讀取失敗：" + e.message;
+  }
+}
+
+$("btnInteractionToggle").onclick = async () => {
+  if (!state.config || state.interactionBusy || !uiIsLoopback()) return;
+  const enabled = state.config.interactionEnabled === false;
+  state.interactionBusy = true;
+  renderInteractionToggle();
+  $("interactionToggleStatus").textContent = "切換中…";
+  try {
+    const r = await fetchJson("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interactionEnabled: enabled }),
+    });
+    if (!r.ok || !r.body?.ok) throw new Error(r.body?.message || `HTTP ${r.status}`);
+    state.config.interactionEnabled = enabled;
+    state.interactionStateFresh = true;
+    $("interactionToggleStatus").textContent = r.body.message || "已套用";
+  } catch (e) {
+    $("interactionToggleStatus").textContent = "切換失敗：" + e.message;
+    state.interactionBusy = false;
+    await refreshInteractionState();
+  } finally {
+    state.interactionBusy = false;
+    renderInteractionToggle();
+  }
+};
 
 // ── tab 切換（純 display 切換，WS 不斷）─────────────────────────────────────
 function showTab(name) {
@@ -633,7 +700,7 @@ function connect() {
   state.ws = ws;
   $("btnConn").textContent = "斷線";
 
-  ws.onopen = () => setConn("已連線", "ok");
+  ws.onopen = () => { setConn("已連線", "ok"); refreshInteractionState(); };
   ws.onclose = () => { setConn("已斷線", "err"); state.ws = null; $("btnConn").textContent = "連線"; };
   ws.onerror = () => setConn("連線失敗（服務沒起來？）", "err");
   ws.onmessage = ev => onMessage(JSON.parse(ev.data));
@@ -1078,7 +1145,7 @@ function renderStaged() {
 
   const box = $("stagedList");
   if (!staged.length) {
-    box.innerHTML = '<span class="hint">（無臨時鎖——「捕捉噪訊」或診斷 tab 鎖定的格子會先進這裡觀察）</span>';
+    box.innerHTML = '<span class="hint">（無臨時鎖——清場掃描或診斷 tab 鎖定的格子會先進這裡觀察）</span>';
     return;
   }
   box.innerHTML = "";
@@ -1175,6 +1242,8 @@ async function loadSettings() {
     ]);
     if (!cfg.ok) throw new Error(`GET /config ${cfg.status}`);
     state.config = cfg.body;
+    state.interactionStateFresh = true;
+    renderInteractionToggle();
     if (venue?.body?.faces) state.faces = venue.body.faces.map((f, i) => ({ index: i, name: f.name }));
     state.monitors = Array.isArray(monitors.body) ? monitors.body : [];
     fillForm();
@@ -1268,6 +1337,7 @@ function showApplyResult(ok, msg) {
 
 $("btnApply").onclick = async () => {
   const body = {
+    interactionEnabled: state.config?.interactionEnabled !== false,
     touchMode: document.querySelector("input[name=touchMode]:checked").value,
     mouseMode: {
       faces: [...document.querySelectorAll("#cfgFaces .faceCb:checked")].map(cb => +cb.value),
@@ -2051,6 +2121,8 @@ $("btnSwitchVenue").onclick = async () => {
 // ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──
 if (location.protocol.startsWith("http")) connect();
 refreshVenues();
+refreshInteractionState();
+setInterval(refreshInteractionState, 5000);
 </script>
 </body>
 </html>

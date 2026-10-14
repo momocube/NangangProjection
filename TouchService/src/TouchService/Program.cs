@@ -22,10 +22,10 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        // config 路徑：--config <path> 或第一個位置參數；預設執行目錄下 config.json
+        // config 路徑：--config <path> 或第一個位置參數；預設 EXE 同目錄 config.json，雙擊啟動不依賴工作目錄
         // --console：托盤化下保留 console 視窗（除錯用）
         // --restart-delay-ms <n>:啟動前等 n ms(切 venue 重啟時舊 process 釋放 port 用)
-        string configPath = "config.json";
+        string configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
         bool keepConsole = false;
         int restartDelayMs = 0;
         for (int i = 0; i < args.Length; i++)

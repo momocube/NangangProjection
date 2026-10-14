@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using SensorSimulator;
 using TouchService.Config;
+using TouchService.Core;
 using TouchService.Logging;
 using Xunit;
 
@@ -83,6 +84,48 @@ public class NoiseCaptureE2ETests
 
     // Floor 面（face 2）中央附近的 raw 點 → cell 由服務路由決定（704 venue）
     const int NoisyRawX = 3264, NoisyRawY = 1664;
+
+    [Fact]
+    public async Task 清場掃描_間歇格只發一包也會立即臨時鎖定_觸摸互動停用時仍有效()
+    {
+        var dir = Directory.CreateTempSubdirectory("noise-capture-single-hit").FullName;
+        var configPath = Path.Combine(dir, "config.json");
+        File.WriteAllText(configPath, $$"""
+            {
+              "listenPort": 0,
+              "venueProfile": "{{Path.Combine(AppContext.BaseDirectory, "venues", "704.json").Replace("\\", "/")}}",
+              "interactionEnabled": false,
+              "autoLock": { "enabled": false },
+              "udpOutput": { "enabled": false },
+              "webSocketOutput": { "enabled": true, "port": 0 },
+              "log": { "console": false, "dir": "{{dir.Replace("\\", "/")}}", "level": "Warn" }
+            }
+            """);
+
+        var (host, log) = StartHost(dir, configPath);
+        using (log)
+        using (host)
+        {
+            var body = await Post(host, "/noise-capture/start", """{ "mode": "new" }""");
+            Assert.Contains("\"ok\":true", body);
+
+            var raw = new RawPoint(NoisyRawX, NoisyRawY);
+            var router = new SensorFaceRouter(host.Venue);
+            Assert.True(router.TryRoute(raw.X, raw.Y, out var routed));
+
+            // 單次孤立有效訊號：不夠舊版 autoLock 門檻，但清場掃描仍即時鎖定。
+            host.Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { raw }), 100);
+
+            Assert.True(host.Locks.IsLocked(routed.FaceIndex, routed.Col, routed.Row));
+            Assert.Equal(0, host.Pipeline.ActiveTouches);
+            var snapshot = Assert.IsType<TouchService.Diagnostics.NoiseCaptureSnapshot>(host.NoiseCapture.Snapshot());
+            var cell = Assert.Single(snapshot.Cells);
+            Assert.Equal((routed.FaceIndex, routed.Col, routed.Row), (cell.Face, cell.Col, cell.Row));
+            Assert.Equal(1, cell.SignalCount);
+            Assert.True(cell.LockedByDraft);
+            Assert.Equal("running", snapshot.State);
+        }
+    }
 
     [Fact]
     public async Task 捕捉到臨時鎖到轉正式_全流程API閉環()

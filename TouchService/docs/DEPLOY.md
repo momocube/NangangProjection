@@ -49,7 +49,7 @@ TouchService/
 5. **重啟服務**（托盤右鍵「結束服務」→ 重開 exe）：載入新場域 profile
 6. **驗證**：監控 tab 踩四角 + 走格（觸點位置正確、軌跡連續）；
    `stats` 的 `unrouted` 不增加
-7. 視場地狀況跑噪訊晶片 SOP（下方工作流——現場首選「捕捉噪訊」+ 三層底層）、設定開機自啟
+7. 視場地狀況跑噪訊晶片 SOP（下方工作流——清場掃描、開機自檢與人工確認），設定開機自啟
 
 > 沒有實機要先演練：`SensorSimulator.exe` 對 listenPort 發任意座標即可把
 > 精靈全流程走一遍（步驟見「離場驗證」）。
@@ -69,6 +69,7 @@ TouchService/
   "lockedCells":      [],
   "autoLock":        { "enabled": true,  "windowSeconds": 10, "minPackets": 10, "minEpisodes": 3 },
   "touchMode":        "grid",
+  "interactionEnabled": true,
   "mouseMode":       { "faces": [0, 1, 3, 4, 5, 6],
                        "screen": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
                        "content": { "offsetX": 0, "offsetY": 0, "scaleX": 1.0, "scaleY": 1.0 },
@@ -96,9 +97,10 @@ TouchService/
 | `autoLock.windowSeconds` | 10 | 自檢窗長度（秒）。窗期間**不發布任何觸控事件**（keepalive 照發）；≤ 0 視為停用 |
 | `autoLock.minPackets` | 10 | 窗內封包數達此值即鎖（判準 A，與 minEpisodes 為 **OR**）。快速重送型噪訊 ~80ms 重送、10 秒約 125 包，門檻 10 遠低於噪訊、又高於短暫誤踩 |
 | `autoLock.minEpisodes` | 3 | 窗內**分離觸發段數**達此值即鎖（判準 B，與 minPackets 為 **OR**；0 = 停用此判準）。一段（episode）= 同格封包流以「間隔 > releaseTimeoutMs」切分的一次連續觸發。抓**慢速頻閃型**噪訊：2026-06-11 現場 face2 cell(37,14) 每次只發 1 包、間隔 0.5~1.5 秒反覆 down/up，10 秒窗內湊不滿 minPackets 而躲過判準 A。依據：開機時場上沒人，真人誤踩是**一次連續事件（1 段）**，不會在同一格分離地觸發 3 次 |
-| `noiseCapture.lookbackSeconds` | 5 | 監控頁「捕捉噪訊」回頭窗（秒）：按下當下，最後觸發在此秒數內的格子直接入捕捉清單（v9；UI 參數，改後重啟生效） |
-| `noiseCapture.captureSeconds` | 10 | 「捕捉噪訊」前向窗（秒）：按下後持續觀察、累積觸發的倒數時長（v9） |
-| `touchMode` | grid | `grid`（純發布）/ `mouse`（額外掛 OS 滑鼠 sink——**發布照常**，監控頁/訂閱端不受影響）。可由設定頁熱切 |
+| `interactionEnabled` | `true` | 觸摸互動總開關；`false` 停止向遊戲/訂閱端送觸摸事件並停止滑鼠模擬，但感應收包、既有鎖格過濾與清場掃描仍運作。可在管理頁頂端即時切換，會寫回 config、重啟後保留；缺欄位的舊 config 預設啟用 |
+| `noiseCapture.lookbackSeconds` | 5 | 舊版「捕捉噪訊」設定，保留讀取相容；新版清場掃描不使用此時間窗 |
+| `noiseCapture.captureSeconds` | 10 | 舊版前向倒數設定，保留讀取相容；新版清場掃描手動停止、不限時 |
+| `touchMode` | grid | `grid`（純發布）/ `mouse`（額外掛 OS 滑鼠 sink——發布照常）。全域 `interactionEnabled:false` 時兩種模式的互動輸出都停用。可由設定頁熱切 |
 | `mouseMode.faces` | 缺欄位 = 排除 Floor | **啟用滑鼠觸控的面清單**（venue faces index 陣列）。缺欄位/null = 預設「全部面但排除名稱含 Floor 的面」（704 = 地板關、六個牆面開）；空陣列 = 全部停用。**舊 config 的 `face`（單數 int）讀到時自動轉成 `faces:[該值]` 並在 log 提示**，設定頁套用後以新 schema 寫回 |
 | `mouseMode.screen` | 0,0,1920×1080 | 映射目標螢幕矩形（virtual desktop 座標，非主螢幕可為負）。設定頁可從螢幕下拉直接帶入 |
 | `mouseMode.content` | 0/0/1/1 | 投影內容在螢幕內的校正（letterbox/沒滿版時用）：落點 = screen 原點 + offset + norm × screen 寬高 × scale。預設 0/0/1/1 = 滿版。校正流程見下方「滑鼠模式」 |
@@ -133,7 +135,7 @@ TouchService/
 ## 啟動與日常維運
 
 ```
-TouchService.exe                  ← 使用同目錄 config.json；Windows 預設托盤化（console 隱藏）
+TouchService.exe                  ← 使用 EXE 同目錄 config.json；Windows 預設托盤化（console 隱藏）
 TouchService.exe --console        ← 托盤化但保留 console 視窗（除錯用）
 TouchService.exe --config D:\cybercube\config.json
 ```
@@ -186,13 +188,13 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 2. Chrome `--app=`
 3. fallback：預設瀏覽器開該網址
 
-找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面四個 tab：
+找不到瀏覽器 / 非 Windows 只 log 不報錯。頁面頂端有「觸摸互動」手動開關，頁面有五個 tab：
+
+- **觸摸互動開關**：關閉會送一次離開/空 alive 清除訂閱端殘留觸點，之後停止 UDP JSON、WebSocket 觸摸 frame 與滑鼠模擬；感應仍收包，已鎖格仍過濾，未鎖格仍進入噪訊排行，清場掃描和鎖定管理仍可用。排行只提供觀察，不會自動鎖。再次開啟只處理新收到的訊號；設定持久化，服務重啟後維持上次狀態。僅限本機操作。
 
 - **監控**：場域圖、即時觸點、活躍觸點側欄（id / face / cell / px / 存活秒，
   存活久的在上）、事件流、統計、鎖定格（暗紅 X）——即原測試頁。
-  **v9 新增**：「捕捉噪訊」一鍵流程（清場後按一下，回頭 5s + 前向 10s 的觸發格
-  全收進清單、橘色高亮、一鍵臨時鎖定）+「臨時鎖（未保存）」區（每格鎖後活動
-  指標 + 轉正式 / 解除）——噪訊晶片 SOP 的現場首選入口，見下方 SOP 第一節
+  **清場掃描**：確認場上無人後手動開始、手動停止，不限時；每個有效映射格第一次發訊即建立本次臨時鎖，包含只偶爾出現的格子。場上有人時勿掃描，以免把正常觸碰當噪訊鎖定。另有「臨時鎖（未保存）」區（每格鎖後活動指標 + 保存 / 解除）。
 - **設定**：觸控模式（採格/滑鼠）、**啟用觸控範圍勾選清單**（7 面 checkbox，地板預設不勾）、
   目標螢幕、content 校正、releaseTimeoutMs / matchRadiusPx、
   autoLock、鎖定清單（每列可解鎖 + 寫回 config；v9 起含已保存/未保存狀態與
@@ -218,9 +220,9 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 | 端點 | 用途 | 來源限制 |
 |---|---|---|
 | `GET /config` | 目前生效設定（去敏感，不含 log 設定） | 無 |
-| `POST /config` | 套用設定（驗證全過才套用；熱套用 + 寫回 config.json，其他欄位保留） | **僅 loopback**，否則 403 |
+| `POST /config` | 套用設定（驗證全過才套用；熱套用 + 寫回 config.json，其他欄位保留）；`interactionEnabled` 可在清場掃描期間單獨切換 | **僅 loopback**，否則 403 |
 | `GET /monitors` | 螢幕清單（Windows EnumDisplayMonitors；非 Windows 空陣列） | **僅 loopback** |
-| `GET /history` | 疑似噪訊排行（`?top=N`，預設 50；score 降冪，欄位含 30 分鐘次數 / 孤立% / 佔用%；**v9 起已鎖格不列入**——監控頁捕捉噪訊的輪詢資料源） | 無（唯讀，內網監看 OK） |
+| `GET /history` | 疑似噪訊排行（`?top=N`，預設 50；score 降冪，欄位含 30 分鐘次數 / 孤立% / 佔用%；已鎖格不列入） | 無（唯讀，內網監看 OK） |
 | `GET /locks` | 即時鎖定清單（v9）：含保存狀態 `saved` 與鎖後活動 `droppedSinceLock` / `lastDropAgoMs`（臨時鎖區輪詢用） | 無（唯讀，內網監看 OK） |
 | `POST /locks/lock` | 手動鎖定一格（語意同 stdin `lock`，來源 manual；body `{"face":2,"col":7,"row":13}`） | **僅 loopback** |
 | `POST /locks/unlock` | 解鎖一格（語意同 stdin `unlock`） | **僅 loopback** |
@@ -233,7 +235,7 @@ Windows 且 `ui.autoLaunch: true`（預設）時，服務啟動完成後自動�
 | `GET /calibration/status` | `{active, remainingSeconds}` | **僅 loopback** |
 | `POST /calibration/save` | 兩角校正 → 寫 `venues/<名>.json` + config `venueProfile`（驗證全過才動檔案；**重啟生效**） | **僅 loopback** |
 
-熱套用範圍：`touchMode`、`mouseMode.*`、`releaseTimeoutMs`、`matchRadiusPx`
+熱套用範圍：`interactionEnabled`、`touchMode`、`mouseMode.*`、`releaseTimeoutMs`、`matchRadiusPx`
 （下個 touch 生效）；`autoLock` 欄位只寫回 config、**下次啟動生效**（UI 有標註）。
 `listenPort` / 輸出 port 為需重啟欄位——改 config.json 後重啟。
 
@@ -338,32 +340,22 @@ SensorSimulator.exe replay capture-multitouch-floor.txt --target 127.0.0.1:20001
 肉眼/手速追不上——所以工作流的核心是「歷史 + 排行 + 時間窗捕捉」，不是「當場抓」。
 
 ```
-現場首選（v9）   監控 tab「捕捉噪訊」→ 清場 → 一鍵捕捉 → 臨時鎖 → 觀察鎖後活動 → 轉正式
+現場首選（2026-10-14）監控 tab「清場掃描」→ 空場持續觀察 → 首次發訊即臨時鎖 → 保存
 第 1 層（開機）   autoLock 啟動自檢窗 → 持續叫的晶片自動鎖
 第 2 層（營運中） UI 診斷 tab 疑似噪訊排行 → 人工確認 → 一鍵「鎖定」
 第 3 層（收尾）   設定 tab「鎖定寫回 config（savelocks）」→ 持久化
 ```
 
-### 現場首選：監控 tab「捕捉噪訊」一鍵流程（v9 新增）
+### 現場首選：監控 tab「清場掃描」
 
-最直覺的抓法，給非工程師的現場人員用——**看到場上有鬼觸點，把人請開、按一顆按鈕**：
+用來抓**完全無人觸碰時仍不定時冒出的敏感格**：
 
-1. **清場**（把捕捉範圍內的人請開——場上有人踩會被一起捕捉進清單）
-2. 監控 tab 按 **「捕捉噪訊」**：服務會把
-   **「剛剛在觸發的格子」（回頭 5 秒）＋「接下來觸發的格子」（前向倒數 10 秒）**
-   全部收進清單——窗長可在 config `noiseCapture` 調整
-3. 倒數期間捕捉到的格子**即時橘色高亮**在場域圖上、清單同步累積；
-   倒數結束列出清單（face / cell / 窗內觸發次數 / 疑似噪訊 score），預設全勾
-4. 確認清單（有人沒清走誤入就取消勾選）→ 按 **「臨時鎖定勾選格」**
-5. 鎖進 **「臨時鎖（未保存）」** 區：立即生效過濾、但**不寫 config（重啟即消失）**。
-   每格顯示**鎖後活動**——鎖定那一刻之後又發了幾包、最後一包多久前：
-   - **鎖後仍在發包 = 鐵證噪訊** → 按該格「轉正式並保存」（寫進 config，重啟仍鎖）
-   - **鎖後安靜 = 可能誤鎖**（剛剛是真人踩的）→ 按「解除」
-6. 全部確認沒問題也可一鍵「全部轉正式並保存」（= savelocks）
+1. 清空場域後，在監控 tab 按 **「開始新的掃描」**。掃描不限時；可關閉瀏覽器，服務仍會繼續收集。
+2. 每個感應面成功映射到的格子，只要掃描期間收到一次有效訊號，就立即新增本次臨時鎖並累計筆數；不依賴排行分數或最低觸發次數。間歇格只要在觀察期間發作就會被抓到，但掃描不能預測尚未發作的格子。
+3. 掃描期間遊戲/滑鼠互動輸出暫停。按 **「停止並恢復互動」** 後立即回復；若頂端「觸摸互動」總開關仍是關閉，輸出仍維持停用。
+4. 檢視掃描清單。未保存臨時鎖在服務重啟後不自動套用；確認後按「正式保存勾選格」，寫入 config 後重啟仍鎖。未保存草稿會保留，可手動重新套用或接續掃描。
 
-> 窗內無觸發會明確顯示「窗內無觸發」——表示此刻沒有正在發作的噪訊
-> （間歇型晶片休眠中），改用下方第 2 層的排行抓累積證據。
-> 捕捉本身只讀數據、誰都能按；「臨時鎖定」等寫入操作僅限本機開頁。
+> 單純停用觸摸互動只會停止下游事件輸出，不會把新格自動判成噪訊。開機自檢仍只鎖達 `minPackets` 或 `minEpisodes` 門檻者；診斷排行分數只排序、不會自動鎖。要捕捉偶發格，請在空場時使用不限時清場掃描。
 
 ### 第 1 層：開機自檢自動鎖（autoLock，預設開）
 
@@ -455,5 +447,5 @@ UI 壞了或遠端 ssh 進來時，stdin 指令可做完全相同的事：
    鎖定格顯示為暗紅 X，圖例有「鎖定晶片」
 4. `unrouted > 0` 持續增加 → 校正範圍沒蓋到實際 raw 值 → 走 CALIBRATION.md 四角測試
 5. 觸點閃爍（按住卻 up/down 交替）→ 重送 gap 超過 timeout → `releaseTimeoutMs` 調高 20ms 再觀察
-6. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方「噪訊晶片處理 SOP」（現場首選：監控 tab「捕捉噪訊」）；
+6. 沒人踩卻有觸點 / 同格反覆重生 → 噪訊晶片 → 走上方「噪訊晶片處理 SOP」（空場時使用監控 tab「清場掃描」）；
    營運一陣子後順手開「診斷」tab 掃一眼排行，score ≥ 80 的格子排查

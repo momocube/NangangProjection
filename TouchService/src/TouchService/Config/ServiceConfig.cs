@@ -199,11 +199,17 @@ public sealed class ServiceConfig
     /// <summary>啟動自檢窗（自動鎖噪訊晶片）。缺欄位 / null = 預設啟用（10s、≥10 包）。</summary>
     public AutoLockConfig AutoLock { get; set; } = new();
 
-    /// <summary>監控頁「捕捉噪訊」時間窗（UI 參數）。缺欄位 / null = 預設（回頭 5s、前向 10s）。</summary>
+    /// <summary>舊版捕捉噪訊時間窗；保留 config 讀取相容，新版不限時清場掃描不使用。</summary>
     public NoiseCaptureConfig NoiseCapture { get; set; } = new();
 
     /// <summary>觸控模式："grid"（預設，純發布）/ "mouse"（額外掛 OS 滑鼠 sink，發布照常）。</summary>
     public string TouchMode { get; set; } = "grid";
+
+    /// <summary>
+    /// 觸摸互動總開關。false 時不向遊戲/訂閱端發布觸摸事件，也不模擬滑鼠；
+    /// 感應收包、清場掃描與鎖格過濾仍照常運作。舊 config 缺欄位時預設啟用。
+    /// </summary>
+    public bool InteractionEnabled { get; set; } = true;
 
     /// <summary>滑鼠模式參數（touchMode == "mouse" 時生效）。缺欄位 / null = 預設值。</summary>
     public MouseModeConfig MouseMode { get; set; } = new();

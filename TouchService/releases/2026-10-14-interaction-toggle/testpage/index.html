@@ -1,0 +1,2128 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>TouchService 監控/設定</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #14161c; --panel: #1d2027; --line: #2e3340;
+    --text: #d8dce6; --dim: #79808f; --accent: #5b8dee;
+    --down: #ff4d4d; --move: #ffd24d; --up: #8a93a8; --ok: #5dd97c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Consolas", "Microsoft JhengHei", monospace;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0 6px 0 0; font-weight: 600; }
+  .tabs { display: flex; gap: 2px; margin-right: 12px; }
+  .tabs button {
+    background: transparent; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 4px 4px 0 0; padding: 5px 16px; cursor: pointer; font: inherit;
+  }
+  .tabs button.active { background: var(--bg); color: #fff; border-color: var(--accent); }
+  header input {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 8px; width: 220px; font: inherit;
+  }
+  header button.conn {
+    background: var(--accent); border: 0; color: #fff; border-radius: 4px;
+    padding: 5px 14px; cursor: pointer; font: inherit;
+  }
+  header button.interaction.on { background: #287342; }
+  header button.interaction.off { background: #8b2020; }
+  #interactionToggleStatus { color: var(--dim); max-width: 260px; }
+  #connState { color: var(--dim); }
+  #connState.ok { color: var(--ok); }
+  #connState.err { color: var(--down); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #canvasWrap { flex: 1; position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  aside {
+    width: 340px; background: var(--panel); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  aside section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  aside h2, .settings h2 { font-size: 12px; margin: 0 0 6px; color: var(--dim); font-weight: 600; letter-spacing: 1px; }
+  .stat { display: flex; justify-content: space-between; padding: 1px 0; }
+  .stat b { font-weight: 600; color: #fff; }
+  #eventLog {
+    flex: 1; overflow-y: auto; padding: 6px 14px; margin: 0;
+    list-style: none; font-size: 12px;
+  }
+  #eventLog li { white-space: nowrap; }
+  #eventLog .down { color: var(--down); }
+  #eventLog .move { color: var(--move); }
+  #eventLog .up   { color: var(--up); }
+  .legend { display: flex; gap: 14px; margin-top: 4px; color: var(--dim); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+
+  /* ── 設定 tab ───────────────────────────────────────────────────────────── */
+  #tab-settings { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
+  .settings { max-width: 760px; }
+  .settings fieldset {
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+    margin: 0 0 14px; padding: 12px 16px;
+  }
+  .settings legend { color: var(--accent); font-weight: 600; padding: 0 6px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
+  .row label { min-width: 170px; color: var(--dim); }
+  .settings input[type=number], .settings select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 8px; font: inherit; width: 120px;
+  }
+  .settings select { width: auto; min-width: 220px; max-width: 420px; }
+  .settings input[type=range] { width: 200px; }
+  .settings input[readonly] { color: var(--dim); border-style: dashed; }
+  .hint { color: var(--dim); font-size: 12px; }
+  .warn { color: var(--move); font-size: 12px; }
+  #mouseSection { margin: 6px 0 0 16px; padding: 8px 12px; border-left: 2px solid var(--accent); display: none; }
+  .btn {
+    background: var(--accent); border: 0; color: #fff; border-radius: 4px;
+    padding: 6px 18px; cursor: pointer; font: inherit;
+  }
+  .btn.minor { background: #444a58; padding: 3px 10px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  #applyResult {
+    margin-left: 12px; padding: 5px 12px; border-radius: 4px; display: none;
+  }
+  #applyResult.ok { display: inline-block; background: rgba(93,217,124,.15); color: var(--ok); }
+  #applyResult.err { display: inline-block; background: rgba(255,77,77,.15); color: var(--down); }
+  table.locks { border-collapse: collapse; width: 100%; margin: 6px 0; }
+  table.locks th, table.locks td { border-bottom: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+  table.locks th { color: var(--dim); font-weight: 600; }
+
+  /* ── 監控 tab：活躍觸點側欄 ─────────────────────────────────────────────── */
+  #aliveList { max-height: 170px; overflow-y: auto; font-size: 12px; margin-top: 4px; }
+  #aliveList div { white-space: nowrap; }
+  #aliveList .age { color: var(--move); }
+
+  /* ── 監控 tab：捕捉噪訊 + 臨時鎖（v9）──────────────────────────────────── */
+  #ncWrap { max-height: 200px; overflow-y: auto; margin-top: 6px; }
+  #ncWrap table.locks td, #ncWrap table.locks th { padding: 2px 6px; font-size: 12px; }
+  #ncStatus.counting { color: var(--move); }
+  #ncStatus.done { color: var(--ok); }
+  #stagedList { max-height: 220px; overflow-y: auto; font-size: 12px; }
+  .stagedItem { border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .stagedItem .ops { margin-top: 2px; display: flex; gap: 6px; }
+  .actHot { color: var(--down); font-weight: 600; }
+  .actQuiet { color: var(--ok); }
+  .btn.danger { background: #8b2020; }
+  .btn.danger.confirm { background: var(--down); color: #fff; font-weight: 700; }
+
+  /* ── 診斷 tab ───────────────────────────────────────────────────────────── */
+  #tab-diag { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
+  .score-hi  { color: var(--down); font-weight: 700; }
+  .score-mid { color: var(--move); font-weight: 700; }
+  td.lockedMark { color: var(--down); }
+
+  /* ── 設定 tab：啟用面勾選清單 ──────────────────────────────────────────── */
+  #cfgFaces { display: flex; flex-direction: column; gap: 2px; }
+  #cfgFaces label { min-width: auto; color: var(--text); cursor: pointer; }
+  #cfgFaces .floorNote { color: var(--dim); }
+
+  /* ── 終端 tab ──────────────────────────────────────────────────────────── */
+  #tab-term { flex: 1; display: none; flex-direction: column; min-height: 0; padding: 10px 14px; gap: 8px; }
+  #termLog {
+    flex: 1; overflow-y: auto; background: #0d0f13; border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 12px; font: 12px/1.45 "Consolas", monospace;
+    white-space: pre-wrap; word-break: break-all; min-height: 0;
+  }
+  #termLog .lv-Debug { color: #5a6172; }
+  #termLog .lv-Info  { color: var(--text); }
+  #termLog .lv-Warn  { color: var(--move); }
+  #termLog .lv-Error { color: var(--down); }
+  #termLog .cmd-echo { color: var(--accent); font-weight: 600; }
+  #termLog .cmd-out  { color: #aee8bb; }
+  #termLog .ts { color: var(--dim); }
+  #termBar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #termInput {
+    flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 10px; font: 13px "Consolas", monospace; min-width: 200px;
+  }
+  #termDenied { padding: 30px; text-align: center; color: var(--dim); display: none; }
+  #btnPauseScroll.paused { background: var(--move); color: #000; }
+
+  /* ── 校正 tab（v8 校正精靈）────────────────────────────────────────────── */
+  #tab-calib { flex: 1; overflow-y: auto; padding: 16px 20px 60px; display: none; }
+  #calibDenied { padding: 30px; text-align: center; color: var(--dim); display: none; }
+  .calBadge {
+    display: inline-block; padding: 2px 12px; border-radius: 10px;
+    background: #444a58; color: var(--text);
+  }
+  .calBadge.on { background: var(--ok); color: #000; font-weight: 600; }
+  #calStepText { font-size: 15px; font-weight: 600; color: #fff; margin: 6px 0; }
+  #calRawBig {
+    font: 700 40px/1.2 "Consolas", monospace; letter-spacing: 2px;
+    color: #fff; padding: 10px 0; min-height: 58px;
+  }
+  #calRawBig.stable { color: var(--ok); }
+  #calRawBig .dimmed { color: var(--dim); font-size: 18px; letter-spacing: 0; }
+  .calCornerVal { color: var(--ok); font-weight: 600; }
+  #calPreviewWrap {
+    position: relative; height: 300px; background: #0d0f13;
+    border: 1px solid var(--line); border-radius: 6px; margin: 6px 0;
+  }
+  #calPreview { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #calJsonPreview {
+    background: #0d0f13; border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 12px; font: 12px/1.45 "Consolas", monospace;
+    white-space: pre; overflow-x: auto; max-height: 320px; overflow-y: auto;
+  }
+  #calSaveResult { display: none; padding: 8px 12px; border-radius: 4px; margin-top: 8px; white-space: pre-wrap; }
+  #calSaveResult.ok { display: block; background: rgba(93,217,124,.15); color: var(--ok); }
+  #calSaveResult.err { display: block; background: rgba(255,77,77,.15); color: var(--down); }
+</style>
+</head>
+<body>
+<header>
+  <h1>TouchService</h1>
+  <nav class="tabs">
+    <button id="tabBtnMonitor" class="active">監控</button>
+    <button id="tabBtnSettings">設定</button>
+    <button id="tabBtnDiag">診斷</button>
+    <button id="tabBtnTerm">終端</button>
+    <button id="tabBtnCalib">校正</button>
+  </nav>
+  <button id="btnInteractionToggle" class="conn interaction" disabled title="停用時仍會接收感應並執行既有鎖格過濾">觸摸互動：讀取中</button>
+  <span id="interactionToggleStatus"></span>
+  <label>場域 <select id="venueSel" title="切換 venue(切換會重啟服務)"><option>載入中…</option></select></label>
+  <button id="btnSwitchVenue" class="conn" style="background:#c47c2b" title="套用選擇的 venue 並重啟服務">切換</button>
+  <span id="venueSwitchState" style="color:var(--dim);min-width:0"></span>
+  <label>WS 位址 <input id="wsUrl" value=""></label>
+  <button id="btnConn" class="conn">連線</button>
+  <span id="connState">未連線</span>
+</header>
+
+<!-- ── 監控 tab（既有場域圖 + 統計；tab 切換只藏不拆，WS 不斷）──────────── -->
+<main id="tab-monitor">
+  <div id="canvasWrap"><canvas id="cv"></canvas></div>
+  <aside>
+    <section>
+      <h2>連線 / 場域</h2>
+      <div class="stat"><span>場域</span><b id="stVenue">-</b></div>
+      <div class="stat"><span>畫布</span><b id="stCanvas">-</b></div>
+      <div class="stat"><span>release timeout</span><b id="stTimeout">-</b></div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--down)"></i>down</span>
+        <span><i class="dot" style="background:var(--move)"></i>move</span>
+        <span><i class="dot" style="background:var(--up)"></i>up（淡出）</span>
+        <span><i class="dot" style="background:#8b2020;border-radius:2px"></i>鎖定晶片</span>
+        <span><i class="dot" style="background:#ffa626;border-radius:2px"></i>捕捉到的格</span>
+      </div>
+    </section>
+    <section>
+      <h2>即時統計</h2>
+      <div class="stat"><span>訊息速率</span><b><span id="stRate">0</span> msg/s</b></div>
+      <div class="stat"><span>活躍觸點</span><b id="stAlive">0</b></div>
+      <div class="stat"><span>down / move / up</span><b id="stCounts">0 / 0 / 0</b></div>
+      <div class="stat"><span>延遲（服務→頁面，近似）</span><b><span id="stLatency">-</span> ms</b></div>
+      <div class="stat"><span>seq</span><b id="stSeq">-</b></div>
+      <div class="stat"><span>鎖定晶片</span><b id="stLocks">0</b></div>
+      <div class="stat"><span>啟動自檢</span><b id="stAutoLock">-</b></div>
+    </section>
+    <section>
+      <h2>活躍觸點（id / face / cell / px / 存活）</h2>
+      <div id="aliveList"><span class="hint">（無）</span></div>
+    </section>
+    <section>
+      <h2>清場掃描</h2>
+      <div class="hint" style="margin:4px 0">
+        請先確認場上無人。掃描不限時；每個收到的有效格子第一次發訊就會立即臨時鎖定並暫停互動輸出，包含偶爾才跳出的格子。
+        單純關閉觸摸互動不會自動新增鎖；不在清場掃描時，只有開機自檢達門檻才會自動鎖，診斷排行分數只排序、不會自動鎖。
+        停止後立即恢復互動。已正式保存的鎖定仍會在重啟後生效。
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="btnNcStart">開始新的掃描</button>
+        <button class="btn minor" id="btnNcAppend">接續掃描</button>
+        <button class="btn danger" id="btnNcStop">停止並恢復互動</button>
+      </div>
+      <div id="ncStatus" class="hint" style="margin-top:6px">讀取掃描狀態…</div>
+      <div id="ncWarning" class="hint"></div>
+      <div id="ncWrap" style="display:none;margin-top:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
+          <button class="btn minor" id="btnNcReapply">重新套用勾選格</button>
+          <button class="btn minor" id="btnNcSave">正式保存勾選格</button>
+          <button class="btn minor" id="btnNcUndo">解除勾選的本次臨時鎖</button>
+          <button class="btn minor" id="btnNcClear">清除草稿</button>
+        </div>
+        <div class="hint" id="ncSummary"></div>
+        <table class="locks" id="ncTable">
+          <thead><tr>
+            <th><input type="checkbox" id="ncAll" checked title="選取全部 / 取消全部"></th>
+            <th>面</th><th>格子</th><th>訊號筆數</th><th>首次 / 最近</th><th>狀態</th>
+          </tr></thead>
+          <tbody id="ncBody"></tbody>
+        </table>
+        <div style="display:flex;gap:8px;align-items:center;margin:6px 0">
+          <button class="btn minor" id="btnNcPrev">上一頁</button>
+          <span class="hint" id="ncPage"></span>
+          <button class="btn minor" id="btnNcNext">下一頁</button>
+        </div>
+        <div class="hint">清除草稿不會解除鎖定。重啟後草稿只供查看；需要時按「重新套用」。</div>
+      </div>
+    </section>
+    <section>
+      <h2>臨時鎖（未保存——重啟即消失）</h2>
+      <div id="stagedList"><span class="hint">（無臨時鎖）</span></div>
+      <div id="stagedOps" style="display:none;gap:6px;margin-top:4px">
+        <button class="btn minor" id="btnStagedSaveAll">全部轉正式並保存</button>
+        <button class="btn minor" id="btnStagedUnlockAll">全部解除</button>
+      </div>
+      <div id="stagedMsg" class="hint"></div>
+      <div id="savedSummary" class="hint"></div>
+    </section>
+    <h2 style="padding:10px 14px 0">事件流</h2>
+    <ul id="eventLog"></ul>
+  </aside>
+</main>
+
+<!-- ── 設定 tab ──────────────────────────────────────────────────────────── -->
+<div id="tab-settings">
+  <div class="settings">
+    <fieldset>
+      <legend>觸控模式</legend>
+      <div class="row">
+        <label><input type="radio" name="touchMode" value="grid" checked> 採格模式（預設，純發布）</label>
+        <label><input type="radio" name="touchMode" value="mouse"> 滑鼠模式（摸牆操作這台機器）</label>
+      </div>
+      <div id="mouseSection">
+        <div class="row" style="align-items:flex-start">
+          <label>啟用觸控範圍</label>
+          <div id="cfgFaces"><span class="hint">（連線後載入面清單）</span></div>
+        </div>
+        <div class="hint" style="margin-left:180px">
+          觸點以整個場域 canvas 十字展開圖等比映射到螢幕；勾選的面才驅動游標（地板預設不勾——腳步會亂點）。
+        </div>
+        <div class="row">
+          <label>目標螢幕</label>
+          <select id="cfgMonitor"><option value="">（讀取中…）</option></select>
+        </div>
+        <div class="row">
+          <label>螢幕矩形 x / y / w / h</label>
+          <input type="number" id="cfgScreenX" style="width:90px">
+          <input type="number" id="cfgScreenY" style="width:90px">
+          <input type="number" id="cfgScreenW" style="width:90px" min="1">
+          <input type="number" id="cfgScreenH" style="width:90px" min="1">
+        </div>
+        <div class="row">
+          <label>內容校正 offsetX / offsetY / scaleX / scaleY</label>
+          <input type="number" id="cfgContentOX" style="width:90px" step="1">
+          <input type="number" id="cfgContentOY" style="width:90px" step="1">
+          <input type="number" id="cfgContentSX" style="width:90px" min="0.01" max="100" step="0.01">
+          <input type="number" id="cfgContentSY" style="width:90px" min="0.01" max="100" step="0.01">
+        </div>
+        <div class="hint" style="margin-left:180px">
+          投影沒滿版時校正用（letterbox）：落點 = 螢幕原點 + offset + norm × 螢幕寬高 × scale。滿版維持 0 / 0 / 1 / 1。
+        </div>
+        <div class="row">
+          <label>平滑強度（smoothing）</label>
+          <input type="range" id="cfgSmoothing" min="0.05" max="1" step="0.05">
+          <b id="cfgSmoothingVal">0.35</b>
+          <span class="hint">1 = 不平滑直接到位</span>
+        </div>
+        <div class="row">
+          <label>最小注入位移 moveMinPx</label>
+          <input type="number" id="cfgMoveMinPx" min="0" max="1000">
+          <span class="hint">px，平滑迴圈小於此位移不注入</span>
+        </div>
+        <div class="warn">⚠ 滑鼠模式下摸牆會搶這台機器的真實游標（鍵盤滑鼠同時操作會互相干擾）；發布端不受影響，監控頁/訂閱端照常收事件。</div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>通用</legend>
+      <div class="row">
+        <label>releaseTimeoutMs</label>
+        <input type="number" id="cfgReleaseTimeout" min="10" max="10000">
+        <span class="hint">離手判定（不建議 &lt;140，依據見 PROTOCOL.md）</span>
+      </div>
+      <div class="row">
+        <label>matchRadiusPx</label>
+        <input type="number" id="cfgMatchRadius" min="1" max="10000">
+        <span class="hint">touch 配對半徑（96 ≈ 3 格）</span>
+      </div>
+      <div class="row">
+        <label>autoLock 啟動自檢</label>
+        <label><input type="checkbox" id="cfgAutoLockEnabled"> 啟用</label>
+        <label style="min-width:auto">窗長(s)</label><input type="number" id="cfgAutoLockWindow" min="0" max="86400" style="width:80px">
+        <label style="min-width:auto">門檻(包)</label><input type="number" id="cfgAutoLockMin" min="1" style="width:80px">
+        <label style="min-width:auto" title="窗內分離觸發段數達此值即鎖（慢速頻閃型噪訊）；0 = 停用此判準">門檻(段)</label><input type="number" id="cfgAutoLockEpisodes" min="0" style="width:80px">
+      </div>
+      <div class="hint">autoLock 欄位只寫回 config.json，<b>下次啟動生效</b>；其餘欄位即時生效（下個 touch）。</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>鎖定晶片</legend>
+      <div id="locksEmpty" class="hint">（無鎖定。鎖定清單由 WS 即時推送——尚未連線時請先按上方「連線」）</div>
+      <table class="locks" id="locksTable" style="display:none">
+        <thead><tr><th>face</th><th>cell</th><th>來源</th><th>封包數</th><th>狀態</th><th>鎖後活動</th><th></th></tr></thead>
+        <tbody id="locksBody"></tbody>
+      </table>
+      <div class="row">
+        <button class="btn minor" id="btnSaveLocks">鎖定寫回 config（savelocks）</button>
+        <button class="btn minor danger" id="btnUnlockAll">解鎖全部</button>
+        <span id="locksResult" class="hint"></span>
+      </div>
+      <div class="hint">
+        「狀態」：<b>已保存</b> = 在 config.json 裡（重啟仍鎖定）；<b>未保存</b> = 臨時鎖（runtime，重啟即消失）。
+        「鎖後活動」：鎖定那一刻之後該格又發了幾包——仍在發 = 噪訊鐵證、安靜 = 可能誤鎖。<br>
+        「解鎖全部」清空當前全部鎖定（含 config 來的與臨時的），<b>不會自動寫入 config</b>——
+        要永久生效請再按「鎖定寫回 config」；重啟會回到 config 的鎖定清單。
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>需重啟欄位（唯讀）</legend>
+      <div class="row"><label>listenPort（感應 UDP）</label><input readonly id="roListenPort"></div>
+      <div class="row"><label>WS / HTTP port</label><input readonly id="roWsPort"></div>
+      <div class="row"><label>UDP 輸出 endpoints</label><input readonly id="roUdpEndpoints" style="width:320px"></div>
+      <div class="hint">這些欄位改 config.json 後重啟服務才生效。</div>
+    </fieldset>
+
+    <div class="row">
+      <button class="btn" id="btnApply">套用設定（Apply）</button>
+      <span id="applyResult"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ── 診斷 tab（觸發歷史 / 疑似噪訊排行 / 手動鎖定）──────────────────────── -->
+<div id="tab-diag">
+  <div class="settings" style="max-width:980px">
+    <fieldset>
+      <legend>疑似噪訊排行（GET /history，每 5 秒刷新）</legend>
+      <div class="hint" style="margin-bottom:6px">
+        score 0–100 = 三個可解釋因子加權：<b>30 分鐘觸發頻率（40）＋ 孤立觸發比率（35）＋ 活躍時長佔比（25）</b>。
+        <b class="score-mid">score ≥ 60 建議看一眼</b>、<b class="score-hi">≥ 80 高度可疑</b>
+        （同格反覆觸發、無鄰近連動、長時間常駐叫——間歇型噪訊晶片的典型樣貌）。
+        分數只用來排序，<b>不會自動鎖</b>：營運中有真人在踩，誤鎖比漏鎖傷，鎖定請人工確認後按「鎖定」。
+        歷史為運行期統計、重啟歸零（刻意設計——可疑晶片會很快重新冒上排行）。
+        <b>已鎖定的格子不列入排行</b>——鎖後活動（鎖了之後還在不在發包）看監控 tab 的
+        臨時鎖區或設定 tab 的鎖定清單。
+      </div>
+      <div id="histStatus" class="hint">（尚未載入）</div>
+      <table class="locks" id="histTable" style="display:none">
+        <thead><tr>
+          <th>score</th><th>face</th><th>cell</th><th>30 分鐘</th><th>總次</th>
+          <th>孤立%</th><th>佔用%</th><th>最後觸發</th><th>最後存活</th><th>狀態</th><th></th>
+        </tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </fieldset>
+
+    <fieldset>
+      <legend>手動鎖定</legend>
+      <div class="row">
+        <label style="min-width:auto">face</label>
+        <input type="number" id="mlFace" min="0" style="width:70px">
+        <label style="min-width:auto">col</label>
+        <input type="number" id="mlCol" min="0" style="width:70px">
+        <label style="min-width:auto">row</label>
+        <input type="number" id="mlRow" min="0" style="width:70px">
+        <button class="btn minor lockBtn" id="btnManualLock">鎖定</button>
+        <span id="mlResult" class="hint"></span>
+      </div>
+      <div class="hint">
+        語意同 console `lock` 指令（manual 來源，runtime 即時生效）。確認沒問題後到「設定」tab 按
+        「鎖定寫回 config（savelocks）」持久化；解鎖也在「設定」tab 的鎖定清單。
+      </div>
+    </fieldset>
+  </div>
+</div>
+
+<!-- ── 終端 tab（log 串流 + 指令；黑視窗從此不需要）─────────────────────────── -->
+<div id="tab-term">
+  <div id="termDenied">
+    終端僅限本機 —— log 與指令只開放給服務所在機器（http://127.0.0.1:20111/）。<br>
+    此頁從其他機器開啟，僅能使用監控／診斷功能。
+  </div>
+  <div id="termLog"></div>
+  <div id="termBar">
+    <button class="btn minor termQuick" data-cmd="stats">stats</button>
+    <button class="btn minor termQuick" data-cmd="locks">locks</button>
+    <button class="btn minor termQuick" data-cmd="history">history</button>
+    <button class="btn minor termQuick" data-cmd="touches">touches</button>
+    <button class="btn minor" id="btnPauseScroll">暫停捲動</button>
+    <input id="termInput" placeholder="指令（Enter 送出；↑↓ 歷史）—— stats / touches / history [n] / locks / lock f c r / unlock f c r / savelocks / probe" autocomplete="off">
+  </div>
+</div>
+
+<!-- ── 校正 tab（v8 校正精靈：新場域兩角校正，僅限本機）──────────────────── -->
+<div id="tab-calib">
+  <div id="calibDenied">
+    校正僅限本機 —— raw 訊號串流與場域寫檔只開放給服務所在機器（http://127.0.0.1:20111/）。<br>
+    此頁從其他機器開啟，僅能使用監控／診斷功能。
+  </div>
+  <div class="settings" id="calibBody" style="max-width:980px">
+    <fieldset>
+      <legend>校正精靈（新場域兩角校正）</legend>
+      <div class="hint">
+        新場域（例：單面牆）不用手算校正值：填好面的格數 → 開始校正 →
+        依引導踩「左上角第一顆晶片」與「右下角最後一顆晶片」→ 精靈自動算出
+        rawMin/Max 與 flip → 儲存後重啟服務即生效。多面場域逐面累積（origin 手填，
+        進階說明見 <b>docs/CALIBRATION.md</b>）。校正期間服務照常發布，不影響營運。
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label>工作階段</label>
+        <span class="calBadge" id="calSessionBadge">未開始</span>
+        <button class="btn" id="btnCalStart">開始校正</button>
+        <button class="btn minor" id="btnCalStop">停止</button>
+        <span class="hint">開始後 15 分鐘無動作自動結束；重按「開始校正」可延長。</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>1 · 場域與面</legend>
+      <div class="row">
+        <label>場域名稱</label>
+        <input type="text" id="calVenue" placeholder="例：office-wall" style="width:220px">
+        <span class="hint">存檔名 venues/&lt;名稱&gt;.json（不可含 / \ : * ? " &lt; &gt; |）</span>
+      </div>
+      <div class="row">
+        <label>面名稱</label>
+        <input type="text" id="calFaceName" value="Wall" style="width:220px">
+      </div>
+      <div class="row">
+        <label>格數 cols × rows</label>
+        <input type="number" id="calCols" min="1" max="1024" style="width:90px" placeholder="cols">
+        <span>×</span>
+        <input type="number" id="calRows" min="1" max="1024" style="width:90px" placeholder="rows">
+        <span class="hint">畫面 X / Y 方向的晶片格數（一磚 = 2×4 或 4×2 格）</span>
+      </div>
+      <div class="row">
+        <label>晶片方向</label>
+        <select id="calOrientation" style="min-width:260px">
+          <option value="vertical">vertical（直，每格 32×16 px）</option>
+          <option value="horizontal">horizontal（橫，每格 16×32 px）</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>origin（多面進階）</label>
+        <input type="number" id="calOriginX" min="0" value="0" style="width:90px">
+        <input type="number" id="calOriginY" min="0" value="0" style="width:90px">
+        <span class="hint">此面左上角在合併畫布的 px 位置；單面維持 0,0 即可（進階參考 CALIBRATION.md）</span>
+      </div>
+      <div class="row">
+        <label>畫布（自動計算）</label>
+        <b id="calCanvasSize">-</b>
+        <span class="hint">= 各面 origin + 格數 × 格尺寸的外框，儲存時由服務端計算</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2 · 踩角取值</legend>
+      <div id="calStepText">先按上方「開始校正」</div>
+      <div id="calRawBig"><span class="dimmed">（尚無 raw 訊號）</span></div>
+      <div class="row">
+        <button class="btn" id="btnCalCaptureTl">重踩左上角</button>
+        <button class="btn" id="btnCalCaptureBr">重踩右下角</button>
+        <button class="btn minor" id="btnCalUseNow">手動取用目前值</button>
+        <span class="hint">同值連續 ≥3 包會自動鎖定；訊號跳動時可手動取用</span>
+      </div>
+      <div class="row">
+        <label>左上角第一顆晶片</label><b id="calTlVal" class="calCornerVal">（未取）</b>
+        <label style="min-width:auto">右下角最後一顆晶片</label><b id="calBrVal" class="calCornerVal">（未取）</b>
+      </div>
+      <div class="row">
+        <label>計算結果</label><b id="calAxisResult">-</b>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnCalAddFace">加入此面</button>
+        <span id="calFaceMsg" class="hint"></span>
+      </div>
+      <div id="calFacesWrap" style="display:none">
+        <table class="locks" id="calFacesTable">
+          <thead><tr><th>面</th><th>格數</th><th>方向</th><th>origin</th><th>rawX</th><th>rawY</th><th>flip</th><th></th></tr></thead>
+          <tbody id="calFacesBody"></tbody>
+        </table>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3 · 預覽與儲存</legend>
+      <div class="hint">面預覽圖：已取的角落標記 ◤◢；兩角都取得後，再踩任何位置會把
+        raw 即時映射成綠點（近似預覽，方向/flip 立即可驗）。</div>
+      <div id="calPreviewWrap"><canvas id="calPreview"></canvas></div>
+      <div class="hint" style="margin:8px 0 4px">venue JSON 預覽（實際寫入由服務端產生）：</div>
+      <div id="calJsonPreview">（加入至少一面後顯示）</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnCalSave">儲存並套用（寫入 venue + config）</button>
+      </div>
+      <div id="calSaveResult"></div>
+    </fieldset>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ── 狀態 ────────────────────────────────────────────────────────────────────
+const state = {
+  ws: null,
+  venue: null,            // hello：{venue, canvas:{w,h}, faces:[{name,originX,...}]}
+  touches: new Map(),     // id → {px:[x,y], face, phase, lastSeen, fadeStart}
+  locks: [],              // hello / locks push：[{face, cell:[col,row], source, packets}]
+  autoLockUntil: null,    // 自檢窗本地倒數結束時刻（Date.now() 基準）；null = 沒在自檢
+  counts: { down: 0, move: 0, up: 0 },
+  msgTimes: [],           // 1s 視窗訊息速率
+  clockOffsetMin: null,   // min(localRecv - serverT)：時鐘差基線，估延遲用
+  latencyMs: null,
+  lastSeq: null,
+  config: null,           // GET /config 的目前生效值
+  interactionStateFresh: false,
+  interactionBusy: false,
+  faces: null,            // /venue 或 hello 的 faces（設定頁下拉用）
+  monitors: [],           // GET /monitors
+  captureCells: [],       // 清場掃描草稿格（尚未鎖定的格子在 venue map 橘色高亮）
+};
+const FADE_MS = 600;
+
+// ── DOM ─────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+
+const defaultUrl = `ws://${location.hostname || "127.0.0.1"}:20111/`;
+$("wsUrl").value = localStorage.getItem("ts.wsUrl") || defaultUrl;
+// HTTP API base：由服務本身供頁時 = 同 origin；file:// 開啟時推 WS 位址的 host:port
+function apiBase() {
+  if (location.protocol.startsWith("http")) return "";
+  const m = $("wsUrl").value.trim().match(/^wss?:\/\/([^/]+)/i);
+  return m ? `http://${m[1]}` : "http://127.0.0.1:20111";
+}
+
+$("btnConn").onclick = () => state.ws ? disconnect() : connect();
+
+function setConn(text, cls) {
+  const el = $("connState");
+  el.textContent = text;
+  el.className = cls || "";
+}
+
+function renderInteractionToggle() {
+  const btn = $("btnInteractionToggle");
+  if (!btn) return;
+  const known = state.config != null && state.interactionStateFresh;
+  const enabled = state.config?.interactionEnabled !== false;
+  const local = uiIsLoopback();
+  btn.disabled = !known || state.interactionBusy || !local;
+  btn.classList.toggle("on", known && enabled);
+  btn.classList.toggle("off", known && !enabled);
+  btn.textContent = !known ? "觸摸互動：狀態未知"
+    : enabled ? "觸摸互動：開啟" : "觸摸互動：已停用";
+  btn.title = !local
+    ? "此控制僅允許在服務所在電腦操作"
+    : enabled
+      ? "按下可停用送往遊戲的觸摸事件與滑鼠操作；感應收包、鎖格和噪訊排行仍運作"
+      : "按下可恢復觸摸事件與滑鼠操作；只處理之後收到的訊號";
+}
+
+async function refreshInteractionState() {
+  if (state.interactionBusy) return;
+  try {
+    const r = await fetchJson("/config");
+    if (!r.ok || !r.body) throw new Error(`GET /config ${r.status}`);
+    state.config = r.body;
+    state.interactionStateFresh = true;
+    renderInteractionToggle();
+  } catch (e) {
+    state.interactionStateFresh = false;
+    renderInteractionToggle();
+    $("interactionToggleStatus").textContent = "開關狀態讀取失敗：" + e.message;
+  }
+}
+
+$("btnInteractionToggle").onclick = async () => {
+  if (!state.config || state.interactionBusy || !uiIsLoopback()) return;
+  const enabled = state.config.interactionEnabled === false;
+  state.interactionBusy = true;
+  renderInteractionToggle();
+  $("interactionToggleStatus").textContent = "切換中…";
+  try {
+    const r = await fetchJson("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interactionEnabled: enabled }),
+    });
+    if (!r.ok || !r.body?.ok) throw new Error(r.body?.message || `HTTP ${r.status}`);
+    state.config.interactionEnabled = enabled;
+    state.interactionStateFresh = true;
+    $("interactionToggleStatus").textContent = r.body.message || "已套用";
+  } catch (e) {
+    $("interactionToggleStatus").textContent = "切換失敗：" + e.message;
+    state.interactionBusy = false;
+    await refreshInteractionState();
+  } finally {
+    state.interactionBusy = false;
+    renderInteractionToggle();
+  }
+};
+
+// ── tab 切換（純 display 切換，WS 不斷）─────────────────────────────────────
+function showTab(name) {
+  $("tab-monitor").style.display = name === "monitor" ? "flex" : "none";
+  $("tab-settings").style.display = name === "settings" ? "block" : "none";
+  $("tab-diag").style.display = name === "diag" ? "block" : "none";
+  $("tab-term").style.display = name === "term" ? "flex" : "none";
+  $("tab-calib").style.display = name === "calib" ? "block" : "none";
+  $("tabBtnMonitor").classList.toggle("active", name === "monitor");
+  $("tabBtnSettings").classList.toggle("active", name === "settings");
+  $("tabBtnDiag").classList.toggle("active", name === "diag");
+  $("tabBtnTerm").classList.toggle("active", name === "term");
+  $("tabBtnCalib").classList.toggle("active", name === "calib");
+  if (name === "monitor") resize();         // canvas 在 hidden 期間量不到尺寸，回來重算
+  if (name === "settings") loadSettings();  // 進設定頁刷新目前生效值
+  if (name === "diag") refreshHistory();    // 進診斷頁立即抓排行（之後每 5 秒）
+  if (name === "term") enterTerminal();     // 終端：loopback 檢查 + 捲到底 + focus 輸入框
+  if (name === "calib") enterCalib();       // 校正：loopback 檢查 + 工作階段狀態刷新
+}
+$("tabBtnMonitor").onclick = () => showTab("monitor");
+$("tabBtnSettings").onclick = () => showTab("settings");
+$("tabBtnDiag").onclick = () => showTab("diag");
+$("tabBtnTerm").onclick = () => showTab("term");
+$("tabBtnCalib").onclick = () => showTab("calib");
+
+// ── WebSocket ───────────────────────────────────────────────────────────────
+function connect() {
+  const url = $("wsUrl").value.trim();
+  localStorage.setItem("ts.wsUrl", url);
+  setConn("連線中…", "");
+  let ws;
+  try { ws = new WebSocket(url); }
+  catch (e) { setConn("位址錯誤：" + e.message, "err"); return; }
+
+  state.ws = ws;
+  $("btnConn").textContent = "斷線";
+
+  ws.onopen = () => { setConn("已連線", "ok"); refreshInteractionState(); };
+  ws.onclose = () => { setConn("已斷線", "err"); state.ws = null; $("btnConn").textContent = "連線"; };
+  ws.onerror = () => setConn("連線失敗（服務沒起來？）", "err");
+  ws.onmessage = ev => onMessage(JSON.parse(ev.data));
+}
+
+function disconnect() {
+  state.ws?.close();
+  state.ws = null;
+  $("btnConn").textContent = "連線";
+}
+
+function onMessage(msg) {
+  const now = Date.now();
+
+  if (msg.type === "hello") {
+    state.venue = msg;
+    state.faces = msg.faces;
+    state.touches.clear();
+    applyLocks(msg, now);
+    $("stVenue").textContent = msg.venue;
+    $("stCanvas").textContent = `${msg.canvas.w} × ${msg.canvas.h}`;
+    $("stTimeout").textContent = `${msg.releaseTimeoutMs} ms`;
+    return;
+  }
+
+  // 鎖定變動推播（自檢結束 / lock / unlock 指令 / API）
+  if (msg.type === "locks") {
+    applyLocks(msg, now);
+    return;
+  }
+
+  // log 串流（僅 loopback client 會收到；終端 tab 顯示）
+  if (msg.type === "log") {
+    termAppendLog(msg);
+    return;
+  }
+
+  // 校正 raw 串流 + 工作階段狀態（僅 loopback client 會收到；校正 tab 用）
+  if (msg.type === "raw") {
+    calOnRaw(msg);
+    return;
+  }
+  if (msg.type === "calibration") {
+    calOnSession(msg.active);
+    return;
+  }
+
+  if (msg.type) return;   // 未知 type：一律忽略（協議規則）
+
+  // frame（schema v1，見 docs/PROTOCOL.md）
+  state.msgTimes.push(now);
+  state.lastSeq = msg.seq;
+
+  // 延遲估計：min(local - serverT) 當時鐘差基線，當下差值減基線 ≈ 傳輸+排隊延遲
+  const off = now - msg.t;
+  if (state.clockOffsetMin === null || off < state.clockOffsetMin) state.clockOffsetMin = off;
+  state.latencyMs = off - state.clockOffsetMin;
+
+  for (const e of msg.events) {
+    state.counts[e.phase] = (state.counts[e.phase] || 0) + 1;
+    logEvent(e);
+    if (e.phase === "up") {
+      const t = state.touches.get(e.id);
+      if (t) { t.phase = "up"; t.fadeStart = now; t.px = e.px; }
+    } else {
+      const prev = state.touches.get(e.id);   // 活躍觸點側欄要算存活秒數：保留 down 時刻
+      state.touches.set(e.id, { px: e.px, face: e.face, cell: e.cell, phase: e.phase,
+                                lastSeen: now, fadeStart: 0, downAt: prev?.downAt ?? now });
+    }
+  }
+
+  // alive 全清單對帳（TUIO 語意：up 丟包也不殘留鬼點）
+  const alive = new Set(msg.alive);
+  for (const [id, t] of state.touches)
+    if (!alive.has(id) && t.phase !== "up") { t.phase = "up"; t.fadeStart = now; }
+}
+
+// hello / locks 訊息共用：更新鎖定清單與自檢窗倒數
+function applyLocks(msg, now) {
+  if (Array.isArray(msg.lockedCells)) state.locks = msg.lockedCells;
+  state.autoLockUntil = msg.autoLockActive
+    ? now + (msg.autoLockRemainingSeconds || 0) * 1000
+    : null;
+  renderLocksTable();
+}
+
+// ── 事件流面板 ───────────────────────────────────────────────────────────────
+const logEl = $("eventLog");
+function logEvent(e) {
+  const li = document.createElement("li");
+  li.className = e.phase;
+  li.textContent = `#${e.id} ${e.phase.padEnd(4)} face${e.face} cell(${e.cell[0]},${e.cell[1]}) px(${e.px[0]},${e.px[1]})`;
+  logEl.appendChild(li);
+  while (logEl.children.length > 200) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── 繪製 ─────────────────────────────────────────────────────────────────────
+const FACE_COLORS = ["#e05656", "#56e07a", "#e0c356", "#b056e0", "#5670e0", "#56dbe0", "#e08c56"];
+
+function resize() {
+  const r = cv.parentElement.getBoundingClientRect();
+  cv.width = r.width * devicePixelRatio;
+  cv.height = r.height * devicePixelRatio;
+}
+addEventListener("resize", resize);
+resize();
+
+function draw() {
+  requestAnimationFrame(draw);
+  const now = Date.now();
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  const v = state.venue;
+  if (!v) {
+    ctx.fillStyle = "#79808f";
+    ctx.font = `${14 * devicePixelRatio}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText("尚未連線——連上 TouchService 後自動下發場域輪廓（hello）", cv.width / 2, cv.height / 2);
+    return;
+  }
+
+  // 場域展開平面 fit 畫面（留 24px 邊）
+  const pad = 24 * devicePixelRatio;
+  const s = Math.min((cv.width - pad * 2) / v.canvas.w, (cv.height - pad * 2) / v.canvas.h);
+  const ox = (cv.width - v.canvas.w * s) / 2;
+  const oy = (cv.height - v.canvas.h * s) / 2;
+  const X = x => ox + x * s, Y = y => oy + y * s;
+
+  // 畫布外框
+  ctx.strokeStyle = "#3a4150";
+  ctx.lineWidth = devicePixelRatio;
+  ctx.strokeRect(X(0), Y(0), v.canvas.w * s, v.canvas.h * s);
+
+  // 各感應面輪廓 + 名稱
+  ctx.font = `${11 * devicePixelRatio}px monospace`;
+  ctx.textAlign = "left";
+  for (const f of v.faces) {
+    const c = FACE_COLORS[f.index % FACE_COLORS.length];
+    ctx.strokeStyle = c + "88";
+    ctx.fillStyle = c + "14";
+    ctx.fillRect(X(f.originX), Y(f.originY), f.width * s, f.height * s);
+    ctx.strokeRect(X(f.originX), Y(f.originY), f.width * s, f.height * s);
+    ctx.fillStyle = c + "cc";
+    ctx.fillText(`${f.index}:${f.name}（${f.cols}×${f.rows}）`,
+                 X(f.originX) + 4 * devicePixelRatio, Y(f.originY) + 13 * devicePixelRatio);
+  }
+
+  // 鎖定晶片：暗紅色格 + X 記號（縮放與面/格繪製同一座標系）
+  for (const l of state.locks) {
+    const f = v.faces[l.face];
+    if (!f) continue;
+    const x = X(f.originX + l.cell[0] * f.cellW);
+    const y = Y(f.originY + l.cell[1] * f.cellH);
+    const w = f.cellW * s, h = f.cellH * s;
+    ctx.fillStyle = "rgba(139,32,32,0.85)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "rgba(255,90,90,0.9)";
+    ctx.lineWidth = Math.max(devicePixelRatio, 1.5 * s);
+    ctx.strokeRect(x, y, w, h);
+    ctx.beginPath();   // X 記號
+    ctx.moveTo(x, y); ctx.lineTo(x + w, y + h);
+    ctx.moveTo(x + w, y); ctx.lineTo(x, y + h);
+    ctx.stroke();
+  }
+
+  // 清場掃描草稿：未鎖定格子以橘色標示；既有／本次鎖定維持鎖定紅色。
+  for (const c of state.captureCells) {
+    if (c.locked) continue;
+    const f = v.faces[c.face];
+    if (!f) continue;
+    const x = X(f.originX + c.col * f.cellW);
+    const y = Y(f.originY + c.row * f.cellH);
+    ctx.fillStyle = "rgba(255,166,38,0.45)";
+    ctx.fillRect(x, y, f.cellW * s, f.cellH * s);
+    ctx.strokeStyle = "rgba(255,166,38,0.95)";
+    ctx.lineWidth = Math.max(devicePixelRatio, 1.5 * s);
+    ctx.strokeRect(x, y, f.cellW * s, f.cellH * s);
+  }
+
+  // 觸點：down 紅 / move 黃 / up 淡出
+  const r = Math.max(5 * devicePixelRatio, 24 * s);
+  ctx.textAlign = "center";
+  for (const [id, t] of state.touches) {
+    let color, alpha = 1;
+    if (t.phase === "up") {
+      alpha = 1 - (now - t.fadeStart) / FADE_MS;
+      if (alpha <= 0) { state.touches.delete(id); continue; }
+      color = "138,147,168";
+    } else if (t.phase === "move") {
+      color = "255,210,77";
+    } else {
+      color = "255,77,77";
+    }
+    const x = X(t.px[0]), y = Y(t.px[1]);
+    ctx.fillStyle = `rgba(${color},${alpha * 0.85})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.font = `${10 * devicePixelRatio}px monospace`;
+    ctx.fillText(String(id), x, y - r - 3 * devicePixelRatio);
+  }
+}
+requestAnimationFrame(draw);
+
+// ── 統計面板 + 活躍觸點側欄（250ms 更新）────────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  state.msgTimes = state.msgTimes.filter(t => now - t < 1000);
+  $("stRate").textContent = state.msgTimes.length;
+  let alive = 0;
+  for (const t of state.touches.values()) if (t.phase !== "up") alive++;
+  $("stAlive").textContent = alive;
+
+  // 活躍觸點側欄：存活久的在上（噪訊晶片特徵：存活持續累加、cell 固定不動）
+  const rows = [...state.touches.entries()]
+    .filter(([, t]) => t.phase !== "up")
+    .sort((a, b) => (a[1].downAt ?? now) - (b[1].downAt ?? now))
+    .slice(0, 40);
+  $("aliveList").innerHTML = rows.length === 0
+    ? '<span class="hint">（無）</span>'
+    : rows.map(([id, t]) =>
+        `<div>#${id} f${t.face} cell(${t.cell[0]},${t.cell[1]}) px(${t.px[0]},${t.px[1]}) ` +
+        `<span class="age">${((now - (t.downAt ?? now)) / 1000).toFixed(1)}s</span></div>`).join("");
+  $("stCounts").textContent = `${state.counts.down || 0} / ${state.counts.move || 0} / ${state.counts.up || 0}`;
+  $("stLatency").textContent = state.latencyMs === null ? "-" : state.latencyMs.toFixed(0);
+  $("stSeq").textContent = state.lastSeq ?? "-";
+  $("stLocks").textContent = state.locks.length;
+
+  // 自檢窗倒數（hello 給起點、本地倒數；locks push 會校正/清除）
+  if (state.autoLockUntil !== null) {
+    const remain = Math.ceil((state.autoLockUntil - now) / 1000);
+    if (remain > 0) {
+      $("stAutoLock").textContent = `自檢中 ${remain} 秒`;
+      $("stAutoLock").style.color = "var(--move)";
+    } else {
+      state.autoLockUntil = null;   // 本地到期；正式結果等 locks push
+    }
+  }
+  if (state.autoLockUntil === null) {
+    $("stAutoLock").textContent = "未進行";   // 已結束或停用（自檢中才會顯示倒數）
+    $("stAutoLock").style.color = "";
+  }
+}, 250);
+
+// ── 清場掃描：後端持續逐格收集與鎖定，頁面關閉不會停止掃描 ──────────────
+const NC_PAGE_SIZE = 50;
+const nc = { snapshot: null, selected: new Set(), seen: new Set(), page: 0, busy: false, available: true };
+const ncKey = c => `${c.face}:${c.col}:${c.row}`;
+
+function ncSetStatus(text, cls) {
+  const el = $("ncStatus");
+  el.textContent = text;
+  el.className = cls || "hint";
+}
+
+function ncDuration(ms) {
+  const seconds = Math.max(0, Math.floor((ms || 0) / 1000));
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+  return h ? `${h}時${m}分${s}秒` : m ? `${m}分${s}秒` : `${s}秒`;
+}
+
+function ncAgo(date) {
+  if (!date) return "尚無";
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(date)) / 1000));
+  return seconds < 60 ? `${seconds} 秒前` : seconds < 3600 ? `${Math.floor(seconds / 60)} 分前` : `${Math.floor(seconds / 3600)} 小時前`;
+}
+
+function ncTime(date) {
+  return date ? new Date(date).toLocaleString() : "—";
+}
+
+async function ncAction(path, payload) {
+  const r = await fetchJson(path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  if (!r.ok || r.body?.ok === false) throw new Error(r.body?.message || `HTTP ${r.status}`);
+  return r.body;
+}
+
+async function ncRefresh() {
+  try {
+    const r = await fetchJson("/noise-capture");
+    if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+    nc.available = !!r.body.available;
+    const next = r.body.snapshot;
+    if (next?.draftId !== nc.snapshot?.draftId) {
+      nc.selected.clear();
+      nc.seen.clear();
+      nc.page = 0;
+    }
+    nc.snapshot = next || null;
+    if (nc.snapshot) {
+      for (const c of nc.snapshot.cells || []) {
+        const k = ncKey(c);
+        if (!nc.seen.has(k)) nc.selected.add(k);
+        nc.seen.add(k);
+      }
+    } else {
+      nc.selected.clear();
+      nc.seen.clear();
+      nc.page = 0;
+    }
+    ncRender();
+  } catch (e) {
+    ncSetStatus(`無法讀取掃描狀態：${e.message}`, "err");
+  }
+}
+
+function ncRender() {
+  const s = nc.snapshot;
+  const cells = s?.cells || [];
+  state.captureCells = cells;
+  const running = s?.state === "running";
+  const disabled = nc.busy || !nc.available;
+  $("btnNcStart").disabled = disabled || running;
+  $("btnNcAppend").disabled = disabled || running || !s || !s.compatible;
+  $("btnNcStop").disabled = nc.busy || !running;
+  $("ncWrap").style.display = s ? "block" : "none";
+  $("ncWarning").textContent = !nc.available ? "此服務沒有可用的設定檔位置，掃描草稿無法在重啟後保存。" :
+    s && !s.compatible ? "場域校準已改變：草稿僅供查看，不能套用或保存。" :
+    s?.state === "interrupted" ? "上次掃描因服務重啟而中斷；資料已保留，請確認清場後再接續。" : "";
+
+  if (!s) {
+    ncSetStatus("尚未開始清場掃描。請先確認場上無人。", "hint");
+    return;
+  }
+
+  const lockedByDraft = cells.filter(c => c.lockedByDraft).length;
+  const savedByDraft = cells.filter(c => c.lockedByDraft && c.saved).length;
+  const lastSignal = cells.reduce((latest, c) => !latest || Date.parse(c.lastSeenUtc) > Date.parse(latest) ? c.lastSeenUtc : latest, null);
+  const receiveText = lastSignal ? `最近有效格子訊號 ${ncAgo(lastSignal)}` : "尚未收到可映射的格子訊號";
+  ncSetStatus(`${running ? "掃描進行中 · 遊戲與滑鼠輸出已暫停" : s.state === "interrupted" ? "掃描已中斷" : "掃描已停止 · 互動已恢復"}　` +
+    `累積 ${ncDuration(s.elapsedMs)}　已記錄 ${cells.length} 格　臨時鎖 ${lockedByDraft - savedByDraft} 格　` +
+    `${receiveText}　服務累積 UDP ${s.receivedDatagrams ?? "—"} 包` +
+    (s.saveError ? `　草稿保存狀態：${s.saveError}` : s.lastSavedUtc ? `　草稿已保存 ${ncAgo(s.lastSavedUtc)}` : "　草稿保存中"),
+    running ? "counting" : "done");
+
+  $("ncSummary").textContent = `草稿建立：${ncTime(s.createdUtc)}　最近新增格：${ncAgo(s.lastNewCellUtc)}　` +
+    `目前已選 ${nc.selected.size} 格（${cells.length} 格）。橘色＝本次記錄但目前未鎖；紅色＝已鎖。`;
+
+  const maxPage = Math.max(0, Math.ceil(cells.length / NC_PAGE_SIZE) - 1);
+  nc.page = Math.min(nc.page, maxPage);
+  const first = nc.page * NC_PAGE_SIZE;
+  const pageCells = cells.slice(first, first + NC_PAGE_SIZE);
+  const tbody = $("ncBody");
+  tbody.replaceChildren();
+  if (cells.length === 0) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 6; td.textContent = "尚未收到有效格子訊號；請確認服務有收到感應設備資料。";
+    tr.appendChild(td); tbody.appendChild(tr);
+  }
+  for (const c of pageCells) {
+    const tr = document.createElement("tr"), tdCb = document.createElement("td"), cb = document.createElement("input");
+    const key = ncKey(c);
+    cb.type = "checkbox"; cb.checked = nc.selected.has(key); cb.disabled = nc.busy;
+    cb.onchange = () => { cb.checked ? nc.selected.add(key) : nc.selected.delete(key); ncRenderSelection(); };
+    tdCb.appendChild(cb); tr.appendChild(tdCb);
+    const faceName = state.faces?.find(f => f.index === c.face)?.name || "";
+    const status = c.saved ? "已保存" : c.lockedByDraft ? "本次臨時鎖" : c.locked ? `既有${c.lockSource || ""}鎖` : "未套用";
+    for (const value of [`${c.face} ${faceName}`, `(${c.col},${c.row})`, c.signalCount.toLocaleString(),
+      `${ncTime(c.firstSeenUtc)} / ${ncTime(c.lastSeenUtc)}`, status]) {
+      const td = document.createElement("td"); td.textContent = value; tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  $("ncAll").checked = cells.length > 0 && cells.every(c => nc.selected.has(ncKey(c)));
+  $("ncAll").disabled = nc.busy || cells.length === 0;
+  $("ncPage").textContent = cells.length ? `${nc.page + 1} / ${maxPage + 1} 頁（每頁 ${NC_PAGE_SIZE} 格）` : "0 格";
+  $("btnNcPrev").disabled = nc.busy || nc.page === 0;
+  $("btnNcNext").disabled = nc.busy || nc.page >= maxPage;
+  for (const id of ["btnNcReapply", "btnNcSave", "btnNcUndo", "btnNcClear"])
+    $(id).disabled = disabled || running;
+}
+
+function ncRenderSelection() {
+  const cells = nc.snapshot?.cells || [];
+  $("ncSummary").textContent = `草稿建立：${ncTime(nc.snapshot?.createdUtc)}　最近新增格：${ncAgo(nc.snapshot?.lastNewCellUtc)}　` +
+    `目前已選 ${nc.selected.size} 格（${cells.length} 格）。橘色＝本次記錄但目前未鎖；紅色＝已鎖。`;
+}
+
+async function ncRunAction(path, payload, successText) {
+  if (nc.busy) return;
+  nc.busy = true; ncRender();
+  try {
+    const result = await ncAction(path, payload);
+    ncSetStatus(result.message || successText, "done");
+    await Promise.all([ncRefresh(), refreshLocksDetail()]);
+  } catch (e) { ncSetStatus(`操作失敗：${e.message}`, "err"); }
+  finally { nc.busy = false; ncRender(); }
+}
+
+$("btnNcStart").onclick = async () => {
+  if (nc.snapshot?.cells?.length && !confirm("開始新草稿會清除目前草稿清單，但不會解除既有鎖定。要繼續嗎？")) return;
+  await ncRunAction("/noise-capture/start", { mode: "new" }, "清場掃描已開始");
+};
+$("btnNcAppend").onclick = async () => {
+  if (nc.snapshot) await ncRunAction("/noise-capture/start", { mode: "append" }, "已接續掃描");
+};
+$("btnNcStop").onclick = async () => {
+  if (nc.snapshot) await ncRunAction("/noise-capture/stop", { draftId: nc.snapshot.draftId }, "掃描已停止");
+};
+$("btnNcReapply").onclick = async () => {
+  if (!nc.snapshot) return;
+  await ncRunAction("/noise-capture/apply", { draftId: nc.snapshot.draftId, cells: ncSelectedCells() }, "已重新套用");
+};
+$("btnNcSave").onclick = async () => {
+  if (!nc.snapshot) return;
+  await ncRunAction("/noise-capture/save", { draftId: nc.snapshot.draftId, cells: ncSelectedCells() }, "已保存");
+};
+$("btnNcUndo").onclick = async () => {
+  if (!nc.snapshot) return;
+  await ncRunAction("/noise-capture/undo", { draftId: nc.snapshot.draftId, cells: ncSelectedCells() }, "已解除本次臨時鎖");
+};
+$("btnNcClear").onclick = async () => {
+  if (!nc.snapshot || !confirm("清除掃描草稿？已建立的鎖定不會解除。")) return;
+  await ncRunAction("/noise-capture/clear", { draftId: nc.snapshot.draftId }, "草稿已清除");
+};
+$("ncAll").onchange = () => {
+  const cells = nc.snapshot?.cells || [];
+  if ($("ncAll").checked) for (const c of cells) nc.selected.add(ncKey(c));
+  else nc.selected.clear();
+  ncRender();
+};
+$("btnNcPrev").onclick = () => { nc.page--; ncRender(); };
+$("btnNcNext").onclick = () => { nc.page++; ncRender(); };
+function ncSelectedCells() {
+  return (nc.snapshot?.cells || []).filter(c => nc.selected.has(ncKey(c)))
+    .map(c => ({ face: c.face, col: c.col, row: c.row }));
+}
+ncRefresh();
+setInterval(ncRefresh, 2000);
+
+// ── 臨時鎖區（v9）：未保存鎖 + 鎖後活動指標；轉正式 / 解除 ──────────────────
+function renderStaged() {
+  const staged = state.locks.filter(l => !l.saved);
+  const saved = state.locks.filter(l => l.saved);
+  $("savedSummary").textContent =
+    saved.length ? `另有已保存（config）${saved.length} 格——完整清單在「設定」tab` : "";
+  $("stagedOps").style.display = staged.length ? "flex" : "none";
+
+  const box = $("stagedList");
+  if (!staged.length) {
+    box.innerHTML = '<span class="hint">（無臨時鎖——「捕捉噪訊」或診斷 tab 鎖定的格子會先進這裡觀察）</span>';
+    return;
+  }
+  box.innerHTML = "";
+  for (const l of staged) {
+    const div = document.createElement("div");
+    div.className = "stagedItem";
+    const act = l.droppedSinceLock > 0
+      ? `<span class="actHot">鎖後 ${l.droppedSinceLock} 包 / 最後 ${fmtAgo(l.lastDropAgoMs ?? 0)}（仍在發＝噪訊鐵證）</span>`
+      : `<span class="actQuiet">鎖後安靜（可能誤鎖——考慮解除）</span>`;
+    div.innerHTML =
+      `<div>f${l.face} (${l.cell[0]},${l.cell[1]}) ` +
+      `<span class="hint">${l.source} · 鎖於 ${fmtAgo(l.lockedAgoMs ?? 0)}</span></div>` +
+      `<div>${act}</div>`;
+    const ops = document.createElement("div");
+    ops.className = "ops";
+    const mk = (text, fn) => {
+      const b = document.createElement("button");
+      b.className = "btn minor";
+      b.textContent = text;
+      gateLockButton(b);
+      b.onclick = fn;
+      ops.appendChild(b);
+    };
+    mk("轉正式並保存", async () => {
+      const r = await postLockOp("/locks/promote", l);
+      $("stagedMsg").textContent = r.body?.message || `HTTP ${r.status}`;
+    });
+    mk("解除", async () => {
+      const r = await postLockOp("/locks/unlock", l);
+      $("stagedMsg").textContent = r.body?.message || `HTTP ${r.status}`;
+    });
+    div.appendChild(ops);
+    box.appendChild(div);
+  }
+}
+
+$("btnStagedSaveAll").onclick = async () => {
+  const r = await fetchJson("/locks/save", { method: "POST" });
+  $("stagedMsg").textContent = r.body?.message || `HTTP ${r.status}`;
+};
+$("btnStagedUnlockAll").onclick = async () => {
+  const staged = state.locks.filter(l => !l.saved);
+  let ok = 0;
+  for (const l of staged) {
+    const r = await postLockOp("/locks/unlock", l);
+    if (r.ok && r.body?.ok) ok++;
+  }
+  $("stagedMsg").textContent = `已解除 ${ok} 格臨時鎖（config 來源的鎖不動）`;
+};
+gateLockButton($("btnStagedSaveAll"));
+gateLockButton($("btnStagedUnlockAll"));
+
+// 鎖後活動是即時數據：locks push 只在變動時來——監控 tab 可見且有臨時鎖
+// （或捕捉中）時每 2 秒輪詢 GET /locks 刷新
+async function refreshLocksDetail() {
+  const r = await fetchJson("/locks");
+  if (r.ok && r.body?.cells) {
+    state.locks = r.body.cells;
+    renderLocksTable();   // 內含 renderStaged()
+  }
+}
+setInterval(() => {
+  if ($("tab-monitor").style.display === "none") return;
+  if (nc.running || state.locks.some(l => l.saved === false)) refreshLocksDetail();
+}, 2000);
+
+// ── 設定 tab ─────────────────────────────────────────────────────────────────
+
+document.querySelectorAll("input[name=touchMode]").forEach(r =>
+  r.onchange = () => { $("mouseSection").style.display = r.value === "mouse" && r.checked ? "block" : "none"; });
+
+$("cfgSmoothing").oninput = () => $("cfgSmoothingVal").textContent = $("cfgSmoothing").value;
+
+$("cfgMonitor").onchange = () => {
+  const m = state.monitors[+$("cfgMonitor").value];
+  if (!m) return;   // 「手動輸入」：不動 rect
+  $("cfgScreenX").value = m.x; $("cfgScreenY").value = m.y;
+  $("cfgScreenW").value = m.width; $("cfgScreenH").value = m.height;
+};
+
+async function fetchJson(path, opts) {
+  const resp = await fetch(apiBase() + path, opts);
+  const body = await resp.json().catch(() => null);
+  return { ok: resp.ok, status: resp.status, body };
+}
+
+/** 進設定頁 / Apply 後刷新：GET /config + /venue + /monitors → 填表。 */
+async function loadSettings() {
+  try {
+    const [cfg, venue, monitors] = await Promise.all([
+      fetchJson("/config"),
+      state.faces ? Promise.resolve(null) : fetchJson("/venue"),
+      fetchJson("/monitors"),
+    ]);
+    if (!cfg.ok) throw new Error(`GET /config ${cfg.status}`);
+    state.config = cfg.body;
+    state.interactionStateFresh = true;
+    renderInteractionToggle();
+    if (venue?.body?.faces) state.faces = venue.body.faces.map((f, i) => ({ index: i, name: f.name }));
+    state.monitors = Array.isArray(monitors.body) ? monitors.body : [];
+    fillForm();
+  } catch (e) {
+    showApplyResult(false, "讀取設定失敗：" + e.message + "（服務沒起來？）");
+  }
+}
+
+function fillForm() {
+  const c = state.config;
+  if (!c) return;
+
+  document.querySelector(`input[name=touchMode][value=${c.touchMode === "mouse" ? "mouse" : "grid"}]`).checked = true;
+  $("mouseSection").style.display = c.touchMode === "mouse" ? "block" : "none";
+
+  // 啟用觸控範圍：每面一個 checkbox（hello / venue faces）；勾選狀態 = 後端解析後的
+  // mouseMode.faces（缺欄位時後端預設 = 排除地板）。地板列出但標註不建議
+  const facesBox = $("cfgFaces");
+  facesBox.innerHTML = "";
+  const enabled = new Set(c.mouseMode.faces || []);
+  (state.faces || []).forEach(f => {
+    const isFloor = /floor/i.test(f.name);
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "faceCb";
+    cb.value = f.index;
+    cb.checked = enabled.has(f.index);
+    label.appendChild(cb);
+    label.append(` ${f.index}: ${f.name}`);
+    if (isFloor) {
+      const note = document.createElement("span");
+      note.className = "floorNote";
+      note.textContent = "（地板，預設不勾——腳步會亂點）";
+      label.appendChild(note);
+    }
+    facesBox.appendChild(label);
+  });
+  if (!(state.faces || []).length)
+    facesBox.innerHTML = '<span class="hint">（取不到面清單——先按上方「連線」或檢查服務）</span>';
+
+  // 目標螢幕下拉（GET /monitors；非 Windows 為空）
+  const monSel = $("cfgMonitor");
+  monSel.innerHTML = "";
+  const manual = document.createElement("option");
+  manual.value = ""; manual.textContent = state.monitors.length ? "（手動輸入矩形）" : "（無螢幕資訊——手動輸入矩形）";
+  monSel.appendChild(manual);
+  state.monitors.forEach((m, i) => {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = `${i}: ${m.name} ${m.width}×${m.height} @(${m.x},${m.y})${m.primary ? " 主螢幕" : ""}`;
+    monSel.appendChild(opt);
+  });
+  // 目前 rect 恰等於某顆螢幕 → 預選它
+  const hit = state.monitors.findIndex(m =>
+    m.x === c.mouseMode.screen.x && m.y === c.mouseMode.screen.y &&
+    m.width === c.mouseMode.screen.width && m.height === c.mouseMode.screen.height);
+  monSel.value = hit >= 0 ? String(hit) : "";
+
+  $("cfgScreenX").value = c.mouseMode.screen.x;
+  $("cfgScreenY").value = c.mouseMode.screen.y;
+  $("cfgScreenW").value = c.mouseMode.screen.width;
+  $("cfgScreenH").value = c.mouseMode.screen.height;
+  $("cfgContentOX").value = c.mouseMode.content.offsetX;
+  $("cfgContentOY").value = c.mouseMode.content.offsetY;
+  $("cfgContentSX").value = c.mouseMode.content.scaleX;
+  $("cfgContentSY").value = c.mouseMode.content.scaleY;
+  $("cfgSmoothing").value = c.mouseMode.smoothing;
+  $("cfgSmoothingVal").textContent = c.mouseMode.smoothing;
+  $("cfgMoveMinPx").value = c.mouseMode.moveMinPx;
+
+  $("cfgReleaseTimeout").value = c.releaseTimeoutMs;
+  $("cfgMatchRadius").value = c.matchRadiusPx;
+  $("cfgAutoLockEnabled").checked = c.autoLock.enabled;
+  $("cfgAutoLockWindow").value = c.autoLock.windowSeconds;
+  $("cfgAutoLockMin").value = c.autoLock.minPackets;
+  $("cfgAutoLockEpisodes").value = c.autoLock.minEpisodes ?? 3;
+
+  $("roListenPort").value = c.restartOnly.listenPort;
+  $("roWsPort").value = c.restartOnly.webSocketPort;
+  $("roUdpEndpoints").value = (c.restartOnly.udpEndpoints || []).join(", ") || "（停用）";
+}
+
+function showApplyResult(ok, msg) {
+  const el = $("applyResult");
+  el.className = ok ? "ok" : "err";
+  el.textContent = (ok ? "✓ " : "✗ ") + msg;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ""; }, ok ? 6000 : 15000);
+}
+
+$("btnApply").onclick = async () => {
+  const body = {
+    interactionEnabled: state.config?.interactionEnabled !== false,
+    touchMode: document.querySelector("input[name=touchMode]:checked").value,
+    mouseMode: {
+      faces: [...document.querySelectorAll("#cfgFaces .faceCb:checked")].map(cb => +cb.value),
+      screen: {
+        x: +$("cfgScreenX").value, y: +$("cfgScreenY").value,
+        width: +$("cfgScreenW").value, height: +$("cfgScreenH").value,
+      },
+      content: {
+        offsetX: +$("cfgContentOX").value || 0, offsetY: +$("cfgContentOY").value || 0,
+        scaleX: +$("cfgContentSX").value || 1, scaleY: +$("cfgContentSY").value || 1,
+      },
+      smoothing: +$("cfgSmoothing").value,
+      moveMinPx: +$("cfgMoveMinPx").value,
+    },
+    releaseTimeoutMs: +$("cfgReleaseTimeout").value,
+    matchRadiusPx: +$("cfgMatchRadius").value,
+    autoLock: {
+      enabled: $("cfgAutoLockEnabled").checked,
+      windowSeconds: +$("cfgAutoLockWindow").value,
+      minPackets: +$("cfgAutoLockMin").value,
+      minEpisodes: +$("cfgAutoLockEpisodes").value,
+    },
+  };
+  $("btnApply").disabled = true;
+  try {
+    const r = await fetchJson("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showApplyResult(r.ok && r.body?.ok, r.body?.message || `HTTP ${r.status}`);
+    if (r.ok) loadSettings();   // 重新讀生效值（含 hello releaseTimeout 顯示以新連線為準）
+  } catch (e) {
+    showApplyResult(false, "送出失敗：" + e.message);
+  } finally {
+    $("btnApply").disabled = false;
+  }
+};
+
+// ── 鎖定清單（吃既有 locks push + GET /locks 輪詢；每列 unlock + savelocks）──
+// v9：payload 多了 saved（已保存 = config 來源）與鎖後活動（droppedSinceLock /
+// lastDropAgoMs）——設定 tab 表格顯示全部、監控 tab 臨時鎖區只列未保存的。
+function fmtLockActivity(l) {
+  if (l.droppedSinceLock == null) return "-";   // 舊 payload 相容
+  return l.droppedSinceLock > 0
+    ? `${l.droppedSinceLock} 包 / ${fmtAgo(l.lastDropAgoMs ?? 0)}`
+    : "鎖後安靜";
+}
+
+function renderLocksTable() {
+  const has = state.locks.length > 0;
+  $("locksEmpty").style.display = has ? "none" : "block";
+  $("locksTable").style.display = has ? "table" : "none";
+  renderStaged();   // 監控 tab 臨時鎖區與設定 tab 表格同源
+  if (!has) return;
+
+  const tbody = $("locksBody");
+  tbody.innerHTML = "";
+  for (const l of state.locks) {
+    const faceName = state.faces?.find(f => f.index === l.face)?.name ?? "";
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${l.face} ${faceName}</td><td>(${l.cell[0]},${l.cell[1]})</td>` +
+      `<td>${l.source}</td><td>${l.source === "auto" ? l.packets : "-"}</td>` +
+      `<td>${l.saved ? "已保存" : "<b>未保存</b>"}</td>` +
+      `<td>${fmtLockActivity(l)}</td>`;
+    const td = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "btn minor";
+    btn.textContent = "解鎖";
+    btn.onclick = async () => {
+      const r = await postLockOp("/locks/unlock", l);
+      $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
+      // 清單更新走 WS locks push；沒連 WS 時手動補抓不到——提示連線
+      if (!state.ws) $("locksResult").textContent += "（未連 WS，清單不會即時更新）";
+    };
+    td.appendChild(btn);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+function postLockOp(path, l) {
+  return fetchJson(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ face: l.face, col: l.cell[0], row: l.cell[1] }),
+  });
+}
+
+$("btnSaveLocks").onclick = async () => {
+  const r = await fetchJson("/locks/save", { method: "POST" });
+  $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
+};
+
+// 解鎖全部：破壞性操作 → 兩段式按鈕（第一下變紅要求確認、5 秒沒按第二下自動還原）
+let unlockAllArmed = null;
+$("btnUnlockAll").onclick = async () => {
+  const btn = $("btnUnlockAll");
+  if (unlockAllArmed === null) {
+    unlockAllArmed = setTimeout(() => {
+      unlockAllArmed = null;
+      btn.classList.remove("confirm");
+      btn.textContent = "解鎖全部";
+    }, 5000);
+    btn.classList.add("confirm");
+    btn.textContent = `確定解鎖全部 ${state.locks.length} 格？（再按一次）`;
+    $("locksResult").textContent = "不會自動寫入 config——重啟會回到 config 的鎖定清單；要永久生效解鎖後再按「鎖定寫回 config」。";
+    return;
+  }
+  clearTimeout(unlockAllArmed);
+  unlockAllArmed = null;
+  btn.classList.remove("confirm");
+  btn.textContent = "解鎖全部";
+  const r = await fetchJson("/locks/unlockall", { method: "POST" });
+  $("locksResult").textContent = r.body?.message || `HTTP ${r.status}`;
+  if (!state.ws) $("locksResult").textContent += "（未連 WS，清單不會即時更新）";
+};
+gateLockButton($("btnUnlockAll"));
+
+// ── 診斷 tab：疑似噪訊排行 + 手動鎖定 ───────────────────────────────────────
+
+// 寫入類 API（/locks/lock）僅接受 loopback：非本機開頁時鎖定按鈕 disabled + tooltip
+function uiIsLoopback() {
+  const host = location.protocol.startsWith("http")
+    ? location.hostname
+    : ($("wsUrl").value.trim().match(/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/i)?.[1] || "");
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+function gateLockButton(btn) {
+  if (uiIsLoopback()) return;
+  btn.disabled = true;
+  btn.title = "僅限本機操作";
+}
+
+function fmtAgo(ms) {
+  if (ms < 1500) return "剛剛";
+  if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s 前`;
+  if (ms < 3_600_000) return `${(ms / 60_000).toFixed(0)}m 前`;
+  return `${(ms / 3_600_000).toFixed(1)}h 前`;
+}
+
+async function refreshHistory() {
+  try {
+    const r = await fetchJson("/history?top=50");
+    if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+    renderHistory(r.body);
+    $("histStatus").textContent = (r.body.cells || []).length
+      ? `更新於 ${new Date().toLocaleTimeString()}（每 5 秒刷新；服務已運行 ${(r.body.uptimeMs / 60000).toFixed(0)} 分鐘）`
+      : "（尚無觸發歷史——服務啟動後還沒有任何 cell 被觸發；每 5 秒刷新）";
+  } catch (e) {
+    $("histStatus").textContent = "讀取失敗：" + e.message + "（服務沒起來？）";
+  }
+}
+setInterval(() => {
+  if ($("tab-diag").style.display !== "none") refreshHistory();
+}, 5000);
+
+async function postLock(face, col, row) {
+  return fetchJson("/locks/lock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ face, col, row }),
+  });
+}
+
+function renderHistory(data) {
+  const cells = data.cells || [];
+  $("histTable").style.display = cells.length ? "table" : "none";
+  if (!cells.length) return;
+  const tbody = $("histBody");
+  tbody.innerHTML = "";
+  for (const c of cells) {
+    const faceName = state.faces?.find(f => f.index === c.face)?.name ?? "";
+    const tr = document.createElement("tr");
+    const scoreCls = c.score >= 80 ? "score-hi" : c.score >= 60 ? "score-mid" : "";
+    tr.innerHTML =
+      `<td class="${scoreCls}">${c.score}</td>` +
+      `<td>${c.face} ${faceName}</td><td>(${c.cell[0]},${c.cell[1]})</td>` +
+      `<td>${c.count30m}</td><td>${c.total}</td>` +
+      `<td>${(c.isolationRatio * 100).toFixed(0)}%</td>` +
+      `<td>${(c.occupancyRatio * 100).toFixed(1)}%</td>` +
+      `<td>${c.active ? "進行中" : fmtAgo(c.lastTriggerAgoMs)}</td>` +
+      `<td>${(c.lastLifetimeMs / 1000).toFixed(1)}s</td>` +
+      (c.locked ? `<td class="lockedMark">已鎖定</td>` : `<td>-</td>`);
+    const td = document.createElement("td");
+    if (!c.locked) {
+      const btn = document.createElement("button");
+      btn.className = "btn minor lockBtn";
+      btn.textContent = "鎖定";
+      gateLockButton(btn);
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const r = await postLock(c.face, c.cell[0], c.cell[1]);
+        $("histStatus").textContent = r.body?.message || `HTTP ${r.status}`;
+        // 成功：該列立即標記已鎖（設定 tab 清單由 WS locks push 自然更新）；失敗恢復按鈕
+        if (r.body?.ok) refreshHistory();
+        else btn.disabled = !uiIsLoopback();
+      };
+      td.appendChild(btn);
+    }
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+$("btnManualLock").onclick = async () => {
+  const face = +$("mlFace").value, col = +$("mlCol").value, row = +$("mlRow").value;
+  if ($("mlFace").value === "" || $("mlCol").value === "" || $("mlRow").value === "" ||
+      !Number.isInteger(face) || !Number.isInteger(col) || !Number.isInteger(row)) {
+    $("mlResult").textContent = "face / col / row 三欄都要填整數";
+    return;
+  }
+  const r = await postLock(face, col, row);
+  $("mlResult").textContent = r.body?.message || `HTTP ${r.status}`;
+  if (r.body?.ok) refreshHistory();
+};
+gateLockButton($("btnManualLock"));
+
+// ── 終端 tab：log 串流 + 指令（POST /command；與 stdin 同輸出）──────────────
+const TERM_MAX_NODES = 1500;   // 顯示上限（ring 300 行 backlog + 即時 + 指令輸出）
+let termAutoScroll = true;
+const termHistory = [];        // 指令歷史（↑↓）
+let termHistIdx = -1;
+
+function termScrollBottom() {
+  if (termAutoScroll) $("termLog").scrollTop = $("termLog").scrollHeight;
+}
+
+function termTrim() {
+  const el = $("termLog");
+  while (el.children.length > TERM_MAX_NODES) el.removeChild(el.firstChild);
+}
+
+function termAppendLog(msg) {
+  const div = document.createElement("div");
+  div.className = `lv-${msg.level}`;
+  const ts = new Date(msg.ts).toLocaleTimeString("en-GB");
+  div.innerHTML = `<span class="ts">${ts}</span> [${msg.level}] `;
+  div.append(msg.line);   // append 文字節點：log 內容不進 innerHTML（防注入）
+  $("termLog").appendChild(div);
+  termTrim();
+  termScrollBottom();
+}
+
+function termAppendText(text, cls) {
+  for (const line of String(text).split("\n")) {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = line;
+    $("termLog").appendChild(div);
+  }
+  termTrim();
+  termScrollBottom();
+}
+
+async function termRun(cmd) {
+  cmd = cmd.trim();
+  if (!cmd) return;
+  termAppendText(`> ${cmd}`, "cmd-echo");
+  termHistory.push(cmd);
+  termHistIdx = termHistory.length;
+  try {
+    const r = await fetchJson("/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cmd }),
+    });
+    if (r.status === 403) termAppendText("（403：終端僅限本機）", "lv-Error");
+    else termAppendText(r.body?.output ?? r.body?.message ?? `HTTP ${r.status}`, "cmd-out");
+  } catch (e) {
+    termAppendText("送出失敗：" + e.message, "lv-Error");
+  }
+}
+
+$("termInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    termRun($("termInput").value);
+    $("termInput").value = "";
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (termHistIdx > 0) $("termInput").value = termHistory[--termHistIdx];
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (termHistIdx < termHistory.length - 1) $("termInput").value = termHistory[++termHistIdx];
+    else { termHistIdx = termHistory.length; $("termInput").value = ""; }
+  }
+});
+
+document.querySelectorAll(".termQuick").forEach(btn =>
+  btn.onclick = () => termRun(btn.dataset.cmd));
+
+$("btnPauseScroll").onclick = () => {
+  termAutoScroll = !termAutoScroll;
+  $("btnPauseScroll").textContent = termAutoScroll ? "暫停捲動" : "恢復捲動";
+  $("btnPauseScroll").classList.toggle("paused", !termAutoScroll);
+  termScrollBottom();
+};
+
+/** 進終端 tab：非 loopback 開頁 → log 區塊隱藏 + 「終端僅限本機」提示（log 本來就不會推給非 loopback）。 */
+function enterTerminal() {
+  const local = uiIsLoopback();
+  $("termDenied").style.display = local ? "none" : "block";
+  $("termLog").style.display = local ? "block" : "none";
+  $("termBar").style.display = local ? "flex" : "none";
+  if (local) { termScrollBottom(); $("termInput").focus(); }
+}
+
+// ── 校正 tab：v8 校正精靈（新場域兩角校正；僅限本機）────────────────────────
+//
+// 流程：開始校正（POST /calibration/start，服務開 raw 檢視串流）→ 引導踩
+// 「左上角第一顆晶片」→ 同值連續 ≥3 包（raw 訊息的 n）自動鎖定（或手按取用）→
+// 踩「右下角最後一顆」→ 自動算 rawMin/Max + flip → 加入此面（多面逐面累積）→
+// 預覽 venue JSON + 面預覽圖 → POST /calibration/save（服務寫 venues/<名>.json +
+// config venueProfile）→ 提示重啟生效。
+const cal = {
+  active: false,        // 服務端校正工作階段
+  remain: 0,            // 工作階段剩餘秒數（5 秒輪詢校正）
+  capturing: null,      // null | "tl" | "br"：目前在等哪個角
+  ignoreCoord: null,    // 取完左上自動進右下時，忽略還踩著的左上座標（重送 n 已 ≥3）
+  lastRaw: null,        // 最近一包 raw {x,y,src,port,face,n}
+  tl: null, br: null,   // 已取角值 {x,y}
+  faces: [],            // 已加入的面（save 請求格式）
+  liveDots: [],         // 兩角取得後的即時映射點（驗證 flip/方向用）
+};
+
+const CAL_STABLE_N = 3;   // 與服務端 RawStreamGate.StableCount 一致
+
+function calCellSize(orientation) {
+  return orientation === "horizontal" ? { w: 16, h: 32 } : { w: 32, h: 16 };
+}
+
+/** 目前表單上的面（未必已加入）；欄位不完整回 null。 */
+function calCurrentFace() {
+  const cols = +$("calCols").value, rows = +$("calRows").value;
+  if (!Number.isInteger(cols) || cols < 1 || !Number.isInteger(rows) || rows < 1) return null;
+  return {
+    name: $("calFaceName").value.trim() || "Wall",
+    cols, rows,
+    orientation: $("calOrientation").value,
+    originX: Math.max(0, +$("calOriginX").value || 0),
+    originY: Math.max(0, +$("calOriginY").value || 0),
+  };
+}
+
+/** 單軸：兩角 raw → rawMin/Max + flip（與服務端 CalibrationMath.TryComputeAxis 同語意）。 */
+function calAxis(firstRaw, lastRaw) {
+  if (firstRaw === lastRaw) return null;
+  return { min: Math.min(firstRaw, lastRaw), max: Math.max(firstRaw, lastRaw), flip: firstRaw > lastRaw };
+}
+
+/** 面 → 含校正值的預覽物件（venue JSON 的 face 形狀）；兩角缺/同值回 null。 */
+function calFacePreview(f, tl, br) {
+  if (!tl || !br) return null;
+  const ax = calAxis(tl.x, br.x), ay = calAxis(tl.y, br.y);
+  if (!ax || !ay) return null;
+  return {
+    name: f.name, originX: f.originX, originY: f.originY,
+    orientation: f.orientation, colCount: f.cols, rowCount: f.rows,
+    rawMinX: ax.min, rawMaxX: ax.max, rawMinY: ay.min, rawMaxY: ay.max,
+    flipX: ax.flip, flipY: ay.flip,
+  };
+}
+
+/** 全部面（已加入 + 表單目前的）→ 畫布 bounding box（與服務端缺省演算法一致）。 */
+function calAllFaces() {
+  const all = cal.faces.map(f => calFacePreview(f, ptFromArr(f.topLeftRaw), ptFromArr(f.bottomRightRaw)))
+                       .filter(Boolean);
+  const cur = calCurrentFace();
+  if (cur) {
+    const p = calFacePreview(cur, cal.tl, cal.br);
+    all.push(p ?? { ...cur, colCount: cur.cols, rowCount: cur.rows, pending: true });
+  }
+  return all;
+}
+const ptFromArr = a => a ? { x: a[0], y: a[1] } : null;
+
+function calCanvasOf(faces) {
+  let w = 0, h = 0;
+  for (const f of faces) {
+    const c = calCellSize(f.orientation);
+    w = Math.max(w, f.originX + f.colCount * c.w);
+    h = Math.max(h, f.originY + f.rowCount * c.h);
+  }
+  return { w, h };
+}
+
+// ── 工作階段控制 ──
+async function calRefreshStatus() {
+  if (!uiIsLoopback()) return;
+  try {
+    const r = await fetchJson("/calibration/status");
+    if (r.ok && r.body) { cal.active = !!r.body.active; cal.remain = r.body.remainingSeconds || 0; }
+  } catch { /* 服務沒起來：badge 維持現狀 */ }
+  calRenderSession();
+}
+setInterval(() => { if ($("tab-calib").style.display !== "none") calRefreshStatus(); }, 5000);
+
+function calRenderSession() {
+  const b = $("calSessionBadge");
+  b.classList.toggle("on", cal.active);
+  b.textContent = cal.active ? `校正中（剩 ${Math.ceil(cal.remain / 60)} 分）` : "未開始";
+  if (!cal.active && cal.capturing) {
+    cal.capturing = null;
+    calRenderStep("工作階段已結束（逾時或手動停止）——重按「開始校正」繼續");
+  }
+}
+
+function calOnSession(active) {   // WS type:"calibration" push（start/stop/逾時）
+  cal.active = active;
+  if (!active) cal.remain = 0;
+  calRenderSession();
+}
+
+$("btnCalStart").onclick = async () => {
+  const r = await fetchJson("/calibration/start", { method: "POST" });
+  if (!r.ok || !r.body?.ok) { calRenderStep("開始失敗：" + (r.body?.message || `HTTP ${r.status}`)); return; }
+  cal.active = true;
+  cal.remain = r.body.timeoutSeconds || 900;
+  calRenderSession();
+  if (!state.ws) calRenderStep("⚠ 尚未連線 WS——先按上方「連線」才能收到 raw 訊號");
+  else if (!cal.tl) calStartCapture("tl");
+  else if (!cal.br) calStartCapture("br");
+  else calRenderStep("兩角已取得——可「加入此面」或重踩任一角");
+};
+
+$("btnCalStop").onclick = async () => {
+  await fetchJson("/calibration/stop", { method: "POST" });
+  cal.active = false; cal.capturing = null;
+  calRenderSession();
+  calRenderStep("已停止。要繼續校正重按「開始校正」");
+};
+
+// ── 踩角取值 ──
+function calStartCapture(which) {
+  cal.capturing = which;
+  // 從左上自動進右下時腳可能還踩著左上晶片（n 已 ≥3 持續重送）——忽略同座標
+  cal.ignoreCoord = which === "br" && cal.tl ? { ...cal.tl } : null;
+  calRenderStep(which === "tl"
+    ? `請踩此面【左上角】的第一顆晶片（面：${$("calFaceName").value.trim() || "Wall"}）——踩住不動`
+    : `請踩此面【右下角】的最後一顆晶片——踩住不動`);
+  calRenderCorners();
+}
+
+$("btnCalCaptureTl").onclick = () => { if (calEnsureActive()) calStartCapture("tl"); };
+$("btnCalCaptureBr").onclick = () => { if (calEnsureActive()) calStartCapture("br"); };
+
+function calEnsureActive() {
+  if (cal.active) return true;
+  calRenderStep("先按上方「開始校正」");
+  return false;
+}
+
+$("btnCalUseNow").onclick = () => {
+  if (!calEnsureActive()) return;
+  if (!cal.capturing) { calRenderStep("先按「重踩左上角」或「重踩右下角」選擇要取的角"); return; }
+  if (!cal.lastRaw) { calRenderStep("還沒收到任何 raw 訊號——確認模組在發訊、WS 已連線"); return; }
+  calLockIn(cal.lastRaw.x, cal.lastRaw.y);
+};
+
+function calOnRaw(msg) {
+  cal.lastRaw = msg;
+
+  // raw 大字（校正 tab 沒開也持續更新——切回來就是最新值）
+  const big = $("calRawBig");
+  const stable = msg.n >= CAL_STABLE_N;
+  big.classList.toggle("stable", stable);
+  big.innerHTML = "";
+  big.append(`(${msg.x}, ${msg.y})`);
+  const sub = document.createElement("span");
+  sub.className = "dimmed";
+  sub.textContent = `  n=${Math.min(msg.n, 99)}${stable ? " 穩定" : ` / ${CAL_STABLE_N}`}` +
+                    (msg.src ? `  來源 ${msg.src}:${msg.port}` : "");
+  big.appendChild(sub);
+
+  // 自動鎖定：同值連續 ≥3（忽略「上一角還踩著」的座標）
+  if (cal.capturing && stable &&
+      !(cal.ignoreCoord && msg.x === cal.ignoreCoord.x && msg.y === cal.ignoreCoord.y))
+    calLockIn(msg.x, msg.y);
+
+  // 兩角都取得後：即時把踩的點映射到面預覽圖（驗證 flip / 方向）
+  if (!cal.capturing && cal.tl && cal.br) {
+    cal.liveDots.push({ x: msg.x, y: msg.y, at: Date.now() });
+    if (cal.liveDots.length > 60) cal.liveDots.shift();
+    calDrawPreview();
+  }
+}
+
+function calLockIn(x, y) {
+  const which = cal.capturing;
+  cal[which] = { x, y };
+  cal.capturing = null;
+  cal.ignoreCoord = null;
+  cal.liveDots = [];
+  if (which === "tl" && !cal.br) {
+    calStartCapture("br");   // 自動進下一角（還踩著的左上座標會被忽略）
+  } else {
+    const cur = calCurrentFace();
+    const p = cur && calFacePreview(cur, cal.tl, cal.br);
+    calRenderStep(p
+      ? "兩角已取得 ✓ —— 確認計算結果後按「加入此面」（再踩任意點可在預覽圖驗證方向）"
+      : "兩角已取得，但兩角的 rawX 或 rawY 相同——請確認踩的是不同晶片，重踩其中一角");
+  }
+  calRenderCorners();
+}
+
+function calRenderStep(text) { $("calStepText").textContent = text; }
+
+function calRenderCorners() {
+  $("calTlVal").textContent = cal.tl ? `(${cal.tl.x}, ${cal.tl.y})` : "（未取）";
+  $("calBrVal").textContent = cal.br ? `(${cal.br.x}, ${cal.br.y})` : "（未取）";
+  let axisText = "-";
+  if (cal.tl && cal.br) {
+    const ax = calAxis(cal.tl.x, cal.br.x), ay = calAxis(cal.tl.y, cal.br.y);
+    axisText = !ax || !ay
+      ? "✗ 兩角 raw 相同，無法定義範圍"
+      : `rawX ${ax.min}~${ax.max}${ax.flip ? "（flipX）" : ""}、rawY ${ay.min}~${ay.max}${ay.flip ? "（flipY）" : ""}`;
+  }
+  $("calAxisResult").textContent = axisText;
+  calRenderAll();
+}
+
+// ── 面累積 ──
+$("btnCalAddFace").onclick = () => {
+  const msg = $("calFaceMsg");
+  const cur = calCurrentFace();
+  if (!cur) { msg.textContent = "✗ cols / rows 要填 1~1024 的整數"; return; }
+  if (!cal.tl || !cal.br) { msg.textContent = "✗ 先取得兩角 raw 值"; return; }
+  if (!calAxis(cal.tl.x, cal.br.x) || !calAxis(cal.tl.y, cal.br.y)) {
+    msg.textContent = "✗ 兩角 rawX / rawY 相同——重踩其中一角"; return;
+  }
+  cal.faces.push({
+    name: cur.name, cols: cur.cols, rows: cur.rows, orientation: cur.orientation,
+    originX: cur.originX, originY: cur.originY,
+    topLeftRaw: [cal.tl.x, cal.tl.y], bottomRightRaw: [cal.br.x, cal.br.y],
+  });
+  cal.tl = cal.br = null;
+  cal.liveDots = [];
+  msg.textContent = `✓ 已加入「${cur.name}」（共 ${cal.faces.length} 面）。多面場域：改面名/origin 後繼續踩下一面`;
+  calRenderStep("面已加入——單面場域直接到「3 · 預覽與儲存」；多面改面名與 origin 後重踩兩角");
+  calRenderCorners();
+};
+
+function calRenderFacesTable() {
+  $("calFacesWrap").style.display = cal.faces.length ? "block" : "none";
+  const tbody = $("calFacesBody");
+  tbody.innerHTML = "";
+  cal.faces.forEach((f, i) => {
+    const p = calFacePreview(f, ptFromArr(f.topLeftRaw), ptFromArr(f.bottomRightRaw));
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${i}: ${f.name}</td><td>${f.cols}×${f.rows}</td><td>${f.orientation}</td>` +
+      `<td>(${f.originX},${f.originY})</td>` +
+      `<td>${p.rawMinX}~${p.rawMaxX}</td><td>${p.rawMinY}~${p.rawMaxY}</td>` +
+      `<td>${p.flipX ? "X" : ""}${p.flipY ? "Y" : ""}${p.flipX || p.flipY ? "" : "-"}</td>`;
+    const td = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "btn minor";
+    btn.textContent = "移除";
+    btn.onclick = () => { cal.faces.splice(i, 1); calRenderAll(); };
+    td.appendChild(btn);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  });
+}
+
+// ── 預覽（畫布自動計算 + venue JSON + 面預覽圖）──
+function calRenderAll() {
+  const all = calAllFaces();
+  const canvas = calCanvasOf(all);
+  $("calCanvasSize").textContent = all.length ? `${canvas.w} × ${canvas.h} px` : "-";
+  calRenderFacesTable();
+  calRenderJson();
+  calDrawPreview();
+}
+
+function calRenderJson() {
+  const faces = cal.faces.map(f => calFacePreview(f, ptFromArr(f.topLeftRaw), ptFromArr(f.bottomRightRaw)));
+  if (cal.tl && cal.br) {   // 表單上取完兩角但還沒按「加入」的面也納入預覽
+    const cur = calCurrentFace();
+    const p = cur && calFacePreview(cur, cal.tl, cal.br);
+    if (p) faces.push(p);
+  }
+  if (!faces.length) { $("calJsonPreview").textContent = "（加入至少一面後顯示）"; return; }
+  $("calJsonPreview").textContent = JSON.stringify({
+    venue: $("calVenue").value.trim() || "（場域名稱）",
+    canvas: (({ w, h }) => ({ width: w, height: h }))(calCanvasOf(faces)),
+    faces,
+  }, null, 2);
+}
+
+const calCv = $("calPreview"), calCtx = calCv.getContext("2d");
+
+function calDrawPreview() {
+  const wrap = $("calPreviewWrap").getBoundingClientRect();
+  if (wrap.width === 0) return;   // tab 隱藏中
+  calCv.width = wrap.width * devicePixelRatio;
+  calCv.height = wrap.height * devicePixelRatio;
+  calCtx.clearRect(0, 0, calCv.width, calCv.height);
+
+  const all = calAllFaces();
+  const canvas = calCanvasOf(all);
+  if (!all.length || canvas.w === 0 || canvas.h === 0) {
+    calCtx.fillStyle = "#79808f";
+    calCtx.font = `${13 * devicePixelRatio}px monospace`;
+    calCtx.textAlign = "center";
+    calCtx.fillText("填好 cols × rows 後此處顯示面預覽", calCv.width / 2, calCv.height / 2);
+    return;
+  }
+
+  const pad = 18 * devicePixelRatio;
+  const s = Math.min((calCv.width - pad * 2) / canvas.w, (calCv.height - pad * 2) / canvas.h);
+  const ox = (calCv.width - canvas.w * s) / 2, oy = (calCv.height - canvas.h * s) / 2;
+  const X = x => ox + x * s, Y = y => oy + y * s;
+
+  calCtx.strokeStyle = "#3a4150";
+  calCtx.lineWidth = devicePixelRatio;
+  calCtx.strokeRect(X(0), Y(0), canvas.w * s, canvas.h * s);
+
+  calCtx.font = `${11 * devicePixelRatio}px monospace`;
+  calCtx.textAlign = "left";
+  all.forEach((f, i) => {
+    const c = calCellSize(f.orientation);
+    const w = f.colCount * c.w, h = f.rowCount * c.h;
+    const color = FACE_COLORS[i % FACE_COLORS.length];
+    calCtx.strokeStyle = color + (f.pending ? "55" : "88");
+    calCtx.fillStyle = color + "14";
+    calCtx.fillRect(X(f.originX), Y(f.originY), w * s, h * s);
+    calCtx.strokeRect(X(f.originX), Y(f.originY), w * s, h * s);
+    calCtx.fillStyle = color + "cc";
+    calCtx.fillText(`${f.name}（${f.colCount}×${f.rowCount}）${f.pending ? " 校正中" : ""}`,
+                    X(f.originX) + 4 * devicePixelRatio, Y(f.originY) + 13 * devicePixelRatio);
+  });
+
+  // 目前表單面：已取角落 ◤◢ 標在第一顆 / 最後一顆晶片中心
+  const cur = calCurrentFace();
+  if (cur) {
+    const c = calCellSize(cur.orientation);
+    const mark = (cellX, cellY, label, got) => {
+      const px = X(cur.originX + cellX * c.w + c.w / 2), py = Y(cur.originY + cellY * c.h + c.h / 2);
+      calCtx.fillStyle = got ? "#5dd97c" : "#79808f";
+      calCtx.beginPath();
+      calCtx.arc(px, py, 5 * devicePixelRatio, 0, Math.PI * 2);
+      calCtx.fill();
+      calCtx.font = `${11 * devicePixelRatio}px monospace`;
+      calCtx.fillText(label, px + 8 * devicePixelRatio, py + 4 * devicePixelRatio);
+    };
+    mark(0, 0, cal.tl ? "左上 ✓" : "左上", !!cal.tl);
+    mark(cur.cols - 1, cur.rows - 1, cal.br ? "右下 ✓" : "右下", !!cal.br);
+
+    // 即時映射點（兩角取得後）：raw → norm →（flip）→ 面內 px（近似預覽；
+    // 服務端正式映射含 (N-1)→N 拉伸 quirk，驗方向用這個就夠）
+    const p = calFacePreview(cur, cal.tl, cal.br);
+    if (p) {
+      const now = Date.now();
+      cal.liveDots = cal.liveDots.filter(d => now - d.at < 4000);
+      for (const d of cal.liveDots) {
+        let nx = (d.x - p.rawMinX) / (p.rawMaxX - p.rawMinX);
+        let ny = (d.y - p.rawMinY) / (p.rawMaxY - p.rawMinY);
+        if (nx < -0.05 || nx > 1.05 || ny < -0.05 || ny > 1.05) continue;   // 此面範圍外
+        if (p.flipX) nx = 1 - nx;
+        if (p.flipY) ny = 1 - ny;
+        const alpha = 1 - (now - d.at) / 4000;
+        calCtx.fillStyle = `rgba(93,217,124,${(0.25 + 0.75 * alpha).toFixed(2)})`;
+        calCtx.beginPath();
+        calCtx.arc(X(cur.originX + nx * cur.cols * c.w), Y(cur.originY + ny * cur.rows * c.h),
+                   4 * devicePixelRatio, 0, Math.PI * 2);
+        calCtx.fill();
+      }
+    }
+  }
+}
+
+// 表單欄位變動 → 重算畫布 / 預覽 / JSON
+for (const id of ["calVenue", "calFaceName", "calCols", "calRows", "calOrientation", "calOriginX", "calOriginY"])
+  $(id).addEventListener("input", calRenderAll);
+
+// ── 儲存 ──
+$("btnCalSave").onclick = async () => {
+  const out = $("calSaveResult");
+  const showSave = (ok, text) => { out.className = ok ? "ok" : "err"; out.textContent = text; };
+
+  // 體貼單面流程：兩角取了但忘了按「加入此面」→ 自動補加入
+  if (!cal.faces.length && cal.tl && cal.br) $("btnCalAddFace").onclick();
+  const venue = $("calVenue").value.trim();
+  if (!venue) { showSave(false, "✗ 場域名稱不可為空"); return; }
+  if (!cal.faces.length) { showSave(false, "✗ 至少要加入一面（先踩兩角取值）"); return; }
+
+  $("btnCalSave").disabled = true;
+  try {
+    const r = await fetchJson("/calibration/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venue, faces: cal.faces }),
+    });
+    showSave(!!r.body?.ok, (r.body?.ok ? "✓ " : "✗ ") + (r.body?.message || `HTTP ${r.status}`));
+    if (r.body?.ok) {
+      await fetchJson("/calibration/stop", { method: "POST" });   // 寫完收工作階段
+      cal.active = false; cal.capturing = null;
+      calRenderSession();
+      calRenderStep("已儲存——重啟服務（托盤右鍵「結束服務」後重開 TouchService.exe）載入新場域");
+    }
+  } catch (e) {
+    showSave(false, "✗ 送出失敗：" + e.message);
+  } finally {
+    $("btnCalSave").disabled = false;
+  }
+};
+
+/** 進校正 tab：非 loopback 開頁 → 整個精靈隱藏（raw 串流與寫檔本來就只開放本機）。 */
+function enterCalib() {
+  const local = uiIsLoopback();
+  $("calibDenied").style.display = local ? "none" : "block";
+  $("calibBody").style.display = local ? "block" : "none";
+  if (!local) return;
+  calRefreshStatus();
+  calRenderAll();
+  if (!state.ws) calRenderStep("⚠ 尚未連線 WS——先按上方「連線」（raw 訊號由 WS 推送）");
+}
+
+// ── Venue 切換(header 下拉+按鈕):GET /venues 填 select、POST /venue/switch 觸發重啟 ──
+async function refreshVenues() {
+  try {
+    const r = await fetchJson("/venues");
+    if (!r.ok || !r.body) { setVenueSwitchState("讀 venue 清單失敗", "err"); return; }
+    const sel = $("venueSel");
+    sel.innerHTML = "";
+    const venues = r.body.venues || [];
+    if (venues.length === 0) {
+      const o = document.createElement("option");
+      o.textContent = "(無 venue)"; o.disabled = true; sel.appendChild(o);
+      return;
+    }
+    for (const v of venues) {
+      const o = document.createElement("option");
+      o.value = v.path;
+      o.textContent = v.current ? `${v.name}  ✓ (當前)` : v.name;
+      if (v.current) o.selected = true;
+      sel.appendChild(o);
+    }
+  } catch (e) {
+    setVenueSwitchState("讀 venue 清單失敗: " + e.message, "err");
+  }
+}
+function setVenueSwitchState(text, cls) {
+  const el = $("venueSwitchState");
+  el.textContent = text;
+  el.style.color = cls === "err" ? "var(--down)"
+                 : cls === "ok"  ? "var(--ok)"
+                 : "var(--dim)";
+}
+$("btnSwitchVenue").onclick = async () => {
+  const path = $("venueSel").value;
+  if (!path) return;
+  if (!confirm(`切換 venue 到 ${path}?\n\n服務會重啟(~1 秒),WS 會斷線後自動重連。`)) return;
+  setVenueSwitchState("切換中…", "");
+  try {
+    const r = await fetchJson("/venue/switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    if (r.ok && r.body?.ok) {
+      setVenueSwitchState(r.body.message || "已請求切換,重啟中…", "ok");
+      // 服務 ~500ms 內重啟。先主動斷線(免得 onerror 閃紅),1.5s 後重連讀新 hello
+      if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
+      setConn("重啟中…", "");
+      setTimeout(() => {
+        connect();
+        refreshVenues();
+        setVenueSwitchState("已切換,連線中…", "ok");
+      }, 1500);
+    } else {
+      setVenueSwitchState((r.body?.message) || `切換失敗 ${r.status}`, "err");
+    }
+  } catch (e) {
+    setVenueSwitchState("切換失敗: " + e.message, "err");
+  }
+};
+
+// ── 啟動：由服務供頁（http://）時自動連線——exe autoLaunch 開窗即看到即時畫面 ──
+if (location.protocol.startsWith("http")) connect();
+refreshVenues();
+refreshInteractionState();
+setInterval(refreshInteractionState, 5000);
+</script>
+</body>
+</html>
