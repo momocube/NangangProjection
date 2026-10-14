@@ -1008,7 +1008,6 @@ function ncRender() {
   $("btnNcNext").disabled = nc.busy || nc.page >= maxPage;
   for (const id of ["btnNcReapply", "btnNcSave", "btnNcUndo", "btnNcClear"])
     $(id).disabled = disabled || running;
-  renderVenue();
 }
 
 function ncRenderSelection() {
