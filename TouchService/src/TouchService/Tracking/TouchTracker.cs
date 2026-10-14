@@ -221,6 +221,23 @@ public sealed class TouchTracker
         }
     }
 
+    /// <summary>立即結束所有作用中的觸點（清場掃描切換時用），每個作用中 ID 恰好發一個 Up。</summary>
+    public void ReleaseAll(List<TouchEventData> eventsOut)
+    {
+        for (int s = 0; s < _slots.Length; s++)
+        {
+            if (!_slots[s].Active) continue;
+            _slots[s].Active = false;
+            _activeCount--;
+            eventsOut.Add(new TouchEventData
+            {
+                Id = _slots[s].Id,
+                Phase = TouchPhase.Up,
+                Point = _slots[s].Last,
+            });
+        }
+    }
+
     /// <summary>收集目前所有活躍 touch ID（schema 的 alive 清單）。</summary>
     public void CollectAlive(List<int> idsOut)
     {

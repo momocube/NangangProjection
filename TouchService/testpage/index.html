@@ -227,27 +227,39 @@
       <div id="aliveList"><span class="hint">（無）</span></div>
     </section>
     <section>
-      <h2>捕捉噪訊（清場後按一下）</h2>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="btn" id="btnNoiseCap">捕捉噪訊</button>
-        <span id="ncStatus" class="hint"></span>
+      <h2>清場掃描</h2>
+      <div class="hint" style="margin:4px 0">
+        請先確認場上無人。掃描不限時；每個新格子第一次發訊就會立即臨時鎖定並暫停互動輸出。
+        停止後立即恢復互動。已正式保存的鎖定仍會在重啟後生效。
       </div>
-      <div class="hint" style="margin-top:2px">
-        把「剛剛在觸發的格子」（回頭窗）＋接下來觸發的格子（前向倒數）全列出來——
-        確認清單後一鍵臨時鎖定，再觀察下方「鎖後活動」決定要不要轉正式。
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="btnNcStart">開始新的掃描</button>
+        <button class="btn minor" id="btnNcAppend">接續掃描</button>
+        <button class="btn danger" id="btnNcStop">停止並恢復互動</button>
       </div>
-      <div id="ncWrap" style="display:none">
+      <div id="ncStatus" class="hint" style="margin-top:6px">讀取掃描狀態…</div>
+      <div id="ncWarning" class="hint"></div>
+      <div id="ncWrap" style="display:none;margin-top:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
+          <button class="btn minor" id="btnNcReapply">重新套用勾選格</button>
+          <button class="btn minor" id="btnNcSave">正式保存勾選格</button>
+          <button class="btn minor" id="btnNcUndo">解除勾選的本次臨時鎖</button>
+          <button class="btn minor" id="btnNcClear">清除草稿</button>
+        </div>
+        <div class="hint" id="ncSummary"></div>
         <table class="locks" id="ncTable">
           <thead><tr>
-            <th><input type="checkbox" id="ncAll" checked title="全選 / 全不選"></th>
-            <th>face</th><th>cell</th><th>窗內次數</th><th>score</th>
+            <th><input type="checkbox" id="ncAll" checked title="選取全部 / 取消全部"></th>
+            <th>面</th><th>格子</th><th>訊號筆數</th><th>首次 / 最近</th><th>狀態</th>
           </tr></thead>
           <tbody id="ncBody"></tbody>
         </table>
-        <div style="display:flex;gap:6px;margin:4px 0">
-          <button class="btn" id="btnNcLock">臨時鎖定勾選格</button>
-          <button class="btn minor" id="btnNcClear">清除</button>
+        <div style="display:flex;gap:8px;align-items:center;margin:6px 0">
+          <button class="btn minor" id="btnNcPrev">上一頁</button>
+          <span class="hint" id="ncPage"></span>
+          <button class="btn minor" id="btnNcNext">下一頁</button>
         </div>
+        <div class="hint">清除草稿不會解除鎖定。重啟後草稿只供查看；需要時按「重新套用」。</div>
       </div>
     </section>
     <section>
@@ -560,7 +572,7 @@ const state = {
   config: null,           // GET /config 的目前生效值
   faces: null,            // /venue 或 hello 的 faces（設定頁下拉用）
   monitors: [],           // GET /monitors
-  captureCells: [],       // 捕捉噪訊：窗內觸發過的格（venue map 橘色高亮）
+  captureCells: [],       // 清場掃描草稿格（尚未鎖定的格子在 venue map 橘色高亮）
 };
 const FADE_MS = 600;
 
@@ -788,8 +800,9 @@ function draw() {
     ctx.stroke();
   }
 
-  // 捕捉噪訊：窗內觸發過的格（橘色高亮——捕捉中即時累積、結果清單清除前持續顯示）
+  // 清場掃描草稿：未鎖定格子以橘色標示；既有／本次鎖定維持鎖定紅色。
   for (const c of state.captureCells) {
+    if (c.locked) continue;
     const f = v.faces[c.face];
     if (!f) continue;
     const x = X(f.originX + c.col * f.cellW);
@@ -867,29 +880,10 @@ setInterval(() => {
   }
 }, 250);
 
-// ── 捕捉噪訊（v9）：清場後一鍵把「剛剛在觸發 + 接下來觸發」的格子收進清單 ────
-//
-// 純前端輪詢既有 GET /history（無後端 session）：
-//   按下 → GET /config 取窗參數（noiseCapture，config 可調）→ baseline /history
-//   → 回頭窗：lastTriggerAgoMs ≤ lookback 或 active 的格直接入清單（窗內次數從 1 起算）
-//   → 前向窗：每秒輪詢 /history，total 對 baseline 的差 = 窗內新觸發次數
-//   → 倒數結束列清單（預設全勾）→「臨時鎖定」批次 POST /locks/lock（manual 來源）
-// 已鎖格不會出現（/history 排行已排除）。捕捉只讀 API，誰都能跑；鎖定僅限本機。
-const nc = {
-  running: false,
-  baseline: new Map(),   // key → 捕捉起點的 total（delta 基準）
-  items: new Map(),      // key → {face,col,row,base,count,score,checked}
-  endAt: 0,
-  timer: null,
-  look: 5, cap: 10,      // GET /config noiseCapture（fallback 預設）
-};
-const ncKey = (f, c, r) => `${f}:${c}:${r}`;
-
-async function ncFetchCells() {
-  const r = await fetchJson("/history?top=500");
-  if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
-  return r.body.cells || [];
-}
+// ── 清場掃描：後端持續逐格收集與鎖定，頁面關閉不會停止掃描 ──────────────
+const NC_PAGE_SIZE = 50;
+const nc = { snapshot: null, selected: new Set(), seen: new Set(), page: 0, busy: false, available: true };
+const ncKey = c => `${c.face}:${c.col}:${c.row}`;
 
 function ncSetStatus(text, cls) {
   const el = $("ncStatus");
@@ -897,132 +891,183 @@ function ncSetStatus(text, cls) {
   el.className = cls || "hint";
 }
 
-$("btnNoiseCap").onclick = async () => {
-  if (nc.running) return;
-  nc.running = true;
-  $("btnNoiseCap").disabled = true;
-  nc.items.clear();
-  nc.baseline.clear();
-  ncSetStatus("讀取基準…", "hint");
-  try {
-    const cfg = await fetchJson("/config");   // 窗參數 config 可調（noiseCapture）
-    nc.look = cfg.body?.noiseCapture?.lookbackSeconds ?? 5;
-    nc.cap = cfg.body?.noiseCapture?.captureSeconds ?? 10;
+function ncDuration(ms) {
+  const seconds = Math.max(0, Math.floor((ms || 0) / 1000));
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+  return h ? `${h}時${m}分${s}秒` : m ? `${m}分${s}秒` : `${s}秒`;
+}
 
-    for (const c of await ncFetchCells()) {
-      if (c.locked) continue;   // 已鎖格不重複捕捉（排行已排除，防衛性再濾一次）
-      const k = ncKey(c.face, c.cell[0], c.cell[1]);
-      nc.baseline.set(k, c.total);
-      // 回頭窗：剛剛在觸發（或此刻還在叫）的格子直接入清單
-      if (c.active || c.lastTriggerAgoMs <= nc.look * 1000)
-        nc.items.set(k, { face: c.face, col: c.cell[0], row: c.cell[1],
-                          base: 1, count: 1, score: c.score, checked: true });
+function ncAgo(date) {
+  if (!date) return "尚無";
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(date)) / 1000));
+  return seconds < 60 ? `${seconds} 秒前` : seconds < 3600 ? `${Math.floor(seconds / 60)} 分前` : `${Math.floor(seconds / 3600)} 小時前`;
+}
+
+function ncTime(date) {
+  return date ? new Date(date).toLocaleString() : "—";
+}
+
+async function ncAction(path, payload) {
+  const r = await fetchJson(path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  if (!r.ok || r.body?.ok === false) throw new Error(r.body?.message || `HTTP ${r.status}`);
+  return r.body;
+}
+
+async function ncRefresh() {
+  try {
+    const r = await fetchJson("/noise-capture");
+    if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+    nc.available = !!r.body.available;
+    const next = r.body.snapshot;
+    if (next?.draftId !== nc.snapshot?.draftId) {
+      nc.selected.clear();
+      nc.seen.clear();
+      nc.page = 0;
     }
-  } catch (e) {
-    ncSetStatus("讀取失敗：" + e.message + "（服務沒起來？）", "hint");
-    nc.running = false;
-    $("btnNoiseCap").disabled = false;
-    return;
-  }
-  nc.endAt = Date.now() + nc.cap * 1000;
-  ncRender(false);
-  nc.timer = setInterval(ncPoll, 1000);
-};
-
-async function ncPoll() {
-  try {
-    for (const c of await ncFetchCells()) {
-      if (c.locked) continue;
-      const k = ncKey(c.face, c.cell[0], c.cell[1]);
-      const delta = c.total - (nc.baseline.get(k) ?? 0);
-      const ex = nc.items.get(k);
-      if (ex) {
-        ex.count = ex.base + Math.max(0, delta);
-        ex.score = c.score;
-      } else if (delta > 0) {
-        nc.items.set(k, { face: c.face, col: c.cell[0], row: c.cell[1],
-                          base: 0, count: delta, score: c.score, checked: true });
+    nc.snapshot = next || null;
+    if (nc.snapshot) {
+      for (const c of nc.snapshot.cells || []) {
+        const k = ncKey(c);
+        if (!nc.seen.has(k)) nc.selected.add(k);
+        nc.seen.add(k);
       }
+    } else {
+      nc.selected.clear();
+      nc.seen.clear();
+      nc.page = 0;
     }
-  } catch { /* 單次輪詢失敗：下一秒再試 */ }
-
-  if (Date.now() >= nc.endAt) {
-    clearInterval(nc.timer);
-    nc.timer = null;
-    nc.running = false;
-    $("btnNoiseCap").disabled = false;
-    ncRender(true);
-  } else {
-    ncRender(false);
+    ncRender();
+  } catch (e) {
+    ncSetStatus(`無法讀取掃描狀態：${e.message}`, "err");
   }
 }
 
-function ncRender(finished) {
-  state.captureCells = [...nc.items.values()];   // venue map 橘色高亮
+function ncRender() {
+  const s = nc.snapshot;
+  const cells = s?.cells || [];
+  state.captureCells = cells;
+  const running = s?.state === "running";
+  const disabled = nc.busy || !nc.available;
+  $("btnNcStart").disabled = disabled || running;
+  $("btnNcAppend").disabled = disabled || running || !s || !s.compatible;
+  $("btnNcStop").disabled = nc.busy || !running;
+  $("ncWrap").style.display = s ? "block" : "none";
+  $("ncWarning").textContent = !nc.available ? "此服務沒有可用的設定檔位置，掃描草稿無法在重啟後保存。" :
+    s && !s.compatible ? "場域校準已改變：草稿僅供查看，不能套用或保存。" :
+    s?.state === "interrupted" ? "上次掃描因服務重啟而中斷；資料已保留，請確認清場後再接續。" : "";
 
-  if (!finished) {
-    const remain = Math.max(0, Math.ceil((nc.endAt - Date.now()) / 1000));
-    ncSetStatus(`捕捉中… 剩 ${remain} 秒（已捕捉 ${nc.items.size} 格）`, "counting");
-  } else if (nc.items.size === 0) {
-    ncSetStatus(`窗內無觸發（回頭 ${nc.look}s + 前向 ${nc.cap}s）——此刻沒有正在發作的噪訊`, "hint");
-    $("ncWrap").style.display = "none";
+  if (!s) {
+    ncSetStatus("尚未開始清場掃描。請先確認場上無人。", "hint");
     return;
-  } else {
-    ncSetStatus(`捕捉完成：${nc.items.size} 格。確認清單（可取消勾選）後按「臨時鎖定」`, "done");
   }
 
-  $("ncWrap").style.display = nc.items.size ? "block" : "none";
+  const lockedByDraft = cells.filter(c => c.lockedByDraft).length;
+  const savedByDraft = cells.filter(c => c.lockedByDraft && c.saved).length;
+  const lastSignal = cells.reduce((latest, c) => !latest || Date.parse(c.lastSeenUtc) > Date.parse(latest) ? c.lastSeenUtc : latest, null);
+  const receiveText = lastSignal ? `最近有效格子訊號 ${ncAgo(lastSignal)}` : "尚未收到可映射的格子訊號";
+  ncSetStatus(`${running ? "掃描進行中 · 遊戲與滑鼠輸出已暫停" : s.state === "interrupted" ? "掃描已中斷" : "掃描已停止 · 互動已恢復"}　` +
+    `累積 ${ncDuration(s.elapsedMs)}　已記錄 ${cells.length} 格　臨時鎖 ${lockedByDraft - savedByDraft} 格　` +
+    `${receiveText}　服務累積 UDP ${s.receivedDatagrams ?? "—"} 包` +
+    (s.saveError ? `　草稿保存狀態：${s.saveError}` : s.lastSavedUtc ? `　草稿已保存 ${ncAgo(s.lastSavedUtc)}` : "　草稿保存中"),
+    running ? "counting" : "done");
+
+  $("ncSummary").textContent = `草稿建立：${ncTime(s.createdUtc)}　最近新增格：${ncAgo(s.lastNewCellUtc)}　` +
+    `目前已選 ${nc.selected.size} 格（${cells.length} 格）。橘色＝本次記錄但目前未鎖；紅色＝已鎖。`;
+
+  const maxPage = Math.max(0, Math.ceil(cells.length / NC_PAGE_SIZE) - 1);
+  nc.page = Math.min(nc.page, maxPage);
+  const first = nc.page * NC_PAGE_SIZE;
+  const pageCells = cells.slice(first, first + NC_PAGE_SIZE);
   const tbody = $("ncBody");
-  tbody.innerHTML = "";
-  for (const [k, it] of nc.items) {
-    const faceName = state.faces?.find(f => f.index === it.face)?.name ?? "";
-    const tr = document.createElement("tr");
-    const tdCb = document.createElement("td");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = it.checked;
-    cb.onchange = () => { it.checked = cb.checked; };
-    tdCb.appendChild(cb);
-    tr.appendChild(tdCb);
-    tr.insertAdjacentHTML("beforeend",
-      `<td>${it.face} ${faceName}</td><td>(${it.col},${it.row})</td>` +
-      `<td>${it.count}</td><td>${it.score ?? "-"}</td>`);
+  tbody.replaceChildren();
+  if (cells.length === 0) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 6; td.textContent = "尚未收到有效格子訊號；請確認服務有收到感應設備資料。";
+    tr.appendChild(td); tbody.appendChild(tr);
+  }
+  for (const c of pageCells) {
+    const tr = document.createElement("tr"), tdCb = document.createElement("td"), cb = document.createElement("input");
+    const key = ncKey(c);
+    cb.type = "checkbox"; cb.checked = nc.selected.has(key); cb.disabled = nc.busy;
+    cb.onchange = () => { cb.checked ? nc.selected.add(key) : nc.selected.delete(key); ncRenderSelection(); };
+    tdCb.appendChild(cb); tr.appendChild(tdCb);
+    const faceName = state.faces?.find(f => f.index === c.face)?.name || "";
+    const status = c.saved ? "已保存" : c.lockedByDraft ? "本次臨時鎖" : c.locked ? `既有${c.lockSource || ""}鎖` : "未套用";
+    for (const value of [`${c.face} ${faceName}`, `(${c.col},${c.row})`, c.signalCount.toLocaleString(),
+      `${ncTime(c.firstSeenUtc)} / ${ncTime(c.lastSeenUtc)}`, status]) {
+      const td = document.createElement("td"); td.textContent = value; tr.appendChild(td);
+    }
     tbody.appendChild(tr);
   }
+  $("ncAll").checked = cells.length > 0 && cells.every(c => nc.selected.has(ncKey(c)));
+  $("ncAll").disabled = nc.busy || cells.length === 0;
+  $("ncPage").textContent = cells.length ? `${nc.page + 1} / ${maxPage + 1} 頁（每頁 ${NC_PAGE_SIZE} 格）` : "0 格";
+  $("btnNcPrev").disabled = nc.busy || nc.page === 0;
+  $("btnNcNext").disabled = nc.busy || nc.page >= maxPage;
+  for (const id of ["btnNcReapply", "btnNcSave", "btnNcUndo", "btnNcClear"])
+    $(id).disabled = disabled || running;
+  renderVenue();
 }
 
+function ncRenderSelection() {
+  const cells = nc.snapshot?.cells || [];
+  $("ncSummary").textContent = `草稿建立：${ncTime(nc.snapshot?.createdUtc)}　最近新增格：${ncAgo(nc.snapshot?.lastNewCellUtc)}　` +
+    `目前已選 ${nc.selected.size} 格（${cells.length} 格）。橘色＝本次記錄但目前未鎖；紅色＝已鎖。`;
+}
+
+async function ncRunAction(path, payload, successText) {
+  if (nc.busy) return;
+  nc.busy = true; ncRender();
+  try {
+    const result = await ncAction(path, payload);
+    ncSetStatus(result.message || successText, "done");
+    await Promise.all([ncRefresh(), refreshLocksDetail()]);
+  } catch (e) { ncSetStatus(`操作失敗：${e.message}`, "err"); }
+  finally { nc.busy = false; ncRender(); }
+}
+
+$("btnNcStart").onclick = async () => {
+  if (nc.snapshot?.cells?.length && !confirm("開始新草稿會清除目前草稿清單，但不會解除既有鎖定。要繼續嗎？")) return;
+  await ncRunAction("/noise-capture/start", { mode: "new" }, "清場掃描已開始");
+};
+$("btnNcAppend").onclick = async () => {
+  if (nc.snapshot) await ncRunAction("/noise-capture/start", { mode: "append" }, "已接續掃描");
+};
+$("btnNcStop").onclick = async () => {
+  if (nc.snapshot) await ncRunAction("/noise-capture/stop", { draftId: nc.snapshot.draftId }, "掃描已停止");
+};
+$("btnNcReapply").onclick = async () => {
+  if (!nc.snapshot) return;
+  await ncRunAction("/noise-capture/apply", { draftId: nc.snapshot.draftId, cells: ncSelectedCells() }, "已重新套用");
+};
+$("btnNcSave").onclick = async () => {
+  if (!nc.snapshot) return;
+  await ncRunAction("/noise-capture/save", { draftId: nc.snapshot.draftId, cells: ncSelectedCells() }, "已保存");
+};
+$("btnNcUndo").onclick = async () => {
+  if (!nc.snapshot) return;
+  await ncRunAction("/noise-capture/undo", { draftId: nc.snapshot.draftId, cells: ncSelectedCells() }, "已解除本次臨時鎖");
+};
+$("btnNcClear").onclick = async () => {
+  if (!nc.snapshot || !confirm("清除掃描草稿？已建立的鎖定不會解除。")) return;
+  await ncRunAction("/noise-capture/clear", { draftId: nc.snapshot.draftId }, "草稿已清除");
+};
 $("ncAll").onchange = () => {
-  for (const it of nc.items.values()) it.checked = $("ncAll").checked;
-  ncRender(!nc.running);
+  const cells = nc.snapshot?.cells || [];
+  if ($("ncAll").checked) for (const c of cells) nc.selected.add(ncKey(c));
+  else nc.selected.clear();
+  ncRender();
 };
-
-$("btnNcClear").onclick = () => {
-  if (nc.timer) { clearInterval(nc.timer); nc.timer = null; }
-  nc.running = false;
-  $("btnNoiseCap").disabled = false;
-  nc.items.clear();
-  state.captureCells = [];
-  $("ncWrap").style.display = "none";
-  ncSetStatus("", "hint");
-};
-
-$("btnNcLock").onclick = async () => {
-  const picked = [...nc.items.entries()].filter(([, it]) => it.checked);
-  if (!picked.length) { ncSetStatus("沒有勾選任何格", "hint"); return; }
-  $("btnNcLock").disabled = true;
-  let ok = 0, fail = 0;
-  for (const [k, it] of picked) {
-    const r = await postLockOp("/locks/lock", { face: it.face, cell: [it.col, it.row] });
-    if (r.ok && r.body?.ok) { ok++; nc.items.delete(k); }
-    else fail++;
-  }
-  $("btnNcLock").disabled = false;
-  state.captureCells = [...nc.items.values()];
-  ncRender(true);
-  ncSetStatus(`已臨時鎖定 ${ok} 格${fail ? `（${fail} 格失敗）` : ""}——在下方「臨時鎖」區觀察鎖後活動`, "done");
-  refreshLocksDetail();   // 立即刷新臨時鎖區（WS push 也會到，雙保險）
-};
-gateLockButton($("btnNcLock"));
+$("btnNcPrev").onclick = () => { nc.page--; ncRender(); };
+$("btnNcNext").onclick = () => { nc.page++; ncRender(); };
+function ncSelectedCells() {
+  return (nc.snapshot?.cells || []).filter(c => nc.selected.has(ncKey(c)))
+    .map(c => ({ face: c.face, col: c.col, row: c.row }));
+}
+ncRefresh();
+setInterval(ncRefresh, 2000);
 
 // ── 臨時鎖區（v9）：未保存鎖 + 鎖後活動指標；轉正式 / 解除 ──────────────────
 function renderStaged() {

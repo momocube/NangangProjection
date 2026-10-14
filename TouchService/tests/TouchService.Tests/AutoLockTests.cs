@@ -52,8 +52,17 @@ public class AutoLockTests
         }
 
         /// <summary>讀出 harness log 全文（FileLogger 每筆 flush，Finish 後即可讀）。</summary>
-        public string ReadLog() =>
-            string.Concat(Directory.GetFiles(LogDir, "touchservice-*.log").Select(File.ReadAllText));
+        public string ReadLog()
+        {
+            _log.Dispose();   // 關閉檔案控制代碼後再讀，避免 IO 競態
+            var files = Directory.GetFiles(LogDir, "touchservice-*.log");
+            var sb = new StringBuilder();
+            foreach (var file in files)
+            {
+                sb.Append(File.ReadAllText(file));
+            }
+            return sb.ToString();
+        }
 
         public void Send(RawPoint p, long nowMs) =>
             Pipeline.OnDatagram(SensorPacketParser.Build(0, new[] { p }), nowMs);

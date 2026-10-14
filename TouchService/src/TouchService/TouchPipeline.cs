@@ -52,6 +52,7 @@ public sealed class TouchPipeline : IDisposable
     readonly AutoLockSelfCheck? _autoLock;
     readonly TriggerHistory? _history;
     readonly CalibrationStreamer? _calibration;
+    readonly NoiseCaptureJournal? _noiseCapture;
     int _autoLockLastLoggedSec = int.MaxValue;
     ITouchEventObserver? _observer;   // 滑鼠模式 sink（null = grid，零開銷）；受 _gate 保護
 
@@ -60,6 +61,8 @@ public sealed class TouchPipeline : IDisposable
     readonly List<TouchEventData> _events = new(32);
     readonly List<int> _alive = new(128);
     RoutedPoint[] _routedBuf = new RoutedPoint[64];
+    readonly List<(int Face, int Col, int Row)> _captureLockCells = new(16);
+    readonly HashSet<(int Face, int Col, int Row)> _captureLockSet = new();
 
     long _seq;
     long _lastPublishMs;
@@ -75,7 +78,8 @@ public sealed class TouchPipeline : IDisposable
         LockedCellFilter? lockedCells = null,
         AutoLockSelfCheck? autoLock = null,
         TriggerHistory? history = null,
-        CalibrationStreamer? calibration = null)
+        CalibrationStreamer? calibration = null,
+        NoiseCaptureJournal? noiseCapture = null)
     {
         _router = router;
         _tracker = tracker;
@@ -88,6 +92,7 @@ public sealed class TouchPipeline : IDisposable
         _autoLock = autoLock;
         _history = history;
         _calibration = calibration;
+        _noiseCapture = noiseCapture;
     }
 
     /// <summary>
@@ -117,6 +122,42 @@ public sealed class TouchPipeline : IDisposable
     }
 
     public int ActiveTouches { get { lock (_gate) return _tracker.ActiveCount; } }
+
+    public bool NoiseCaptureActive => _noiseCapture?.IsRunning == true;
+
+    /// <summary>進入清場模式：原子地結束作用中觸點、發布空 alive，再開始逐格捕捉。</summary>
+    public (bool Ok, string Message, bool AlreadyRunning) StartNoiseCapture(string mode, long nowMs)
+    {
+        lock (_gate)
+        {
+            if (_noiseCapture == null) return (false, "清場掃描未初始化", false);
+            if (_noiseCapture.IsRunning) return (true, "清場掃描已在進行", true);
+            if (_autoLock is { Active: true }) return (false, "開機自檢結束後才能開始清場掃描", false);
+            if (_calibration is { Active: true }) return (false, "請先結束校正再開始清場掃描", false);
+            var valid = _noiseCapture.ValidateStart(mode);
+            if (!valid.Ok) return (false, valid.Message, false);
+
+            _events.Clear();
+            _tracker.ReleaseAll(_events);
+            if (_events.Count > 0)
+            {
+                for (int i = 0; i < _events.Count; i++) _stats.OnUp();
+                _history?.OnEvents(_events, nowMs);
+            }
+            // 讓所有訂閱者立即收到空 alive；MouseDriver 同步處理 Up。
+            PublishLocked(nowMs);
+
+            var started = _noiseCapture.Start(mode);
+            return (started.Ok, started.Message, started.AlreadyRunning);
+        }
+    }
+
+    /// <summary>停止逐格捕捉；在同一個 pipeline gate 上與 UDP 收包序列化。</summary>
+    public (bool Ok, string Message) StopNoiseCapture()
+    {
+        lock (_gate)
+            return _noiseCapture?.Stop() ?? (false, "清場掃描未初始化");
+    }
 
     /// <summary>自檢窗狀態（hello 的 autoLockActive / autoLockRemainingSeconds 用）。</summary>
     public (bool Active, int RemainingSeconds) GetAutoLockStatus(long nowMs)
@@ -165,6 +206,9 @@ public sealed class TouchPipeline : IDisposable
             if (_routedBuf.Length < _rawPoints.Count)
                 _routedBuf = new RoutedPoint[_rawPoints.Count + 16];
             int routed = 0;
+            bool captureActive = _noiseCapture?.IsRunning == true;
+            _captureLockCells.Clear();
+            _captureLockSet.Clear();
             for (int i = 0; i < _rawPoints.Count; i++)
             {
                 bool routedOk = _router.TryRoute(_rawPoints[i].X, _rawPoints[i].Y, out var p);
@@ -177,6 +221,16 @@ public sealed class TouchPipeline : IDisposable
 
                 if (routedOk)
                 {
+                    if (captureActive)
+                    {
+                        if (_noiseCapture!.Observe(in p))
+                        {
+                            var key = (p.FaceIndex, p.Col, p.Row);
+                            if (_captureLockSet.Add(key)) _captureLockCells.Add(key);
+                        }
+                        _routedBuf[routed++] = p;
+                        continue;
+                    }
                     // 鎖定晶片（噪訊）過濾：進 tracker 前丟棄（config lockedCells）。
                     // v9：記錄點在 filter「內」——CheckAndCount 累計該格鎖後活動
                     // （鎖後仍持續發包 = 鐵證噪訊），同時餵 RecordSuppressed 讓觸發歷史
@@ -191,6 +245,23 @@ public sealed class TouchPipeline : IDisposable
                 }
                 else
                     _stats.OnUnrouted();
+            }
+
+            if (captureActive)
+            {
+                string? captureId = _noiseCapture!.CurrentDraftId;
+                if (captureId != null && _captureLockCells.Count > 0)
+                    _lockedCells.TryAddCaptureBatch(_captureLockCells, captureId, nowMs);
+                for (int i = 0; i < routed; i++)
+                {
+                    var p = _routedBuf[i];
+                    if (_lockedCells.CheckAndCount(p.FaceIndex, p.Col, p.Row, nowMs))
+                    {
+                        _stats.OnDroppedByLock();
+                        _history?.RecordSuppressed(in p, nowMs);
+                    }
+                }
+                return; // 清場模式只記錄訊號並鎖定，不建立 touch、不發布互動事件。
             }
             // 啟動自檢窗：窗內只計數不發布；窗剛過先收斂結果再正常處理本包
             if (_autoLock is { Active: true })

@@ -64,6 +64,51 @@ public sealed class ConfigApi
                 // 唯讀鎖定清單（含鎖後活動），不限 loopback（與 GET /history 同：內網監看 OK）
                 return WebSocketHub.ApiResponse.Json("200 OK", _host.LocksJson());
 
+            case ("GET", "/noise-capture"):
+                return WebSocketHub.ApiResponse.Json("200 OK", _host.NoiseCaptureJson());
+
+            case ("POST", "/noise-capture/start"):
+                if (!req.IsLoopback) return Forbidden();
+                if (!TryReadCaptureRequest(req.Body, true, out _, out var mode, out _, out var startError))
+                    return Result("400 Bad Request", false, startError!);
+                var started = _host.StartNoiseCapture(mode!);
+                return Result(started.Ok ? "200 OK" : "409 Conflict", started.Ok, started.Message);
+
+            case ("POST", "/noise-capture/stop"):
+                if (!req.IsLoopback) return Forbidden();
+                if (!TryReadCaptureRequest(req.Body, out var stopId, out _, out _, out var stopError) || stopId == null)
+                    return Result("400 Bad Request", false, stopError ?? "draftId 必須是字串");
+                var stopped = _host.StopNoiseCapture(stopId);
+                return Result(stopped.Ok ? "200 OK" : "409 Conflict", stopped.Ok, stopped.Message);
+
+            case ("POST", "/noise-capture/apply"):
+                if (!req.IsLoopback) return Forbidden();
+                if (!TryReadCaptureRequest(req.Body, out var applyId, out _, out var applyCells, out var applyError) || applyId == null)
+                    return Result("400 Bad Request", false, applyError ?? "draftId 必須是字串");
+                var applied = _host.ApplyNoiseCapture(applyId, applyCells ?? Array.Empty<(int, int, int)>());
+                return Result(applied.Ok ? "200 OK" : "409 Conflict", applied.Ok, applied.Message);
+
+            case ("POST", "/noise-capture/undo"):
+                if (!req.IsLoopback) return Forbidden();
+                if (!TryReadCaptureRequest(req.Body, out var undoId, out _, out var undoCells, out var undoError) || undoId == null)
+                    return Result("400 Bad Request", false, undoError ?? "draftId 必須是字串");
+                var undone = _host.UndoNoiseCapture(undoId, undoCells ?? Array.Empty<(int, int, int)>());
+                return Result(undone.Ok ? "200 OK" : "409 Conflict", undone.Ok, undone.Message);
+
+            case ("POST", "/noise-capture/save"):
+                if (!req.IsLoopback) return Forbidden();
+                if (!TryReadCaptureRequest(req.Body, out var saveId, out _, out var saveCells, out var saveError) || saveId == null)
+                    return Result("400 Bad Request", false, saveError ?? "draftId 必須是字串");
+                var saved = _host.SaveNoiseCapture(saveId, saveCells);
+                return Result(saved.Ok ? "200 OK" : "409 Conflict", saved.Ok, saved.Message);
+
+            case ("POST", "/noise-capture/clear"):
+                if (!req.IsLoopback) return Forbidden();
+                if (!TryReadCaptureRequest(req.Body, out var clearId, out _, out _, out var clearError) || clearId == null)
+                    return Result("400 Bad Request", false, clearError ?? "draftId 必須是字串");
+                var cleared = _host.ClearNoiseCapture(clearId);
+                return Result(cleared.Ok ? "200 OK" : "409 Conflict", cleared.Ok, cleared.Message);
+
             case ("POST", "/locks/lock"):
                 if (!req.IsLoopback) return Forbidden();
                 return HandleLockOp(req.Body, LockOp.Lock);
@@ -94,7 +139,8 @@ public sealed class ConfigApi
             // ── 校正精靈（全部僅 loopback：raw 訊號與場域寫檔只准本機 UI）─────
             case ("POST", "/calibration/start"):
                 if (!req.IsLoopback) return Forbidden();
-                return WebSocketHub.ApiResponse.Json("200 OK", _host.CalibrationStart());
+                var calibration = _host.CalibrationStart();
+                return WebSocketHub.ApiResponse.Json(calibration.Ok ? "200 OK" : "409 Conflict", calibration.Json);
 
             case ("POST", "/calibration/stop"):
                 if (!req.IsLoopback) return Forbidden();
@@ -159,8 +205,57 @@ public sealed class ConfigApi
         if (string.Equals(match.RelativePath, _host.CurrentVenueRelPath, StringComparison.OrdinalIgnoreCase))
             return Result("200 OK", true, $"venue 已經是 {match.VenueName},不需切換");
 
-        _host.RequestVenueSwitch(match.RelativePath);
+        if (!_host.RequestVenueSwitch(match.RelativePath))
+            return Result("409 Conflict", false, "清場掃描期間不能切換場域");
         return Result("200 OK", true, $"已請求切換到 {match.VenueName}({match.RelativePath}),服務即將重啟…");
+    }
+
+    static bool TryReadCaptureRequest(string body, out string? draftId, out string? mode,
+        out (int Face, int Col, int Row)[]? cells, out string? error) =>
+        TryReadCaptureRequest(body, false, out draftId, out mode, out cells, out error);
+
+    static bool TryReadCaptureRequest(string body, bool requireMode, out string? draftId,
+        out string? mode, out (int Face, int Col, int Row)[]? cells, out string? error)
+    {
+        draftId = null;
+        mode = null;
+        cells = null;
+        error = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) throw new JsonException("body 必須是 JSON object");
+            if (root.TryGetProperty("draftId", out var id) && id.ValueKind == JsonValueKind.String)
+                draftId = id.GetString();
+            if (root.TryGetProperty("mode", out var m) && m.ValueKind == JsonValueKind.String)
+                mode = m.GetString();
+            if (requireMode && mode == null) throw new JsonException("mode 必須是字串");
+
+            if (root.TryGetProperty("cells", out var list) && list.ValueKind != JsonValueKind.Null)
+            {
+                if (list.ValueKind != JsonValueKind.Array) throw new JsonException("cells 必須是陣列");
+                var parsed = new List<(int Face, int Col, int Row)>();
+                foreach (var cell in list.EnumerateArray())
+                {
+                    int face = cell.GetProperty("face").GetInt32();
+                    int col = cell.GetProperty("col").GetInt32();
+                    int row = cell.GetProperty("row").GetInt32();
+                    if (face is < 0 or > 2047 || col is < 0 or > 1023 || row is < 0 or > 1023)
+                        throw new JsonException("格子座標超出可用範圍");
+                    parsed.Add((face, col, row));
+                }
+                cells = parsed.Distinct().ToArray();
+            }
+            if (mode is not null && mode is not ("new" or "append"))
+                throw new JsonException("mode 必須是 new 或 append");
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+        {
+            error = $"清場掃描請求格式錯誤：{ex.Message}";
+            return false;
+        }
     }
 
     enum LockOp { Lock, Unlock, Promote }

@@ -1,5 +1,14 @@
 # TouchService 交接總覽
 
+## 清場掃描（2026-10-14 新增）
+
+- 704 專案針對「場上無人仍會自行觸發的敏感格子」新增**手動開始／停止的清場掃描**：開始後逐格收集感應訊號、立即對首次出現的新格建立臨時鎖，並暫停遊戲／滑鼠互動輸出；停止後立即恢復互動、保留臨時鎖。
+- 收集點位於感應面路由成功、TouchTracker 合併之前，以 `(face, col, row)` 累積，故鄰近格輪流發訊不會 merge 漏抓。
+- 草稿沿用 `Diagnostics/NoiseCaptureJournal`，儲存於 config 旁的 state 目錄；服務重開後不自動恢復掃描、不自動套用臨時鎖，可在網頁查看並手動重新套用；正式保存（`save`）會寫回 config lockedCells，重啟後持續生效。
+- API：`GET /noise-capture`、`POST /noise-capture/start|stop|apply|undo|save|clear`（僅 loopback）；掃描中會擋下場域切換、config 修改與手動鎖定操作。
+- 尚未實機（704 現場）驗證；離場已通過建置與既有測試（283 項）。
+
+
 > 給接手同仁：這支服務把 CyberCube 光域場域的觸控訊號從 Unity 專案獨立出來，
 > 任何程式（Unity / TouchDesigner / 瀏覽器 / Python）都能用標準協議訂閱觸控事件。
 

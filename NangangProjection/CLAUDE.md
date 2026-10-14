@@ -85,6 +85,6 @@ rawMinY = 16    rawMaxY = 752
 - **新功能 / 新 session** → 開新對話，說「請先讀 CLAUDE.md」
 - **Bug 修正** → 直接描述問題 + 貼錯誤訊息
 - **場景 YAML 修改** → 說明要改哪個 fileID 或物件名稱
-- **推 Git** → 每個功能完成後立即 commit + push
+- **推 Git** → 只有使用者明確要求時才 commit／push；已取得明確授權時直接執行，不重複詢問。共用規則見 ../../AGENTS.md。
 - **光域 704 各面校準** → 現場四角測試後更新各 `Face_*.asset` 的 rawMin/Max
 - **不確定讀哪個腳本** → 先看 `.claude/rules/script_responsibilities.md`

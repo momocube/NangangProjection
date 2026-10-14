@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -56,7 +57,15 @@ public sealed class TouchServiceHost : IDisposable
     /// </summary>
     public event Action<string>? VenueSwitchRequested;
 
-    public void RequestVenueSwitch(string relPath) => VenueSwitchRequested?.Invoke(relPath);
+    public bool RequestVenueSwitch(string relPath)
+    {
+        lock (_configGate)
+        {
+            if (NoiseCapture.IsRunning) return false;
+            VenueSwitchRequested?.Invoke(relPath);
+            return true;
+        }
+    }
 
     /// <summary>掃 baseDir/venues 得所有可用 venue。testpage 下拉選單 / API GET /venues 用。</summary>
     public IReadOnlyList<VenueEntry> ListAvailableVenues()
@@ -70,6 +79,9 @@ public sealed class TouchServiceHost : IDisposable
 
     /// <summary>觸發歷史 + 疑似噪訊評分（GET /history、stdin `history`、UI 診斷 tab）。</summary>
     public TriggerHistory History { get; private set; } = null!;
+
+    /// <summary>服務端清場掃描草稿與逐格聚合統計。</summary>
+    public NoiseCaptureJournal NoiseCapture { get; private set; } = null!;
 
     /// <summary>實際監聽的 UDP port（config 給 0 時由 OS 配發，測試用）。</summary>
     public int ActualListenPort { get; private set; }
@@ -116,6 +128,10 @@ public sealed class TouchServiceHost : IDisposable
             _config.MaxSlots, _config.MatchRadiusPx, _config.ReleaseTimeoutMs, _config.MoveMinDistancePx);
         var serializer = new FrameSerializer(Venue);
         Locks = BuildLockedCellFilter();
+        string venueSignature = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(Venue, VenueProfile.JsonOptions))));
+        NoiseCapture = new NoiseCaptureJournal(Venue.Venue, venueSignature, Locks, _configPath,
+            () => _clock.ElapsedMilliseconds, _log);
 
         // 啟動自檢窗（autoLock）：窗內命中任一判準（packets ≥ minPackets OR 分離 episodes ≥ minEpisodes）
         // 的格子自動鎖（依據：開機時場上理應無人）。episode 切分取 releaseTimeout 啟動值。
@@ -176,7 +192,7 @@ public sealed class TouchServiceHost : IDisposable
 
         Pipeline = new TouchPipeline(
             router, tracker, serializer, sinks, Stats, _log, _config.KeepaliveIntervalMs, Locks, autoLock,
-            History, _calibration);
+            History, _calibration, NoiseCapture);
         Pipeline.AutoLockCompleted += _ => PushLocks();   // 自檢結束 → 通知所有 WS client 最新鎖定清單
 
         // 觸控模式（grid / mouse）：mouse 時掛 MouseDriver 為 typed 事件觀察者（額外 sink，發布照常）
@@ -525,6 +541,8 @@ public sealed class TouchServiceHost : IDisposable
 
         lock (_configGate)
         {
+            if (NoiseCapture.IsRunning)
+                return (false, "清場掃描期間不能修改服務設定");
             // ── 1. 以目前生效值為基底，套上 patch 的欄位（先全部驗證，全過才套用）──
             var errors = new List<string>();
 
@@ -829,6 +847,9 @@ public sealed class TouchServiceHost : IDisposable
     /// <summary>stdin `lock` 指令：手動加鎖（runtime，來源 manual）。</summary>
     public string LockCell(int face, int col, int row)
     {
+        lock (_configGate)
+        {
+        if (NoiseCapture.IsRunning) return "清場掃描期間不能手動增刪鎖定";
         if (face < 0 || face >= Venue.Faces.Count)
             return $"face={face} 超出場域面數（0~{Venue.Faces.Count - 1}），未加鎖";
         var f = Venue.Faces[face];
@@ -843,11 +864,15 @@ public sealed class TouchServiceHost : IDisposable
         _log.Info($"[Host] 手動鎖定 face={face} cell=({col},{row})（manual，目前共 {Locks.Count} 顆）");
         PushLocks();
         return $"已鎖定 face={face} cell=({col},{row})（manual）。寫回 config 用 savelocks。";
+        }
     }
 
     /// <summary>stdin `unlock` 指令：解鎖（任何來源都可解；config 來源只影響 runtime，不改檔）。</summary>
     public string UnlockCell(int face, int col, int row)
     {
+        lock (_configGate)
+        {
+        if (NoiseCapture.IsRunning) return "清場掃描期間不能手動增刪鎖定";
         if (!Locks.TryRemove(face, col, row, out var removed))
             return $"face={face} cell=({col},{row}) 本來就沒有鎖定";
 
@@ -857,6 +882,7 @@ public sealed class TouchServiceHost : IDisposable
             ? "（config 來源：只影響本次執行，config.json 未修改——重啟會再鎖回；要永久解除請刪 config 條目或 savelocks）"
             : "";
         return $"已解鎖 face={face} cell=({col},{row})（原來源 {LockedCellFilter.SourceName(removed.Source)}）{note}";
+        }
     }
 
     /// <summary>
@@ -866,12 +892,16 @@ public sealed class TouchServiceHost : IDisposable
     /// </summary>
     public string UnlockAllCells()
     {
+        lock (_configGate)
+        {
+        if (NoiseCapture.IsRunning) return "清場掃描期間不能解除鎖定";
         int n = Locks.Clear();
         if (n == 0) return "目前沒有任何鎖定，無可解除";
 
         _log.Warn($"[Host] 解鎖全部：解除 {n} 格鎖定（runtime；config.json 未修改——重啟會回到 config 的鎖定清單，要永久生效請 savelocks）");
         PushLocks();
         return $"已解除全部 {n} 格鎖定（runtime 即時生效）。config.json 未修改——重啟會回到 config 的鎖定清單；要讓「目前狀態」永久生效請再按保存（savelocks）。";
+        }
     }
 
     /// <summary>
@@ -882,6 +912,9 @@ public sealed class TouchServiceHost : IDisposable
     /// </summary>
     public (bool Ok, string Message) PromoteLock(int face, int col, int row)
     {
+        lock (_configGate)
+        {
+        if (NoiseCapture.IsRunning) return (false, "清場掃描期間不能保存或修改鎖定");
         var entry = Locks.Find(face, col, row);
         if (entry == null)
             return (false, $"face={face} cell=({col},{row}) 沒有鎖定，無法轉正式");
@@ -931,6 +964,7 @@ public sealed class TouchServiceHost : IDisposable
         _log.Info($"[Host] 轉正式：face={face} cell=({col},{row}) 寫進 config lockedCells（下次啟動以 config 來源載入）");
         PushLocks();
         return (true, $"face={face} cell=({col},{row}) 已轉正式並寫進 config.json（重啟後仍鎖定）");
+        }
     }
 
     /// <summary>
@@ -942,6 +976,9 @@ public sealed class TouchServiceHost : IDisposable
     /// </summary>
     public string SaveLocks()
     {
+        lock (_configGate)
+        {
+        if (NoiseCapture.IsRunning) return "清場掃描期間不能保存鎖定";
         if (_configPath == null)
             return "此 host 啟動時未提供 config 路徑，無法寫回";
         if (!File.Exists(_configPath))
@@ -983,6 +1020,150 @@ public sealed class TouchServiceHost : IDisposable
         if (Locks.ReclassifyAll(LockSource.Config) > 0) PushLocks();   // 已落盤 → 全部標成已保存
         _log.Info($"[Host] savelocks：寫回 {entries.Count} 顆鎖定到 {_configPath}");
         return $"已寫回 {entries.Count} 顆鎖定到 {_configPath} 的 lockedCells（下次啟動以 config 來源載入）";
+        }
+    }
+
+    // ── 清場掃描（逐格 raw capture + 臨時鎖）───────────────────────────────
+
+    public bool NoiseCaptureActive => NoiseCapture?.IsRunning == true;
+
+    public string NoiseCaptureJson()
+    {
+        var snapshot = NoiseCapture.Snapshot();
+        return JsonSerializer.Serialize(new
+        {
+            available = _configPath != null,
+            snapshot,
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    public (bool Ok, string Message, string Json) StartNoiseCapture(string mode)
+    {
+        lock (_configGate)
+        {
+            if (_calibration is { Active: true })
+                return (false, "請先結束校正再開始清場掃描", NoiseCaptureJson());
+            var result = Pipeline.StartNoiseCapture(mode, _clock.ElapsedMilliseconds);
+            if (result.Ok && !result.AlreadyRunning) PushLocks();
+            return (result.Ok, result.Message, NoiseCaptureJson());
+        }
+    }
+
+    public (bool Ok, string Message, string Json) StopNoiseCapture(string draftId)
+    {
+        lock (_configGate)
+        {
+            var current = NoiseCapture.Snapshot();
+            if (current == null || current.DraftId != draftId)
+                return (false, "草稿已變更，請重新載入", NoiseCaptureJson());
+            var stopped = Pipeline.StopNoiseCapture();
+            if (!stopped.Ok) return (false, stopped.Message, NoiseCaptureJson());
+            bool saved = NoiseCapture.FlushNow(TimeSpan.FromSeconds(5));
+            PushLocks();
+            string message = saved ? stopped.Message :
+                "清場掃描已停止，互動已恢復；草稿磁碟保存失敗，資料仍在記憶體中，請檢查狀態訊息";
+            return (true, message, NoiseCaptureJson());
+        }
+    }
+
+    public (bool Ok, string Message, string Json) ApplyNoiseCapture(
+        string draftId, IEnumerable<(int Face, int Col, int Row)> cells)
+    {
+        lock (_configGate)
+        {
+            var result = NoiseCapture.Apply(draftId, cells);
+            if (result.Ok) PushLocks();
+            return (result.Ok, result.Message, NoiseCaptureJson());
+        }
+    }
+
+    public (bool Ok, string Message, string Json) UndoNoiseCapture(
+        string draftId, IEnumerable<(int Face, int Col, int Row)> cells)
+    {
+        lock (_configGate)
+        {
+            var result = NoiseCapture.Undo(draftId, cells);
+            if (result.Ok) PushLocks();
+            return (result.Ok, result.Message, NoiseCaptureJson());
+        }
+    }
+
+    public (bool Ok, string Message, string Json) ClearNoiseCapture(string draftId)
+    {
+        lock (_configGate)
+        {
+            var result = NoiseCapture.Clear(draftId);
+            if (result.Ok) PushLocks();
+            return (result.Ok, result.Message, NoiseCaptureJson());
+        }
+    }
+
+    public (bool Ok, string Message, int Changed, string Json) SaveNoiseCapture(
+        string draftId, IEnumerable<(int Face, int Col, int Row)>? requested)
+    {
+        lock (_configGate)
+        {
+            if (NoiseCapture.IsRunning)
+                return (false, "掃描中不能保存鎖定", 0, NoiseCaptureJson());
+            if (_configPath == null || !File.Exists(_configPath))
+                return (false, "找不到設定檔，不能保存清場鎖定", 0, NoiseCaptureJson());
+
+            var snapshot = NoiseCapture.Snapshot();
+            if (snapshot == null || snapshot.DraftId != draftId)
+                return (false, "草稿已變更，請重新載入", 0, NoiseCaptureJson());
+            if (!snapshot.Compatible)
+                return (false, "場域校準已改變，不能保存草稿鎖定", 0, NoiseCaptureJson());
+
+            var requestedSet = requested?.ToHashSet();
+            var toSave = snapshot.Cells
+                .Where(c => c.LockedByDraft && !c.Saved &&
+                    (requestedSet == null || requestedSet.Contains((c.Face, c.Col, c.Row))))
+                .Select(c => (c.Face, c.Col, c.Row)).Distinct().ToArray();
+            if (toSave.Length == 0)
+                return (true, "沒有本次掃描尚未保存且仍鎖定的格子", 0, NoiseCaptureJson());
+
+            try
+            {
+                var root = JsonNode.Parse(File.ReadAllText(_configPath),
+                    documentOptions: new JsonDocumentOptions
+                    {
+                        CommentHandling = JsonCommentHandling.Skip,
+                        AllowTrailingCommas = true,
+                    })!.AsObject();
+                if (root["lockedCells"] is not JsonArray arr)
+                    root["lockedCells"] = arr = new JsonArray();
+                foreach (var (face, col, row) in toSave)
+                {
+                    bool exists = arr.OfType<JsonObject>().Any(o =>
+                        (int?)o["face"] == face && o["cell"] is JsonArray cell && cell.Count == 2 &&
+                        (int?)cell[0] == col && (int?)cell[1] == row);
+                    if (!exists)
+                        arr.Add(new JsonObject
+                        {
+                            ["face"] = face,
+                            ["cell"] = new JsonArray(col, row),
+                        });
+                }
+                string temp = _configPath + ".noise-capture.tmp";
+                File.WriteAllText(temp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(temp, _configPath, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"保存清場鎖定失敗：{ex.Message}", 0, NoiseCaptureJson());
+            }
+
+            var marked = NoiseCapture.MarkSaved(draftId, toSave);
+            if (!marked.Ok)
+                return (false, "設定已寫入，但草稿狀態未能更新；請重新載入確認", 0, NoiseCaptureJson());
+            Locks.ReclassifyAllForCapture(draftId, LockSource.Config);
+            PushLocks();
+            bool journalSaved = NoiseCapture.FlushNow(TimeSpan.FromSeconds(5));
+            string message = journalSaved
+                ? $"已正式保存 {toSave.Length} 格清場鎖定"
+                : $"已寫入設定 {toSave.Length} 格；草稿保存失敗，請檢查狀態訊息";
+            return (true, message, toSave.Length, NoiseCaptureJson());
+        }
     }
 
     // ── 校正精靈（/calibration/*，全部僅 loopback；見 docs/CALIBRATION.md）──────
@@ -1002,15 +1183,20 @@ public sealed class TouchServiceHost : IDisposable
     };
 
     /// <summary>POST /calibration/start：開始（或延長）校正工作階段。raw 檢視串流啟動。</summary>
-    public string CalibrationStart()
+    public (bool Ok, string Json) CalibrationStart()
     {
-        int timeoutSeconds = _calibration!.Start(_clock.ElapsedMilliseconds);
-        return JsonSerializer.Serialize(new
+        lock (_configGate)
         {
-            ok = true,
-            message = $"校正工作階段開始：raw 檢視串流已啟動（{timeoutSeconds / 60} 分鐘無 stop 自動結束；服務照常發布）",
-            timeoutSeconds,
-        }, CalibrationResponseOptions);
+            if (NoiseCapture.IsRunning)
+                return (false, JsonSerializer.Serialize(new { ok = false, message = "清場掃描期間不能開始校正" }, CalibrationResponseOptions));
+            int timeoutSeconds = _calibration!.Start(_clock.ElapsedMilliseconds);
+            return (true, JsonSerializer.Serialize(new
+            {
+                ok = true,
+                message = $"校正工作階段開始：raw 檢視串流已啟動（{timeoutSeconds / 60} 分鐘無 stop 自動結束；服務照常發布）",
+                timeoutSeconds,
+            }, CalibrationResponseOptions));
+        }
     }
 
     /// <summary>POST /calibration/stop：結束校正工作階段。</summary>
@@ -1243,6 +1429,7 @@ public sealed class TouchServiceHost : IDisposable
         try { _listenSocket?.Close(); } catch { /* ignore */ }
         _receiveThread?.Join(1000);
         _timerThread?.Join(1000);
+        NoiseCapture?.Dispose();
         Pipeline?.Dispose();      // 連帶 dispose 所有 sink（含 WsHub）
         _mouseDriver?.Dispose();  // owner 還按著會先 LEFTUP，不留卡死的按鍵
         _calibration?.Dispose();
